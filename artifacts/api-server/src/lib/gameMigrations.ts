@@ -84,6 +84,11 @@ async function runGameMigrationsInner(): Promise<void> {
   await db.execute(sql`ALTER TABLE bot_settings DROP COLUMN IF EXISTS server_publish_cooldown_seconds`);
   await db.execute(sql`ALTER TABLE bot_settings DROP COLUMN IF EXISTS welcome_dm_body`);
 
+  // Task: 後台可切換 AI 模型（NIM 上游模型眾多，換模型不應該要求重新部署／
+  // 重啟服務）。NULL = 沿用環境變數 AI_MODEL_QUALITY／AI_MODEL_BULK 的預設值。
+  await db.execute(sql`ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ai_model_quality text`);
+  await db.execute(sql`ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ai_model_bulk text`);
+
   // --- Discord OAuth login sessions -------------------------------------
   // Opaque, server-issued session tokens for the game's Discord login. The
   // `manageable_guild_ids` snapshot is retained (harmless) though the game no

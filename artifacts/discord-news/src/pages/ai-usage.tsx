@@ -16,6 +16,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Cpu,
   Loader2,
   RefreshCw,
   Save,
@@ -53,6 +54,12 @@ interface FeatureRow {
   today: UsageWindow;
   last7d: UsageWindow;
   last30d: UsageWindow;
+}
+
+interface AiModelTierInfo {
+  override: string | null;
+  envDefault: string;
+  effective: string;
 }
 
 interface DailyRow {
@@ -145,6 +152,73 @@ export default function AiUsagePage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // --- AI 模型（quality／bulk）後台覆寫：換模型不必改環境變數＋重新部署 ---
+  const [modelInfo, setModelInfo] = useState<Record<"quality" | "bulk", AiModelTierInfo> | null>(
+    null,
+  );
+  const [modelEdits, setModelEdits] = useState<{ quality: string; bulk: string }>({
+    quality: "",
+    bulk: "",
+  });
+  const [loadingModels, setLoadingModels] = useState(true);
+  const [savingModelTier, setSavingModelTier] = useState<"quality" | "bulk" | null>(null);
+
+  const loadModels = useCallback(async () => {
+    setLoadingModels(true);
+    try {
+      const res = await authedFetch("/api/bot/ai-models");
+      if (!res.ok) throw new Error(await readError(res));
+      const body = (await res.json()) as Record<"quality" | "bulk", AiModelTierInfo>;
+      setModelInfo(body);
+      setModelEdits({
+        quality: body.quality.override ?? "",
+        bulk: body.bulk.override ?? "",
+      });
+    } catch (err) {
+      toast({
+        title: "載入 AI 模型設定失敗",
+        description: err instanceof Error ? err.message : "未知錯誤",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingModels(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    void loadModels();
+  }, [loadModels]);
+
+  const saveModel = async (tier: "quality" | "bulk") => {
+    const raw = modelEdits[tier].trim();
+    setSavingModelTier(tier);
+    try {
+      const res = await authedFetch("/api/bot/ai-models", {
+        method: "PATCH",
+        body: JSON.stringify({ tier, model: raw === "" ? null : raw }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const body = (await res.json()) as Record<"quality" | "bulk", AiModelTierInfo>;
+      setModelInfo(body);
+      setModelEdits({
+        quality: body.quality.override ?? "",
+        bulk: body.bulk.override ?? "",
+      });
+      toast({
+        title: `${tier === "quality" ? "品質" : "量產"}模型已更新`,
+        description: `目前生效：${body[tier].effective}（約 30 秒內全站生效，不需重啟服務）`,
+      });
+    } catch (err) {
+      toast({
+        title: "儲存模型設定失敗",
+        description: err instanceof Error ? err.message : "未知錯誤",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingModelTier(null);
+    }
+  };
 
   const topTodayFeature = useMemo(() => {
     if (!data) return null;
@@ -322,6 +396,70 @@ export default function AiUsagePage() {
           重新整理
         </Button>
       </div>
+
+      <Card data-testid="card-ai-models">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Cpu className="w-5 h-5" />
+            AI 模型設定
+          </CardTitle>
+          <CardDescription>
+            NVIDIA NIM（或其他 OpenAI 相容供應商）上游模型 ID，留空＝沿用環境變數
+            AI_MODEL_QUALITY／AI_MODEL_BULK 的預設值。儲存後約 30 秒內全站生效，
+            不需重新部署或重啟服務。「量產」用於高頻率、低風險的功能；「品質」用於
+            需要較穩定輸出的功能（戰爭結算、回合新聞等）。
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loadingModels || !modelInfo ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" /> 載入中...
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {(["quality", "bulk"] as const).map((tier) => (
+                <div key={tier} className="space-y-2" data-testid={`ai-model-${tier}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">
+                      {tier === "quality" ? "品質模型（quality）" : "量產模型（bulk）"}
+                    </span>
+                    {modelInfo[tier].override === null ? (
+                      <Badge variant="outline">使用預設</Badge>
+                    ) : (
+                      <Badge>已覆寫</Badge>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      value={modelEdits[tier]}
+                      placeholder={modelInfo[tier].envDefault}
+                      onChange={(e) =>
+                        setModelEdits((prev) => ({ ...prev, [tier]: e.target.value }))
+                      }
+                      data-testid={`input-ai-model-${tier}`}
+                    />
+                    <Button
+                      size="icon"
+                      onClick={() => void saveModel(tier)}
+                      disabled={savingModelTier === tier}
+                      data-testid={`button-save-ai-model-${tier}`}
+                    >
+                      {savingModelTier === tier ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Save className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    目前生效：<span className="font-mono">{modelInfo[tier].effective}</span>
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

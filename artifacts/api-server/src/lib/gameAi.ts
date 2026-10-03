@@ -232,7 +232,7 @@ export async function callGameAi(
     AI_MAX_TOKENS_FLOOR,
     settings?.maxTokensOverride ?? def.defaultMaxTokens,
   );
-  const model = getAiModel(tier);
+  const model = await getAiModel(tier);
 
   try {
     // 呼叫當下動態取用共享單例的 messages.create（測試以覆寫該方法為樁）。
