@@ -6,10 +6,12 @@ import { requireAdmin } from "../middlewares/requireAdmin";
 import {
   AI_FEATURES,
   AI_MAX_TOKENS_FLOOR,
+  callGameAi,
   invalidateAiFeatureSettingsCache,
   isAiFeatureKey,
   todayStartInstant,
 } from "../lib/gameAi";
+import { getAiModel } from "../lib/aiModels";
 import { NEWS_SCHEDULE_TZ, localDateString } from "../lib/time";
 
 /**
@@ -232,6 +234,45 @@ router.patch("/ai-usage/settings/:feature", requireAdmin, async (req, res) => {
     maxTokensOverride: row?.max_tokens_override ?? null,
     dailyTokenQuota: row?.daily_token_quota ?? null,
   });
+});
+
+/**
+ * 使用者回報「AI 調用好像失敗」卻查不出原因：既有失敗紀錄只記 success=false，
+ * 不存錯誤訊息本體。這個端點讓管理員直接觸發一次真實呼叫並把底層錯誤（NIM
+ * 回傳的 HTTP 狀態碼＋錯誤內容，或逾時/網路錯誤訊息）整段回傳到後台頁面，
+ * 不像一般遊戲呼叫路徑那樣把錯誤吞掉只留一筆失敗列。
+ */
+const testBodySchema = z.object({ tier: z.enum(["quality", "bulk"]) }).strict();
+
+router.post("/ai-usage/test", requireAdmin, async (req, res) => {
+  const parsed = testBodySchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ ok: false, error: "tier 必須是 quality 或 bulk" });
+    return;
+  }
+  const { tier } = parsed.data;
+  const model = await getAiModel(tier);
+  const startedAt = Date.now();
+  try {
+    const message = await callGameAi("diagnostics.ping", tier, {
+      system: "你是系統連線測試工具，只需照指示簡短回覆，不要輸出其他內容。",
+      messages: [
+        { role: "user", content: "請只回覆「ok」兩個字，不要加任何其他文字或標點。" },
+      ],
+    });
+    const latencyMs = Date.now() - startedAt;
+    const content = (message as { content?: Array<{ type?: string; text?: string }> })
+      .content;
+    const reply = Array.isArray(content)
+      ? content.map((b) => (b.type === "text" ? b.text ?? "" : "")).join("").slice(0, 200)
+      : "";
+    res.json({ ok: true, tier, model, latencyMs, reply });
+  } catch (err) {
+    const latencyMs = Date.now() - startedAt;
+    const error = err instanceof Error ? err.message : String(err);
+    req.log.warn({ err, tier, model }, "ai connectivity test failed");
+    res.json({ ok: false, tier, model, latencyMs, error });
+  }
 });
 
 export default router;

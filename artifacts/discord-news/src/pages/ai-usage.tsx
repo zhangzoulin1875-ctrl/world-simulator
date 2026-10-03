@@ -16,11 +16,14 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  CheckCircle2,
   Cpu,
   Loader2,
   RefreshCw,
   Save,
   TrendingUp,
+  XCircle,
+  Zap,
 } from "lucide-react";
 import {
   CartesianGrid,
@@ -60,6 +63,15 @@ interface AiModelTierInfo {
   override: string | null;
   envDefault: string;
   effective: string;
+}
+
+interface AiTestResult {
+  ok: boolean;
+  tier: "quality" | "bulk";
+  model: string;
+  latencyMs: number;
+  reply?: string;
+  error?: string;
 }
 
 interface DailyRow {
@@ -217,6 +229,41 @@ export default function AiUsagePage() {
       });
     } finally {
       setSavingModelTier(null);
+    }
+  };
+
+  const [testResults, setTestResults] = useState<
+    Partial<Record<"quality" | "bulk", AiTestResult>>
+  >({});
+  const [testingTier, setTestingTier] = useState<"quality" | "bulk" | null>(null);
+
+  const runAiTest = async (tier: "quality" | "bulk") => {
+    setTestingTier(tier);
+    try {
+      const res = await authedFetch("/api/ai-usage/test", {
+        method: "POST",
+        body: JSON.stringify({ tier }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const body = (await res.json()) as AiTestResult;
+      setTestResults((prev) => ({ ...prev, [tier]: body }));
+      if (!body.ok) {
+        toast({
+          title: `${tier === "quality" ? "品質" : "量產"}模型連線測試失敗`,
+          description: body.error,
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: `${tier === "quality" ? "品質" : "量產"}模型連線正常` });
+      }
+    } catch (err) {
+      toast({
+        title: "測試請求失敗",
+        description: err instanceof Error ? err.message : "未知錯誤",
+        variant: "destructive",
+      });
+    } finally {
+      setTestingTier(null);
     }
   };
 
@@ -450,10 +497,55 @@ export default function AiUsagePage() {
                         <Save className="w-4 h-4" />
                       )}
                     </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => void runAiTest(tier)}
+                      disabled={testingTier === tier}
+                      data-testid={`button-test-ai-model-${tier}`}
+                    >
+                      {testingTier === tier ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Zap className="w-4 h-4 mr-2" />
+                      )}
+                      測試
+                    </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     目前生效：<span className="font-mono">{modelInfo[tier].effective}</span>
                   </p>
+                  {testResults[tier] && (
+                    <div
+                      className={`rounded-md border p-2 text-xs ${
+                        testResults[tier]!.ok
+                          ? "text-foreground"
+                          : "text-destructive"
+                      }`}
+                      data-testid={`ai-test-result-${tier}`}
+                    >
+                      <div className="flex items-center gap-1 font-medium">
+                        {testResults[tier]!.ok ? (
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                        ) : (
+                          <XCircle className="w-3.5 h-3.5" />
+                        )}
+                        {testResults[tier]!.ok ? "連線正常" : "連線失敗"}
+                        <span className="text-muted-foreground font-normal ml-1">
+                          ({testResults[tier]!.latencyMs}ms ・{" "}
+                          <span className="font-mono">{testResults[tier]!.model}</span>)
+                        </span>
+                      </div>
+                      {testResults[tier]!.ok ? (
+                        <p className="mt-1 text-muted-foreground">
+                          回覆：{testResults[tier]!.reply || "(空白)"}
+                        </p>
+                      ) : (
+                        <p className="mt-1 break-all text-destructive">
+                          {testResults[tier]!.error}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
