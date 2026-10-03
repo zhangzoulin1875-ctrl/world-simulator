@@ -8,7 +8,7 @@ import { getAiQueueStats } from "@workspace/integrations-anthropic-ai";
  */
 const router: IRouter = Router();
 
-router.get("/api/ai-queue", (_req, res) => {
+router.get("/ai-queue", (_req, res) => {
   res.json(getAiQueueStats());
 });
 
