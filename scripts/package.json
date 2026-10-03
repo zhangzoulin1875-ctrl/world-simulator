@@ -1,0 +1,23 @@
+{
+  "name": "@workspace/scripts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:worldmap": "tsx ./src/worldmap/buildWorldDistricts.ts",
+    "build:areas": "tsx ./src/worldmap/computeDistrictAreas.ts",
+    "build:mapconstants": "tsx ./src/worldmap/generateMapConstants.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/d3-geo": "^3.1.0",
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "catalog:",
+    "@types/topojson-client": "^3.1.5",
+    "@types/topojson-specification": "^1.0.5",
+    "d3-geo": "^3.1.1",
+    "mapshaper": "^0.7.33",
+    "topojson-client": "^3.1.0",
+    "tsx": "catalog:"
+  }
+}
