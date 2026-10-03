@@ -10,6 +10,14 @@ import {
   computeNextRunAtWithBlackout,
 } from "./settlementBlackout";
 import { runFinanceSettlement } from "./financeSettlement";
+import {
+  blackoutFloor,
+  noteGameActivity,
+  registerSchedulerWake,
+  sanitizeBlackoutHour,
+  skipIfNotDue,
+  toMs,
+} from "./schedulerWake";
 
 /**
  * Task #228 — 世界模擬排程器：兩個獨立、可在管理員頁調整頻率的背景迴圈。
@@ -176,9 +184,13 @@ async function tickWorldSim(): Promise<void> {
   if (worldSimTickRunning) return;
   worldSimTickRunning = true;
   try {
+    // 省電喚醒快取：未到期就純記憶體返回（零 DB 查詢，Neon 可休眠）。
+    if (await skipIfNotDue("worldSim")) return;
     const claimed = await claimWorldSimSchedule();
     if (!claimed) return;
     const summary = await runWorldSimEvolution();
+    // 剛寫入過 DB：標記活動（快取重讀 + Neon 反正醒著）。
+    noteGameActivity();
     logger.info({ summary }, "npc auto-evolution tick ran");
   } catch (err) {
     logger.error({ err }, "npc auto-evolution tick failed");
@@ -190,6 +202,8 @@ async function tickWorldSim(): Promise<void> {
 async function tickAiJudgment(): Promise<void> {
   if (!tryAcquireAiJudgmentLock()) return;
   try {
+    // 省電喚醒快取：未到期就純記憶體返回（含靜默時段整段跳過）。
+    if (await skipIfNotDue("aiJudgment")) return;
     const cfg = await readAiJudgmentScheduleConfig();
     if (!cfg || !cfg.enabled) return;
     const now = new Date();
@@ -208,6 +222,7 @@ async function tickAiJudgment(): Promise<void> {
     const claim = await claimAiJudgmentSchedule(now, nextRunAt);
     if (!claim) return;
     const summary = await runAiJudgment();
+    noteGameActivity();
     logger.info({ summary }, "ai judgment tick ran");
   } catch (err) {
     logger.error({ err }, "ai judgment tick failed");
@@ -232,6 +247,8 @@ async function tickWarSettlement(): Promise<void> {
   if (warSettlementTickRunning) return;
   warSettlementTickRunning = true;
   try {
+    // 省電喚醒快取：沒有到期戰役（或靜默時段）就純記憶體返回。
+    if (await skipIfNotDue("warSettlement")) return;
     const cfg = await readAiJudgmentScheduleConfig();
     if (!cfg || !cfg.enabled) return;
     const now = new Date();
@@ -239,6 +256,7 @@ async function tickWarSettlement(): Promise<void> {
       return;
     }
     await settleDueCampaigns(now);
+    noteGameActivity();
   } catch (err) {
     logger.error({ err }, "war settlement tick failed");
   } finally {
@@ -292,6 +310,8 @@ async function tickFinanceSettlement(): Promise<void> {
   if (financeSettlementTickRunning) return;
   financeSettlementTickRunning = true;
   try {
+    // 省電喚醒快取：未到期就純記憶體返回。
+    if (await skipIfNotDue("financeSettlement")) return;
     const cfg = await readAiJudgmentScheduleConfig();
     if (!cfg) return;
     const now = new Date();
@@ -305,6 +325,7 @@ async function tickFinanceSettlement(): Promise<void> {
     );
     if (!claimed) return;
     const summary = await runFinanceSettlement();
+    noteGameActivity();
     logger.info({ summary }, "finance settlement tick ran");
   } catch (err) {
     logger.error({ err }, "finance settlement tick failed");
@@ -313,8 +334,45 @@ async function tickFinanceSettlement(): Promise<void> {
   }
 }
 
+/**
+ * 註冊四個迴圈的喚醒計算（快照單一 SQL 讀到的原始欄位 → 下次到期 ms）。
+ * 詳情見 schedulerWake.ts；未到期時每分鐘 tick 不碰 DB（Neon 省電）。
+ */
+function registerWorldSchedulerWakes(): void {
+  registerSchedulerWake("worldSim", (raw) =>
+    raw["ws_enabled"] === true ? toMs(raw["ws_next"]) ?? 0 : null,
+  );
+  registerSchedulerWake("aiJudgment", (raw) => {
+    if (raw["aj_enabled"] !== true) return null;
+    const base = toMs(raw["aj_next"]) ?? 0;
+    return blackoutFloor(
+      base,
+      sanitizeBlackoutHour(raw["bstart"]),
+      sanitizeBlackoutHour(raw["bend"]),
+    );
+  });
+  registerSchedulerWake("warSettlement", (raw) => {
+    if (raw["aj_enabled"] !== true) return null;
+    const warNext = toMs(raw["war_next"]);
+    if (warNext === null) return null;
+    return blackoutFloor(
+      warNext,
+      sanitizeBlackoutHour(raw["bstart"]),
+      sanitizeBlackoutHour(raw["bend"]),
+    );
+  });
+  registerSchedulerWake("financeSettlement", (raw) =>
+    blackoutFloor(
+      toMs(raw["fin_next"]) ?? 0,
+      sanitizeBlackoutHour(raw["bstart"]),
+      sanitizeBlackoutHour(raw["bend"]),
+    ),
+  );
+}
+
 /** 啟動排程迴圈（於 bootstrap 後呼叫）。 */
 export function startWorldSchedulerLoops(): void {
+  registerWorldSchedulerWakes();
   setTimeout(() => {
     void tickWorldSim();
     setInterval(() => void tickWorldSim(), SCHEDULER_TICK_MS);

@@ -1,3 +1,4 @@
+import { shouldRunPeriodicWhenActive } from "./schedulerWake";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { logger } from "./logger";
@@ -42,6 +43,8 @@ export type OverchargedNation = {
 };
 
 const HEALTH_INTERVAL_MS = 60 * 60 * 1000;
+/** 純閒置時的保底間隔（毫秒）：拖再久也必須跑一次。 */
+const MAX_DEFER_MS = 6 * 60 * 60 * 1000;
 
 /** 掃描 player_nations，回傳 spent > Σ reserved 的國家與完整差額明細。 */
 export async function findOverchargedProductionNations(): Promise<
@@ -203,7 +206,15 @@ export async function runProductionSpentHealthTick(
 /** 啟動後 ~45 秒先掃一次（錯開 regionControlHealth 的 30 秒），之後每小時。 */
 export function startProductionSpentHealthLoop(): void {
   let previouslyFlagged: ReadonlySet<string> = new Set();
+  let lastRunAt = 0;
   const tick = () => {
+    // 省電：小時健檢只在「Neon 本來就醒著」（有遊戲活動／剛結算）時跑；
+    // 純閒置時最多拖到 6 小時保底必跑。健檢修正的是寫入造成的漂移，
+    // 閒置時沒有寫入就不會有新漂移（見 schedulerWake.ts）。
+    if (!shouldRunPeriodicWhenActive(lastRunAt, HEALTH_INTERVAL_MS, MAX_DEFER_MS)) {
+      return;
+    }
+    lastRunAt = Date.now();
     runProductionSpentHealthTick(previouslyFlagged)
       .then((result) => {
         previouslyFlagged = new Set(result.flagged.map((n) => n.nationId));

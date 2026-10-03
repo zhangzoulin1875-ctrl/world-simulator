@@ -14,8 +14,14 @@ import {
 import { buildingOutput, buildingUpkeep } from "./regionBuildings";
 import { UNIT_DESIGN_CHARGE_CAP } from "./military";
 import { logger } from "./logger";
-import { ERAS, getEraIndex } from "./mapRegionEras";
+import {
+  noteGameActivity,
+  registerSchedulerWake,
+  skipIfNotDue,
+  toMs,
+} from "./schedulerWake";
 import { localDateString, localSlotInstant } from "./time";
+import { ERAS, getEraIndex } from "./mapRegionEras";
 import { computeAdjustedNationStats } from "./nationStats";
 import { applyRegionPopulationDelta } from "./regionPopulation";
 import {
@@ -1203,6 +1209,9 @@ async function doRunTurn(
 const TICK_MS = 60 * 1000;
 
 async function turnTick(now: Date): Promise<void> {
+  // 省電喚醒快取：下一個回合時段還沒到就純記憶體返回（零 DB 查詢），
+  // Neon 閒置時可休眠；到期時照常走下面的原子認領補跑邏輯。
+  if (await skipIfNotDue("turnEngine")) return;
   const [state] = await db
     .select({
       turnTimes: worldGameStateTable.turnTimes,
@@ -1222,6 +1231,7 @@ async function turnTick(now: Date): Promise<void> {
 
   const result = await runTurnUpdate(now, { claimInstant: due });
   if (result.ran) {
+    noteGameActivity();
     logger.info(
       { dateLabel: today, slot: due.toISOString() },
       "turn engine: scheduled turn slot ran",
@@ -1236,6 +1246,27 @@ async function turnTick(now: Date): Promise<void> {
  * 時段數）。注意：把某時刻改到比現在早、且該時段今日尚未執行時，會立即觸發。
  */
 export function startTurnLoop(): void {
+  registerSchedulerWake("turnEngine", (raw) => {
+    const now = new Date();
+    const times = normalizeTurnTimes(raw["turn_times"]);
+    const lastMs = toMs(raw["last_turn_at"]);
+    const today = localDateString(now);
+    const nowMs = now.getTime();
+    let nextUpcoming: number | null = null;
+    for (const t of times) {
+      const ms = localSlotInstant(today, t.hour, t.minute).getTime();
+      // 已到期且尚未執行 → 立即到期（tick 會逐一補跑）。
+      if (ms <= nowMs && (lastMs === null || ms > lastMs)) return 0;
+      if (ms > nowMs && (nextUpcoming === null || ms < nextUpcoming)) {
+        nextUpcoming = ms;
+      }
+    }
+    if (nextUpcoming !== null) return nextUpcoming;
+    if (times.length === 0) return null;
+    // 今日時段全部結束 → 明日第一個時段（times 已排序）。
+    const first = times[0]!;
+    return localSlotInstant(today, first.hour, first.minute).getTime() + 24 * 60 * 60_000;
+  });
   setInterval(() => {
     void turnTick(new Date()).catch((err) =>
       logger.error({ err }, "turn engine tick failed"),

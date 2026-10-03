@@ -13,6 +13,7 @@ import { logger } from "./logger";
 import { getCurrentEraSlug } from "./nationStats";
 import { clampTaxRate, effectiveTaxEfficiencyPct } from "./economy";
 import { judgeFiscalPolicyIdea, type FiscalPolicyJudgement } from "./financeAi";
+import { notePregenWork } from "./aiPregenWorker";
 import {
   PREGEN_KIND_FISCAL,
   buildFiscalJudgeInput,
@@ -123,8 +124,9 @@ export async function settleNation(
         geoContext,
       }));
   } catch (err) {
-    // AI 失敗：保留想法，下回合重試。
+    // AI 失敗：保留想法，下回合重試；順便讓預產 worker 待命重試。
     summary.ideasFailedAi += 1;
+    notePregenWork();
     logger.error(
       { err, nationId: nation.id },
       "fiscal policy AI judgement failed; keeping idea for retry",

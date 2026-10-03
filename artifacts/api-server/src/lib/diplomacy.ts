@@ -1,3 +1,9 @@
+import {
+  noteGameActivity,
+  registerSchedulerWake,
+  skipIfNotDue,
+  toMs,
+} from "./schedulerWake";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { logger } from "./logger";
@@ -662,7 +668,24 @@ export async function warnExpiringTreaties(): Promise<ExpiredTreatyRow[]> {
  * 兩者各自 catch，任一失敗只記錄、不影響另一個或中斷迴圈。
  */
 export function startTreatyExpiryLoop(): void {
+  // 省電喚醒快取：沒有即將到期/預警的條約就純記憶體返回（零 DB 查詢）。
+  registerSchedulerWake("treatyExpiry", (raw) => {
+    const exp = toMs(raw["tr_exp"]);
+    const warn = toMs(raw["tr_warn"]);
+    const warnDue = warn === null ? null : warn - EXPIRY_WARNING_WINDOW_MS;
+    if (exp === null && warnDue === null) return null;
+    return Math.min(
+      exp ?? Number.POSITIVE_INFINITY,
+      warnDue ?? Number.POSITIVE_INFINITY,
+    );
+  });
   const tick = () => {
+    void skipIfNotDue("treatyExpiry").then((skip) => {
+      if (skip) return;
+      treatyExpiryPass();
+    });
+  };
+  const treatyExpiryPass = () => {
     warnExpiringTreaties()
       .then((expiring) => {
         if (expiring.length === 0) return;
@@ -692,6 +715,7 @@ export function startTreatyExpiryLoop(): void {
         }
       })
       .catch((err) => logger.error({ err }, "treaty expiry tick failed"));
+    noteGameActivity();
   };
   setTimeout(tick, 20 * 1000);
   setInterval(tick, EXPIRY_INTERVAL_MS);

@@ -7,6 +7,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { csrfGuard } from "./middlewares/csrf";
 import { logger } from "./lib/logger";
+import { noteGameActivity } from "./lib/schedulerWake";
 
 const app: Express = express();
 
@@ -43,6 +44,14 @@ app.use(cookieParser());
 app.use(csrfGuard);
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+// 省電喚醒快取：任何 API 請求都代表遊戲有活動（Neon 本來就會被喚醒），
+// 順手標記排程快取重讀——玩家改了回合時段/宣戰/締約等設定後，背景
+// 迴圈最晚下一個 tick 就會看到新的到期時間（見 schedulerWake.ts）。
+app.use((req, res, next) => {
+  if (req.method !== "GET") noteGameActivity();
+  next();
+});
 
 app.use("/api", router);
 

@@ -16,10 +16,9 @@ import {
   AI_PRIORITY_PREGEN,
 } from "@workspace/integrations-anthropic-ai";
 import { logger } from "./logger";
+import { noteGameActivity } from "./schedulerWake";
 import {
   normalizeTurnTimes,
-  computeTurnProgress,
-  type TurnTime,
 } from "./turnEngine";
 import { localDateString, localSlotInstant } from "./time";
 import { getPoliticsSettings } from "./politicsSettings";
@@ -45,19 +44,44 @@ import {
  * 安全規則：
  *   - 預產結果只存 ai_pregen_cache，玩家看不到；效果一律在結算當下套用。
  *   - 玩家改了想法 → 輸入雜湊不同 → 舊快取自動失效並重生成。
- *   - 「結算前 20 分鐘」規則：想法是在距離下一次結算 20 分鐘內提出/修改
- *     的 → 不預產（結算馬上就到，現場判定即可，避免生成到一半撞結算）。
- *   - 單件失敗進 5 分鐘冷卻（in-memory），不對同一壞輸入連環重試。
+ *   - 「結算前 20 分鐘」規則（以「現在時間」判斷）：現在落在任一種類
+ *     下次結算的前 20 分鐘內 → 該種類整段不預產（規則原意：避免政策
+ *     變動後用到舊資料、以及生成到一半撞上結算；雜湊比對仍是最終
+ *     兜底）。窗口結束會自動恢復預產。
+ *   - 單件失敗進 5 分鐘冷卻（in-memory），不對同一壞輸入連環重試；
+ *     冷卻結束自動恢復。
+ *
+ * 事件驅動（省電）：tick 靠 notePregenWork() 旗標喚醒——玩家提交/撤回
+ * 想法、結算 AI 失敗保留想法時打旗標；沒有旗標時 tick 純記憶體返回
+ * （零 DB 查詢，Neon 可休眠）。冷卻／結算鎖定窗用精準 setTimeout 排
+ * 下一次自我喚醒，不靠輪詢。
  */
 
 const TICK_MS = 30_000;
-/** 結算前多少毫秒內提出/修改的想法不做預產。 */
+/** 距離下次結算多少毫秒內就不再預產（以現在時間判斷）。 */
 const STOP_BEFORE_SETTLEMENT_MS = 20 * 60 * 1000;
 /** 單件生成失敗後的冷卻毫秒數。 */
 const FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
 
 let tickInFlight = false;
 const failureCooldown = new Map<string, number>();
+
+/** 有「可能可以預產的工作」旗標；false 時 tick 直接返回（零 DB 查詢）。 */
+let workPending = true;
+
+/** 外部掛旗標：玩家提交/撤回想法、結算保留想法等事件後呼叫。 */
+export function notePregenWork(): void {
+  workPending = true;
+}
+
+/** 在指定時刻自我喚醒（冷卻結束／結算鎖定窗結束）。不會 hold 事件迴圈。 */
+function rearmPregenWorkAt(atMs: number): void {
+  const delay = Math.max(1_000, atMs - Date.now());
+  const timer = setTimeout(() => {
+    workPending = true;
+  }, delay);
+  timer.unref?.();
+}
 
 interface PregenCandidate {
   kind: string;
@@ -70,12 +94,15 @@ interface PregenCandidate {
   }>;
 }
 
-/** 下一次每日回合（政治結算）的瞬時時間；算不出回 null（保守：不預產）。 */
+/**
+ * 下一次每日回合（政治結算）的瞬時時間＝純看時鐘的「下一個未來時段」。
+ * 不依賴 lastTurnAt（結算觸發中、lastTurn_at 尚未前進時，舊算法會高估
+ * 下次結算時間、導致鎖定窗失準）；算不出回 null（保守：不預產）。
+ */
 async function nextTurnSettlementInstant(now: Date): Promise<Date | null> {
   const [state] = await db
     .select({
       turnTimes: worldGameStateTable.turnTimes,
-      lastTurnAt: worldGameStateTable.lastTurnAt,
     })
     .from(worldGameStateTable)
     .where(eq(worldGameStateTable.id, 1))
@@ -83,29 +110,30 @@ async function nextTurnSettlementInstant(now: Date): Promise<Date | null> {
   if (!state) return null;
   const times = normalizeTurnTimes(state.turnTimes);
   if (times.length === 0) return null;
+  const nowMs = now.getTime();
   const today = localDateString(now);
-  const progress = computeTurnProgress(
-    times,
-    now,
-    state.lastTurnAt ?? null,
-    today,
-  );
-  const nextTime: TurnTime | null = progress.nextTime;
-  if (!nextTime) return null;
-  let inst = localSlotInstant(today, nextTime.hour, nextTime.minute);
-  if (inst.getTime() <= now.getTime()) {
-    // 今日時段已全部跑完 → 明日第一個時段。
-    inst = new Date(inst.getTime() + 24 * 60 * 60 * 1000);
+  let nextUpcoming: number | null = null;
+  for (const t of times) {
+    const ms = localSlotInstant(today, t.hour, t.minute).getTime();
+    if (ms > nowMs && (nextUpcoming === null || ms < nextUpcoming)) {
+      nextUpcoming = ms;
+    }
   }
-  return inst;
+  if (nextUpcoming !== null) return new Date(nextUpcoming);
+  // 今日時段全部過了 → 明日第一個時段（times 已排序）。
+  const first = times[0]!;
+  return new Date(
+    localSlotInstant(today, first.hour, first.minute).getTime() + 24 * 60 * 60_000,
+  );
 }
 
 async function tick(): Promise<void> {
-  if (tickInFlight) return;
+  if (tickInFlight || !workPending) return;
   tickInFlight = true;
   try {
     // 只在完全閒置時做事：有任何進行中／排隊中的 AI 呼叫一律讓路。
     const stats = getAiQueueStats();
+    if (stats.active > 0 || stats.queued > 0) return;
     if (stats.active > 0 || stats.queued > 0) return;
 
     const now = new Date();
@@ -204,20 +232,51 @@ async function tick(): Promise<void> {
     // 最舊的想法優先。
     candidates.sort((a, b) => a.ideaCreatedAt.getTime() - b.ideaCreatedAt.getTime());
 
-    for (const cand of candidates) {
-      const cached = cacheByKey.get(`${cand.kind}:${cand.nationId}`);
-      const cooldownUntil = failureCooldown.get(`${cand.kind}:${cand.nationId}`);
-      if (cooldownUntil !== undefined && cooldownUntil > now.getTime()) continue;
+    // 每種類的下次結算時間（fiscal = 財政排程；politics = 下次回合時段）。
+    const fiscalNext = state[0]?.financeNextRunAt ?? null;
+    const nowMs = now.getTime();
+    // 「現在」是否落在某種類結算前 20 分鐘的鎖定窗內。
+    const lockedKinds = new Set<string>();
+    let earliestWindowEnd: number | null = null;
+    for (const [kind, nextSettle] of [
+      [PREGEN_KIND_FISCAL, fiscalNext],
+      [PREGEN_KIND_POLITICS, nextTurnAt],
+    ] as Array<[string, Date | null]>) {
+      if (nextSettle === null) continue; // 結算時間未知 → 不鎖定，靠下方保守跳過
+      if (nowMs >= nextSettle.getTime() - STOP_BEFORE_SETTLEMENT_MS) {
+        lockedKinds.add(kind);
+        const end = nextSettle.getTime() + 60_000; // 結算跑完的寬限
+        if (earliestWindowEnd === null || end < earliestWindowEnd) {
+          earliestWindowEnd = end;
+        }
+      }
+    }
 
-      // 「結算前 20 分鐘」規則：想法在距離下次結算 20 分鐘內提出/修改 → 跳過。
+    let sawCooldown = false;
+    let earliestCooldownEnd: number | null = null;
+    let sawUnknownSettle = false;
+
+    for (const cand of candidates) {
+      const key = `${cand.kind}:${cand.nationId}`;
+      const cached = cacheByKey.get(key);
+      const cooldownUntil = failureCooldown.get(key);
+      if (cooldownUntil !== undefined && cooldownUntil > nowMs) {
+        sawCooldown = true;
+        if (earliestCooldownEnd === null || cooldownUntil < earliestCooldownEnd) {
+          earliestCooldownEnd = cooldownUntil;
+        }
+        continue;
+      }
+
       const nextSettle =
-        cand.kind === PREGEN_KIND_FISCAL
-          ? (state[0]?.financeNextRunAt ?? null)
-          : nextTurnAt;
+        cand.kind === PREGEN_KIND_FISCAL ? fiscalNext : nextTurnAt;
       // 下次結算時間未知（財政從未排程過 = 隨時會跑）→ 保守不預產。
-      if (nextSettle === null) continue;
-      const windowStart = nextSettle.getTime() - STOP_BEFORE_SETTLEMENT_MS;
-      if (cand.ideaCreatedAt.getTime() >= windowStart) continue;
+      if (nextSettle === null) {
+        sawUnknownSettle = true;
+        continue;
+      }
+      // 「結算前 20 分鐘」規則（現在時間判斷）：整個鎖定窗內不預產。
+      if (lockedKinds.has(cand.kind)) continue;
 
       // 二次確認仍然閒置（build/載入期間可能有玩家呼叫進來）。
       const fresh = getAiQueueStats();
@@ -229,20 +288,36 @@ async function tick(): Promise<void> {
         if (cached && cached.inputHash === hash) continue;
         const result = await runWithAiPriority(AI_PRIORITY_PREGEN, run);
         await storePregenResult(cand.kind, cand.nationId, hash, result);
+        noteGameActivity();
         logger.info(
           { kind: cand.kind, nationId: cand.nationId },
           "ai pregen: cached judgement",
         );
       } catch (err) {
-        failureCooldown.set(`${cand.kind}:${cand.nationId}`, Date.now() + FAILURE_COOLDOWN_MS);
+        failureCooldown.set(key, Date.now() + FAILURE_COOLDOWN_MS);
+        sawCooldown = true;
+        if (earliestCooldownEnd === null ||
+            Date.now() + FAILURE_COOLDOWN_MS < earliestCooldownEnd) {
+          earliestCooldownEnd = Date.now() + FAILURE_COOLDOWN_MS;
+        }
         logger.error(
           { err, kind: cand.kind, nationId: cand.nationId },
           "ai pregen: generation failed (cooldown)",
         );
       }
-      // 一個 tick 只做一件。
+      // 一個 tick 只做一件（成功或失敗都是）：旗標保留，下個 tick 再看
+      // （成功 → 下一件還等著；失敗 → 冷卻已排 rearm）。
       return;
     }
+
+    // 走完整輪都沒有生成：各種「暫時不能做」的原因都排好自我喚醒，
+    // 其餘候選都是「已預產且雜湊相符」→ 清旗標，零成本待命。
+    if (earliestCooldownEnd !== null) rearmPregenWorkAt(earliestCooldownEnd);
+    if (earliestWindowEnd !== null) rearmPregenWorkAt(earliestWindowEnd);
+    // 財政從未排程（finance_next_run_at NULL）＝結算迴圈尚未首次認領，
+    // 幾分鐘內就會補上；不用 30 秒輪詢，5 分鐘後再看一次即可。
+    if (sawUnknownSettle) rearmPregenWorkAt(Date.now() + 5 * 60_000);
+    workPending = false;
   } catch (err) {
     logger.error({ err }, "ai pregen worker tick failed");
   } finally {

@@ -294,6 +294,22 @@ export default function AiUsagePage() {
     void loadFallback();
   }, [loadFallback]);
 
+  // 差異儲存：只送「有改」的欄位；完全沒有變更（也沒輸入新 key）時
+  // 按鈕停用，避免把三個欄位原值重送一次後端、誤觸 e2e 無欄位 PATCH。
+  const fallbackDiff = useMemo(() => {
+    if (fallbackInfo === null) return null;
+    const diff: Record<string, string | null> = {};
+    const baseUrl = fallbackEdits.baseUrl.trim() || null;
+    const qualityModel = fallbackEdits.qualityModel.trim() || null;
+    const bulkModel = fallbackEdits.bulkModel.trim() || null;
+    if (baseUrl !== fallbackInfo.baseUrl) diff["baseUrl"] = baseUrl;
+    if (qualityModel !== fallbackInfo.qualityModel) diff["qualityModel"] = qualityModel;
+    if (bulkModel !== fallbackInfo.bulkModel) diff["bulkModel"] = bulkModel;
+    const apiKey = fallbackEdits.apiKey.trim();
+    if (apiKey) diff["apiKey"] = apiKey;
+    return Object.keys(diff).length > 0 ? diff : null;
+  }, [fallbackInfo, fallbackEdits]);
+
   const saveFallback = async (patch: Record<string, string | null>) => {
     setSavingFallback(true);
     try {
@@ -799,17 +815,11 @@ export default function AiUsagePage() {
               </div>
               <div className="flex items-center gap-3">
                 <Button
-                  onClick={() =>
-                    void saveFallback({
-                      baseUrl: fallbackEdits.baseUrl.trim() || null,
-                      qualityModel: fallbackEdits.qualityModel.trim() || null,
-                      bulkModel: fallbackEdits.bulkModel.trim() || null,
-                      ...(fallbackEdits.apiKey.trim()
-                        ? { apiKey: fallbackEdits.apiKey.trim() }
-                        : {}),
-                    })
-                  }
-                  disabled={savingFallback}
+                  onClick={() => {
+                    if (fallbackDiff) void saveFallback(fallbackDiff);
+                  }}
+                  disabled={savingFallback || fallbackDiff === null}
+                  title={fallbackDiff === null ? "沒有變更" : undefined}
                   data-testid="button-save-ai-fallback"
                 >
                   {savingFallback ? (

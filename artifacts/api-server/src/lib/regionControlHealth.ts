@@ -1,3 +1,4 @@
+import { shouldRunPeriodicWhenActive } from "./schedulerWake";
 import { asc, eq } from "drizzle-orm";
 import {
   db,
@@ -21,6 +22,8 @@ import { recordTerritoryChanges } from "./territoryHistory";
 export type ControlShare = { nationId: string; percent: number };
 
 const HEALTH_INTERVAL_MS = 60 * 60 * 1000;
+/** 純閒置時的保底間隔（毫秒）：拖再久也必須跑一次。 */
+const MAX_DEFER_MS = 6 * 60 * 1000;
 
 /**
  * 按比例把一組掌控百分比縮減到加總恰為 100（純函式）：
@@ -220,7 +223,13 @@ export async function repairOverfullRegions(): Promise<RepairedRegion[]> {
 
 /** 啟動後 ~30 秒先掃一次，之後每小時掃描。錯誤只記錄，不中斷。 */
 export function startRegionControlHealthLoop(): void {
+  let lastRunAt = 0;
   const tick = () => {
+    // 省電：同 productionSpentHealth — 只在 Neon 醒著時跑，閒置最多拖 6 小時。
+    if (!shouldRunPeriodicWhenActive(lastRunAt, HEALTH_INTERVAL_MS, MAX_DEFER_MS)) {
+      return;
+    }
+    lastRunAt = Date.now();
     repairOverfullRegions().catch((err) =>
       logger.error({ err }, "region control health tick failed"),
     );

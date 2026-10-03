@@ -1,3 +1,4 @@
+import { notePregenWork } from "../lib/aiPregenWorker";
 import { Router, type IRouter } from "express";
 import { and, desc, eq } from "drizzle-orm";
 import {
@@ -329,6 +330,8 @@ router.post("/politics/ideas", async (req, res) => {
     return;
   }
 
+  // 事件驅動預產：新想法進場 → 佇列閒置時背景預先判定。
+  notePregenWork();
   req.log.info({ nationId: nation.id }, "politics idea submitted");
   res.json({ ok: true });
 });
@@ -346,6 +349,8 @@ router.delete("/politics/ideas", async (req, res) => {
     res.status(404).json({ error: "目前沒有待判定的政策想法" });
     return;
   }
+  // 事件驅動預產：撤回後觸發孤兒快取清理。
+  notePregenWork();
   res.json({ ok: true });
 });
 

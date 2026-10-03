@@ -10,6 +10,9 @@ import assert from "node:assert/strict";
 
 process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL ??= "https://stub.invalid/v1";
 process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY ??= "stub-key";
+// 卡死 bypass 測試需要短逾時／短卡死門檻（僅影響測試程序）。
+process.env.AI_REQUEST_TIMEOUT_MS ??= "150";
+process.env.AI_PRIMARY_STUCK_MS ??= "40";
 
 const {
   anthropic,
@@ -121,6 +124,7 @@ test("主供應商失敗 → 自動改用備援；無備援設定時原錯誤上
         headers: { "Content-Type": "application/json" },
       });
     }
+    await new Promise((r) => setTimeout(r, 30));
     return new Response(
       JSON.stringify({
         id: "fb",
@@ -188,4 +192,79 @@ test("備援也失敗 → 錯誤同時含主因與備援因；無 key 時不嘗�
     anthropic.messages.create({ ...paramsWith("t4"), tier: "quality" }),
     (err: Error) => err.message.startsWith("AI provider error"),
   );
+});
+
+// ── 雙線道（v4）：主線道卡死 bypass 測試 ────────────────────────────────
+test("主線道卡死：下一個任務直接走備援；卡死任務逾時後退回備援", async () => {
+  // 重新註冊備援（上一個測試取消註冊過）。
+  registerAiFallbackProvider(async (tier) =>
+    tier === "bulk"
+      ? { baseUrl: "https://fb.example/v1", apiKey: "fb-key", qualityModel: "q", bulkModel: "b" }
+      : { baseUrl: "https://fb.example/v1", apiKey: "fb-key", qualityModel: "fb-q", bulkModel: "b" },
+  );
+
+  let primaryAborted = false;
+  globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)) as FetchBody;
+    const marker = body.messages.at(-1)?.content ?? "?";
+    // 只有「主供應商」對 hang 請求卡死；備援端點正常回應。
+    if (marker === "hang" && String(url).includes("stub.invalid")) {
+      // 主供應商卡死：不回應，直到 abort（模擬 slow hang）。
+      await new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          primaryAborted = true;
+          reject(new Error("This operation was aborted"));
+        });
+      });
+      throw new Error("unreachable");
+    }
+    // 備援回應延遲 30ms，讓測試能觀察到「兩線道同時在飛」。
+    await new Promise((r) => setTimeout(r, 30));
+    return new Response(
+      JSON.stringify({
+        id: "fb",
+        model: "gemini-stub",
+        choices: [
+          { index: 0, message: { role: "assistant", content: "fb-" + marker }, finish_reason: "stop" },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  // abort timer（AbortSignal.timeout）不會 hold 事件迴圈：持住一個 ref'd
+  // timer 確保逾時在測試完成前發生（正式環境的排程迴圈本來就會 hold）。
+  const keepAlive = setTimeout(() => {}, 1_000);
+
+  // 1) 第一個任務：主供應商卡死（150ms 逾時前不會有回應）。
+  const t1 = anthropic.messages.create(paramsWith("hang"));
+
+  // 2) 越過卡死門檻（40ms）但尚未逾時（150ms）：佇列應回報卡死中。
+  await new Promise((r) => setTimeout(r, 80));
+  const stuckStats = getAiQueueStats();
+  assert.equal(stuckStats.active, 1);
+  assert.notEqual(stuckStats.primaryStuckMs, null);
+
+  // 3) 第二個任務進場：不應等卡死的第一個任務，直接走備援線道。
+  const t2 = anthropic.messages.create(paramsWith("next"));
+  await new Promise((r) => setTimeout(r, 10));
+  // 兩線道同時在飛：主線道卡死中 + 備援線道處理 next。
+  assert.equal(getAiQueueStats().active, 2);
+
+  // t2 必須在 t1 完全逾時（150ms）之前就完成。
+  const race = await Promise.race([
+    t2.then(() => "t2-done"),
+    new Promise((r) => setTimeout(() => "timeout", 140)),
+  ]);
+  assert.equal(race, "t2-done");
+  const m2 = await t2;
+  assert.equal(m2.content[0]?.text, "fb-next");
+
+  // 4) 卡死的第一個任務：完全逾時 abort 後「退回交給備援」，最終成功。
+  const m1 = await t1;
+  assert.equal(primaryAborted, true);
+  assert.equal(m1.content[0]?.text, "fb-hang");
+  assert.equal(getAiQueueStats().active, 0);
+  clearTimeout(keepAlive);
 });

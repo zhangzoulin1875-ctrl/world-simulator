@@ -1,3 +1,4 @@
+import { notePregenWork } from "../lib/aiPregenWorker";
 import { Router, type IRouter } from "express";
 import { asc, desc, eq, gte, and, inArray, sql } from "drizzle-orm";
 import {
@@ -339,6 +340,8 @@ router.post("/economy/ideas", async (req, res) => {
     return;
   }
 
+  // 事件驅動預產：新想法進場 → 佇列閒置時背景預先判定。
+  notePregenWork();
   req.log.info({ nationId: nation.id }, "finance idea submitted");
   res.json({ ok: true });
 });
@@ -357,6 +360,8 @@ router.delete("/economy/ideas", async (req, res) => {
     res.status(404).json({ error: "沒有待判定的財政政策" });
     return;
   }
+  // 事件驅動預產：撤回後觸發孤兒快取清理。
+  notePregenWork();
   res.json({ ok: true });
 });
 

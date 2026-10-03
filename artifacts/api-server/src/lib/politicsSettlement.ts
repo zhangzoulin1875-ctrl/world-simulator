@@ -81,6 +81,7 @@ import {
   buildPoliticsJudgeInput,
   takePregenResult,
 } from "./aiPregenCache";
+import { notePregenWork } from "./aiPregenWorker";
 import {
   notifyCoup,
   notifyGovernmentChange,
@@ -682,7 +683,8 @@ export async function judgeIdea(
         settings,
       }));
   } catch (err) {
-    // AI 失敗：記錄並保留想法，下回合重試。
+    // AI 失敗：記錄並保留想法，下回合重試；順便讓預產 worker 待命重試。
+    notePregenWork();
     logger.error(
       { err, nationId: nation.id, direction },
       "politics idea judgement failed — kept for next settlement",

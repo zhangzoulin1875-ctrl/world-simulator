@@ -3,8 +3,8 @@
  *
  * 歷史介面 `anthropic.messages.create(params)` 保持不變（params 與回傳
  * 物件皆為 Anthropic Message 形狀），因此 gameAi.ts 與所有以覆寫
- * messages.create 為樁的測試皆不需修改。實際請求改走任何 OpenAI
- * 相容端點（NVIDIA NIM、OpenRouter、Groq、DeepSeek 等）：
+ * messages.create 為樁的測試皆不需修改。實際請求改走任何 OpenAI 相容
+ * 端點（NVIDIA NIM、OpenRouter、Groq、DeepSeek 等）：
  *
  *   POST {AI_INTEGRATIONS_ANTHROPIC_BASE_URL}/chat/completions
  *
@@ -16,6 +16,22 @@
  * 備援供應商（例如 Gemini 的 OpenAI 相容端點）重試一次。備援的
  * baseUrl／apiKey／模型經 registerAiFallbackProvider 注入（後台可調，
  * 見 api-server lib/aiFallback.ts）；未註冊或回傳 null＝關閉備援。
+ *
+ * 雙線道（v4，解決「單一慢請求卡死整個佇列」）：
+ *   - 主線道（NIM）併發鎖死 1：佇列不再被一個卡住的請求無限阻塞。
+ *   - 主線道請求「送出後 PRIMARY_STUCK_MS（預設 20 秒）仍未收到回應」
+ *     即視為卡死：佇列中下一個任務改走備援線道（若備援已設定），
+ *     玩家互動與結算不必等卡死的請求。備援線道併發同樣鎖死 1
+ *     （Gemini 免費層也有自己的限速，保守處理）。
+ *   - 主請求完全逾時（AI_REQUEST_TIMEOUT_MS，預設 120 秒）後 abort，
+ *     該任務「退回交給備援」重試一次（與既有失敗→備援路徑一致）。
+ *   - 兩線道各自獨立計數；速率視窗（每 60 秒最多 35 次網路請求）為
+ *     兩線道共享：備援呼叫同樣佔用名額，主供應商 429 爆量時備援不會
+ *     加倍灌爆視窗。
+ *
+ * 優先權佇列（v3）：數字越小越優先。0 = 預設（玩家互動、回合結算等
+ * 一切既有呼叫）；AI_PRIORITY_PREGEN = 背景預產，永遠排在所有預設
+ * 請求之後。優先權經 AsyncLocalStorage 傳遞（runWithAiPriority）。
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -32,28 +48,29 @@ if (!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY) {
   );
 }
 
+function envNum(name: string): number | null {
+  const v = process.env[name];
+  if (v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 /** 請求逾時（毫秒）。NIM 長文生成偶爾偏慢，給足餘裕。 */
-const REQUEST_TIMEOUT_MS = 120_000;
+const REQUEST_TIMEOUT_MS = envNum("AI_REQUEST_TIMEOUT_MS") ?? 120_000;
+
+/**
+ * 主線道卡死判定（毫秒）：請求送出後超過這個時間尚未收到 HTTP 回應，
+ * 就讓佇列的下一個任務改走備援線道（卡死的請求本身不中斷，仍等到
+ * 完全逾時才退回備援）。
+ */
+const PRIMARY_STUCK_MS = envNum("AI_PRIMARY_STUCK_MS") ?? 20_000;
 
 /**
  * NVIDIA NIM 免費版硬性限速：40 RPM、並發數 1，超過直接 429。
- * 這裡在「送出網路請求」這一層做節流（所有呼叫點，包含遊戲邏輯與
- * 後台診斷測試，都共用這個 adapter，故此處是唯一必經的收斂點）：
- *   - 併發數鎖死為 1：永遠排隊，絕不同時發出第二個請求。
+ * 速率視窗為兩線道共享（備援呼叫也算一次網路請求）：
  *   - 每 60 秒滑動視窗最多 35 次（40 的硬限打八折留餘量），超過時
  *     用 await 讓下一筆排隊等待，不丟棄、不報錯——呼叫端完全無感。
- *
- * 優先權佇列（v3）：併發 1 不變，但排隊不再單純 FIFO。數字越小越優先：
- *   0 = 預設（玩家互動、回合結算等一切既有呼叫）
- *   AI_PRIORITY_PREGEN = 背景預產（閒時預生成政策判定），永遠排在
- *   所有預設請求之後——玩家操作或結算 AI 絕不會被背景預產卡住。
- * 優先權經 AsyncLocalStorage 傳遞（runWithAiPriority）：呼叫端程式碼
- * （messages.create）介面完全不變。
- *
- * 備援呼叫也算一次網路請求，同樣佔用速率名額（保守做法：主供應商
- * 429 爆量時備援不會加倍灌爆視窗）。
  */
-const MAX_CONCURRENCY = 1;
 const MAX_CALLS_PER_WINDOW = 35;
 const RATE_WINDOW_MS = 60_000;
 
@@ -70,50 +87,198 @@ export function runWithAiPriority<T>(priority: number, fn: () => Promise<T>): Pr
 interface QueueEntry {
   priority: number;
   seq: number;
-  run: () => Promise<void>;
+  params: AnthropicCreateParams;
+  resolve: (m: AnthropicMessage) => void;
+  reject: (e: Error) => void;
 }
 
 const queue: QueueEntry[] = [];
-let activeCount = 0;
 let seqCounter = 0;
 
-/** 入隊（優先權排序、同優先權 FIFO）；回傳 Promise 等到該任務完成。 */
+/**
+ * 單一線道號誌：併發 1，等待者依優先權排序。
+ * release() 時若有等待者就直接交棒（active 維持 1），否則歸零。
+ * （交棒會跳過全域佇列的優先權排序——只有「主供應商失敗後的備援重試」
+ * 會成為備援線道等待者，且任務失敗當下通常正是忙時，誤差可忽略。）
+ */
+class Lane {
+  private active = 0;
+  private waiters: Array<{ priority: number; seq: number; resolve: () => void }> = [];
+
+  busy(): boolean {
+    return this.active > 0;
+  }
+
+  waiterCount(): number {
+    return this.waiters.length;
+  }
+
+  tryAcquire(): boolean {
+    if (this.active > 0) return false;
+    this.active = 1;
+    return true;
+  }
+
+  async acquire(priority: number, seq: number): Promise<void> {
+    if (this.tryAcquire()) return;
+    await new Promise<void>((resolve) => {
+      this.waiters.push({ priority, seq, resolve });
+      this.waiters.sort((a, b) => a.priority - b.priority || a.seq - b.seq);
+    });
+  }
+
+  release(): void {
+    const w = this.waiters.shift();
+    if (w) {
+      w.resolve();
+      return;
+    }
+    this.active = 0;
+  }
+}
+
+const primaryLane = new Lane();
+const fallbackLane = new Lane();
+
+/** 主線道請求送出中的起算時刻；null = 目前沒有進行中的主線道請求。 */
+let primaryInFlightSince: number | null = null;
+
+function isPrimaryStuck(): boolean {
+  return (
+    primaryInFlightSince !== null &&
+    Date.now() - primaryInFlightSince >= PRIMARY_STUCK_MS
+  );
+}
+
+/**
+ * 卡死看門狗：主線道請求送出時啟動，PRIMARY_STUCK_MS 後觸發一次
+ * drainQueue() —— 此刻佇列裡的任務就能改走備援線道。收到回應
+ * （或請求結束）時解除。
+ */
+let stuckWatchdog: ReturnType<typeof setTimeout> | null = null;
+
+function clearStuckWatchdog(): void {
+  if (stuckWatchdog !== null) {
+    clearTimeout(stuckWatchdog);
+    stuckWatchdog = null;
+  }
+}
+
+function armStuckWatchdog(): void {
+  clearStuckWatchdog();
+  stuckWatchdog = setTimeout(() => {
+    stuckWatchdog = null;
+    drainQueue();
+  }, PRIMARY_STUCK_MS + 100);
+  stuckWatchdog.unref?.();
+}
+
+/**
+ * 派發佇列隊首任務（依優先權排序、同優先權 FIFO）：
+ *   1. 主線道有空位 → 走主線道。
+ *   2. 主線道卡死（送出超過 PRIMARY_STUCK_MS 未回應）且已註冊備援
+ *      → 隊首任務改走備援線道（隊首仍是最優先者，不會讓預產插隊）。
+ *   3. 都不行 → 等下一個喚醒點（任務入隊／線道釋放／卡死看門狗）。
+ */
+function drainQueue(): void {
+  for (;;) {
+    const entry = queue[0];
+    if (entry === undefined) return;
+    if (primaryLane.tryAcquire()) {
+      queue.shift();
+      void runTask(entry, "primary");
+      continue;
+    }
+    if (
+      isPrimaryStuck() &&
+      fallbackProvider !== null &&
+      fallbackLane.tryAcquire()
+    ) {
+      queue.shift();
+      void runTask(entry, "fallback");
+      continue;
+    }
+    return;
+  }
+}
+
+/** 入隊（優先權排序）；回傳 Promise 等到該任務完成。 */
 function enqueueWithPriority<T>(
   priority: number,
-  run: () => Promise<T>,
+  params: AnthropicCreateParams,
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
+    const seq = seqCounter++;
     queue.push({
       priority,
-      seq: seqCounter++,
-      run: async () => {
-        try {
-          resolve(await run());
-        } catch (err) {
-          reject(err);
-        }
-      },
+      seq,
+      params,
+      resolve: resolve as (m: AnthropicMessage) => void,
+      reject,
     });
     queue.sort((a, b) => a.priority - b.priority || a.seq - b.seq);
     drainQueue();
   });
 }
 
-/** 依併發上限啟動隊首任務；完成後遞迴消化下一筆。 */
-function drainQueue(): void {
-  while (activeCount < MAX_CONCURRENCY && queue.length > 0) {
-    const entry = queue.shift()!;
-    activeCount += 1;
-    void (async () => {
-      // 佔用速率名額的時點 = 任務實際開始送出的瞬間（與舊行為一致）。
-      await waitForRateSlot();
+async function runTask(entry: QueueEntry, lane: "primary" | "fallback"): Promise<void> {
+  if (lane === "fallback") {
+    // 派發時已註冊備援；執行時載入設定（絕不丟出）。
+    const config = await loadFallbackConfig(entry.params.tier ?? "quality");
+    if (config === null) {
+      // 罕見：派發時有備援、執行時已停用（管理員剛改設定）。退回
+      // 主線道排隊，任務不因快取失準而丟失；主線道恢復後照常處理。
+      fallbackLane.release();
+      drainQueue();
+      await primaryLane.acquire(entry.priority, entry.seq);
       try {
-        await entry.run();
-      } finally {
-        activeCount -= 1;
+        const msg = await sendPrimary(entry.params);
+        primaryLane.release();
         drainQueue();
+        entry.resolve(msg);
+      } catch (err) {
+        primaryLane.release();
+        drainQueue();
+        entry.reject(err as Error);
       }
-    })();
+      return;
+    }
+    try {
+      const msg = await sendFallbackCall(entry.params, config);
+      fallbackLane.release();
+      drainQueue();
+      entry.resolve(msg);
+    } catch (err) {
+      fallbackLane.release();
+      drainQueue();
+      entry.reject(err as Error);
+    }
+    return;
+  }
+
+  // lane === "primary"
+  try {
+    const msg = await sendPrimary(entry.params);
+    primaryLane.release();
+    drainQueue();
+    entry.resolve(msg);
+    return;
+  } catch (primaryError) {
+    // 主供應商失敗（含完全逾時 abort）→「退回交給備援」。先釋放主線道
+    // 讓下一個任務立刻上場，再等備援線道空位（不佔住主線道）。
+    primaryLane.release();
+    drainQueue();
+    await fallbackLane.acquire(entry.priority, entry.seq);
+    try {
+      const msg = await sendFallbackRetry(entry.params, primaryError as Error);
+      fallbackLane.release();
+      drainQueue();
+      entry.resolve(msg);
+    } catch (err) {
+      fallbackLane.release();
+      drainQueue();
+      entry.reject(err as Error);
+    }
   }
 }
 
@@ -199,7 +364,7 @@ export function registerAiFallbackProvider(fn: FallbackProviderFn): void {
 
 /** 備援診斷計數（供後台顯示）。 */
 export interface AiFallbackStats {
-  /** 主供應商失敗後實際嘗試備援的次數。 */
+  /** 實際嘗試備援的次數（含卡死 bypass 直接走備援與失敗重試）。 */
   attempts: number;
   /** 備援成功的次數。 */
   successes: number;
@@ -238,19 +403,22 @@ function toInt(v: unknown): number {
 
 async function createMessage(params: AnthropicCreateParams): Promise<AnthropicMessage> {
   const priority = priorityStorage.getStore() ?? 0;
-  return enqueueWithPriority(priority, () => sendMessage(params));
+  return enqueueWithPriority<AnthropicMessage>(priority, params);
 }
 
 /**
  * 對任一 OpenAI 相容端點送出一次 chat-completions 請求並解析回應。
  * 供應商設定完全由參數決定（主路徑與備援共用；也供後台「測試備援」
  * 端點直接呼叫指定供應商，不必先讓主供應商失敗）。
+ * onResponse：收到 HTTP 回應（headers）的瞬間回呼一次——主線道用來
+ * 解除「卡死看門狗」。
  */
 export async function postChatCompletion(
   url: string,
   apiKey: string,
   params: AnthropicCreateParams,
   model: string,
+  onResponse?: () => void,
 ): Promise<AnthropicMessage> {
   const messages: Array<{ role: string; content: string }> = [];
   if (params.system !== undefined && params.system !== "") {
@@ -282,6 +450,9 @@ export async function postChatCompletion(
   } catch (err) {
     throw new Error(`AI provider request failed: ${(err as Error).message}`);
   }
+
+  // 收到回應＝沒有卡死：先解除看門狗再解析 body。
+  onResponse?.();
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -323,80 +494,118 @@ export async function postChatCompletion(
   };
 }
 
-async function sendMessage(params: AnthropicCreateParams): Promise<AnthropicMessage> {
-  const primaryUrl = `${process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL!.replace(/\/+$/, "")}/chat/completions`;
-  const tier: AiModelTierLite = params.tier ?? "quality";
+const PRIMARY_URL = `${process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL!.replace(/\/+$/, "")}/chat/completions`;
+const PRIMARY_API_KEY = process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY!;
 
+/** 主供應商一次呼叫（含速率名額佔用與卡死看門狗）。 */
+async function sendPrimary(params: AnthropicCreateParams): Promise<AnthropicMessage> {
   const callStart = Date.now();
-  let primaryError: Error;
+  await waitForRateSlot();
+  primaryInFlightSince = Date.now();
+  armStuckWatchdog();
   try {
     const message = await postChatCompletion(
-      primaryUrl,
-      process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY!,
+      PRIMARY_URL,
+      PRIMARY_API_KEY,
       params,
       params.model,
+      () => {
+        // 收到回應：主線道不再卡死。
+        primaryInFlightSince = null;
+        clearStuckWatchdog();
+      },
     );
     emaCallMs = emaCallMs * 0.7 + (Date.now() - callStart) * 0.3;
     return message;
-  } catch (err) {
-    primaryError = err as Error;
+  } finally {
+    primaryInFlightSince = null;
+    clearStuckWatchdog();
   }
+}
 
-  // 主供應商失敗 → 備援（未註冊／無 key＝直接把原錯誤往上拋）。
-  let config: AiFallbackConfig | null = null;
+/** 載入備援設定；未註冊／無 key ＝ null（備援關閉）。內部絕不丟出。 */
+async function loadFallbackConfig(tier: AiModelTierLite): Promise<AiFallbackConfig | null> {
   try {
-    config = fallbackProvider ? await fallbackProvider(tier) : null;
+    const c = fallbackProvider ? await fallbackProvider(tier) : null;
+    if (c === null || c.apiKey === "" || c.baseUrl === "") return null;
+    return c;
   } catch {
-    config = null;
+    return null;
   }
-  if (!config || !config.apiKey || !config.baseUrl) throw primaryError;
+}
 
+/** 備援一次呼叫（含速率名額佔用與統計）。 */
+async function sendFallbackCall(
+  params: AnthropicCreateParams,
+  config: AiFallbackConfig,
+): Promise<AnthropicMessage> {
+  const tier: AiModelTierLite = params.tier ?? "quality";
+  const model = tier === "bulk" ? config.bulkModel : config.qualityModel;
   fallbackStats.attempts += 1;
   fallbackStats.lastUsedAt = Date.now();
-  // 備援也是一次真實網路請求：同樣排隊佔用速率名額。
   await waitForRateSlot();
-  const fallbackModel = tier === "bulk" ? config.bulkModel : config.qualityModel;
   try {
     const message = await postChatCompletion(
       `${config.baseUrl.replace(/\/+$/, "")}/chat/completions`,
       config.apiKey,
       params,
-      fallbackModel,
+      model,
     );
     fallbackStats.successes += 1;
     fallbackStats.lastError = null;
-    emaCallMs = emaCallMs * 0.7 + (Date.now() - callStart) * 0.3;
     return message;
   } catch (err) {
     fallbackStats.failures += 1;
     fallbackStats.lastError = String((err as Error).message).slice(0, 300);
+    throw err;
+  }
+}
+
+/** 主供應商失敗後的備援重試；備援也失敗時錯誤同時含主因與備援因。 */
+async function sendFallbackRetry(
+  params: AnthropicCreateParams,
+  primaryError: Error,
+): Promise<AnthropicMessage> {
+  const tier: AiModelTierLite = params.tier ?? "quality";
+  const config = await loadFallbackConfig(tier);
+  if (config === null) throw primaryError;
+  try {
+    return await sendFallbackCall(params, config);
+  } catch (err) {
     throw new Error(
-      `primary failed: ${primaryError.message} | fallback also failed: ${fallbackStats.lastError}`,
+      `primary failed: ${primaryError.message} | fallback also failed: ${(err as Error).message}`,
     );
   }
 }
 
 export interface AiQueueStats {
-  /** 正在執行中的請求數（0 或 1，併發鎖死為 1）。 */
+  /** 正在執行中的網路請求數（主線道＋備援線道，各併發 1）。 */
   active: number;
-  /** 排隊等待中的請求數。 */
+  /** 排隊等待中的請求數（全域佇列＋線道等待者）。 */
   queued: number;
   /** 單次呼叫的估計成本（毫秒）＝max(實測平均耗時, 60s/35 次的限速地板)。 */
   estPerCallMs: number;
   /** 一個「現在新進來」的請求預計要等多久（毫秒）。 */
   estNewWaitMs: number;
+  /** 主線道卡死持續時間（毫秒）；null = 主線道沒有卡死的請求。 */
+  primaryStuckMs: number | null;
 }
 
 /** 目前 AI 佇列狀態（供 /api/ai-queue 顯示排隊預計等待時間）。 */
 export function getAiQueueStats(): AiQueueStats {
-  const active = activeCount;
-  const queued = queue.length;
+  const active =
+    (primaryLane.busy() ? 1 : 0) + (fallbackLane.busy() ? 1 : 0);
+  const queued =
+    queue.length + primaryLane.waiterCount() + fallbackLane.waiterCount();
   const perCall = Math.max(emaCallMs, RATE_WINDOW_MS / MAX_CALLS_PER_WINDOW);
   return {
     active,
     queued,
     estPerCallMs: Math.round(perCall),
     estNewWaitMs: Math.round((active + queued) * perCall),
+    primaryStuckMs: isPrimaryStuck()
+      ? Math.round(Date.now() - (primaryInFlightSince ?? Date.now()))
+      : null,
   };
 }
 
