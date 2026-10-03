@@ -13,6 +13,8 @@
  *   AI_INTEGRATIONS_ANTHROPIC_API_KEY  — 例如 nvapi-...
  */
 
+import pLimit from "p-limit";
+
 if (!process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL) {
   throw new Error(
     "AI_INTEGRATIONS_ANTHROPIC_BASE_URL must be set (OpenAI-compatible base URL, e.g. https://integrate.api.nvidia.com/v1).",
@@ -27,6 +29,42 @@ if (!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY) {
 
 /** 請求逾時（毫秒）。NIM 長文生成偶爾偏慢，給足餘裕。 */
 const REQUEST_TIMEOUT_MS = 120_000;
+
+/**
+ * NVIDIA NIM 免費版硬性限速：40 RPM、並發數 1，超過直接 429。
+ * 這裡在「送出網路請求」這一層做節流（所有呼叫點，包含遊戲邏輯與
+ * 後台診斷測試，都共用這個 adapter，故此處是唯一必經的收斂點）：
+ *   - 併發數鎖死為 1：永遠排隊，絕不同時發出第二個請求。
+ *   - 每 60 秒滑動視窗最多 35 次（40 的硬限打八折留餘量），超過時
+ *     用 await 讓下一筆排隊等待，不丟棄、不報錯——呼叫端完全無感。
+ */
+const MAX_CONCURRENCY = 1;
+const MAX_CALLS_PER_WINDOW = 35;
+const RATE_WINDOW_MS = 60_000;
+
+const requestLimit = pLimit(MAX_CONCURRENCY);
+const callTimestamps: number[] = [];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 排隊等到視窗內還有名額才放行；放行的瞬間立即佔用一個名額。 */
+async function waitForRateSlot(): Promise<void> {
+  for (;;) {
+    const now = Date.now();
+    while (callTimestamps.length > 0 && now - callTimestamps[0] >= RATE_WINDOW_MS) {
+      callTimestamps.shift();
+    }
+    if (callTimestamps.length < MAX_CALLS_PER_WINDOW) {
+      callTimestamps.push(now);
+      return;
+    }
+    // 等到視窗內最舊的那一筆過期，多留 50ms 緩衝避免邊界誤差。
+    const waitMs = RATE_WINDOW_MS - (now - callTimestamps[0]) + 50;
+    await sleep(Math.max(waitMs, 50));
+  }
+}
 
 export interface TextBlock {
   type: "text";
@@ -70,6 +108,12 @@ function toInt(v: unknown): number {
 }
 
 async function createMessage(params: AnthropicCreateParams): Promise<AnthropicMessage> {
+  return requestLimit(() => sendMessage(params));
+}
+
+async function sendMessage(params: AnthropicCreateParams): Promise<AnthropicMessage> {
+  await waitForRateSlot();
+
   const baseUrl = process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL!.replace(/\/+$/, "");
   const url = `${baseUrl}/chat/completions`;
 
