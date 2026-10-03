@@ -11,11 +11,18 @@ import { logger } from "./logger";
  *   3. 寫死的程式碼預設值
  */
 
-// 2026-10-03：原本的 meta/llama-3.3-70b-instruct 已於 2026-08-26 從 NIM 下架
-// （HTTP 410 Gone），所有 AI 呼叫因此失敗。改用 NIM 現行模型清單上
-// 中文表現好的指令模型：品質層用 GLM-5.3，量產層用 DeepSeek v4.1 flash。
-const DEFAULT_QUALITY_MODEL = "z-ai/glm-5.3";
-const DEFAULT_BULK_MODEL = "deepseek-ai/deepseek-v4.1-flash";
+// 2026-10-03 兩輪實測（用正式 nvapi key 逐模型掃描）後的結論：
+//  - meta/llama-3.3-70b-instruct 已於 2026-08-26 下架（410 Gone）。
+//  - deepseek-ai/deepseek-v4.1-flash 雖在模型清單上，但實測請求會整個
+//    卡死不回應（60 秒逾時）——就是後台測試按鈕無限轉圈的原因。
+//  - 帳號可用的模型只有少數幾個。品質層選 nemotron-3-ultra-550b
+//    （品質最好，屬推理模型：先輸出 reasoning 再輸出內容；品質層所有
+//    呼叫點 max_tokens 均 >=1000，預算夠吃推理開銷）。量產層選
+//    diffusiongemma-26b（實測 0.4~1.1 秒、非推理、JSON 輸出乾淨、
+//    454-token 長文不截斷；量產層有 150~200 token 的小預算呼叫點，
+//    不能用會先燒推理 token 的模型）。
+const DEFAULT_QUALITY_MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
+const DEFAULT_BULK_MODEL = "google/diffusiongemma-26b-a4b-it";
 
 export type AiModelTier = "quality" | "bulk";
 

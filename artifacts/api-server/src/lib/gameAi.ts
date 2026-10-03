@@ -84,7 +84,7 @@ export const AI_FEATURES = {
     label: "NPC 主動提案（已停用）",
     defaultMaxTokens: 4096,
   },
-  "diagnostics.ping": { label: "系統：AI 連線測試", defaultMaxTokens: 20 },
+  "diagnostics.ping": { label: "系統：AI 連線測試", defaultMaxTokens: 200 },
 } as const satisfies Record<string, AiFeatureDef>;
 
 export type AiFeatureKey = keyof typeof AI_FEATURES;
