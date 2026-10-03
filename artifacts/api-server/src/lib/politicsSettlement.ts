@@ -74,7 +74,13 @@ import {
   generateRandomEvent,
   judgeGovernmentDecision,
   judgePolicyIdea,
+  type PolicyJudgement,
 } from "./politicsAi";
+import {
+  PREGEN_KIND_POLITICS,
+  buildPoliticsJudgeInput,
+  takePregenResult,
+} from "./aiPregenCache";
 import {
   notifyCoup,
   notifyGovernmentChange,
@@ -657,15 +663,24 @@ export async function judgeIdea(
   const direction = legacyDirection ?? GENERAL_DIRECTION;
   let judgement;
   try {
-    judgement = await judgePolicyIdea({
-      government: nation.government,
-      direction: legacyDirection,
-      eraSlug,
-      idea: idea.idea,
-      politicalNote: nation.politicalNote,
-      geoContext,
-      settings,
-    });
+    // v3 閒時預產：先以輸入雜湊比對背景預產快取，命中就直接用（不打 AI、
+    // 取用即消耗）；未命中（沒預產過／玩家改過想法／輸入已變）照舊現場判定。
+    const { hash } = await buildPoliticsJudgeInput(nation, idea, settings);
+    judgement =
+      (await takePregenResult<PolicyJudgement>(
+        PREGEN_KIND_POLITICS,
+        nation.id,
+        hash,
+      )) ??
+      (await judgePolicyIdea({
+        government: nation.government,
+        direction: legacyDirection,
+        eraSlug,
+        idea: idea.idea,
+        politicalNote: nation.politicalNote,
+        geoContext,
+        settings,
+      }));
   } catch (err) {
     // AI 失敗：記錄並保留想法，下回合重試。
     logger.error(

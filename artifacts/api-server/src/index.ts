@@ -36,6 +36,7 @@ import { runAccountBanMigrations } from "./lib/accountBanMigrations";
 import { runSuperEventMigrations } from "./lib/superEventMigrations";
 import { runGameBalanceMigrations } from "./lib/gameBalanceMigrations";
 import { runAiUsageMigrations } from "./lib/aiUsageMigrations";
+import { runAiPregenMigrations } from "./lib/aiPregenMigrations";
 import { runNationNameSanitizeMigration } from "./lib/nationNameSanitizeMigration";
 import { startRegionControlHealthLoop } from "./lib/regionControlHealth";
 import { startProductionSpentHealthLoop } from "./lib/productionSpentHealth";
@@ -43,6 +44,7 @@ import { startSessionCleanupLoop } from "./lib/sessions";
 import { startTurnLoop } from "./lib/turnEngine";
 import { startWarEngineLoops } from "./lib/warEngine";
 import { startWorldSchedulerLoops } from "./lib/worldScheduler";
+import { startAiPregenWorker } from "./lib/aiPregenWorker";
 
 // Open the HTTP port (health-check endpoint /api/healthz is DB-free).
 function openPort(): void {
@@ -122,6 +124,8 @@ async function runStartupMigrations(): Promise<void> {
   await runGameBalanceMigrations();
   // Task #593 — AI 用量紀錄＋各功能 token 上限（無 FK，可放最後）。
   await runAiUsageMigrations();
+  // v3 — AI 閒時預產快取表（FK 依賴 player_nations，放遷移鏈尾端）。
+  await runAiPregenMigrations();
   // Task #604 — 清理存量違規國名（超過 25 字或含空白/標點）。
   await runNationNameSanitizeMigration();
 }
@@ -148,6 +152,7 @@ function startBackgroundWork(): void {
   startProductionSpentHealthLoop();
   startWarEngineLoops();
   startWorldSchedulerLoops();
+  startAiPregenWorker();
 }
 
 async function bootstrap() {

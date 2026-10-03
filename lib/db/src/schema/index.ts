@@ -20,3 +20,4 @@ export * from "./superEvents";
 export * from "./resources";
 export * from "./territoryHistory";
 export * from "./gameBalance";
+export * from "./aiPregen";

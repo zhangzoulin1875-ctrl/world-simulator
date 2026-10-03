@@ -13,7 +13,7 @@
  *   AI_INTEGRATIONS_ANTHROPIC_API_KEY  — 例如 nvapi-...
  */
 
-import pLimit from "p-limit";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 if (!process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL) {
   throw new Error(
@@ -37,12 +37,78 @@ const REQUEST_TIMEOUT_MS = 120_000;
  *   - 併發數鎖死為 1：永遠排隊，絕不同時發出第二個請求。
  *   - 每 60 秒滑動視窗最多 35 次（40 的硬限打八折留餘量），超過時
  *     用 await 讓下一筆排隊等待，不丟棄、不報錯——呼叫端完全無感。
+ *
+ * 優先權佇列（v3）：併發 1 不變，但排隊不再單純 FIFO。數字越小越優先：
+ *   0 = 預設（玩家互動、回合結算等一切既有呼叫）
+ *   AI_PRIORITY_PREGEN = 背景預產（閒時預生成政策判定），永遠排在
+ *   所有預設請求之後——玩家操作或結算 AI 絕不會被背景預產卡住。
+ * 優先權經 AsyncLocalStorage 傳遞（runWithAiPriority）：呼叫端程式碼
+ * （messages.create）介面完全不變。
  */
 const MAX_CONCURRENCY = 1;
 const MAX_CALLS_PER_WINDOW = 35;
 const RATE_WINDOW_MS = 60_000;
 
-const requestLimit = pLimit(MAX_CONCURRENCY);
+/** 背景預產的優先權（最大、永遠最後）。 */
+export const AI_PRIORITY_PREGEN = 10;
+
+const priorityStorage = new AsyncLocalStorage<number>();
+
+/** 在指定優先權下執行 fn 內的所有 AI 呼叫（數字越大越不急）。 */
+export function runWithAiPriority<T>(priority: number, fn: () => Promise<T>): Promise<T> {
+  return priorityStorage.run(priority, fn);
+}
+
+interface QueueEntry {
+  priority: number;
+  seq: number;
+  run: () => Promise<void>;
+}
+
+const queue: QueueEntry[] = [];
+let activeCount = 0;
+let seqCounter = 0;
+
+/** 入隊（優先權排序、同優先權 FIFO）；回傳 Promise 等到該任務完成。 */
+function enqueueWithPriority<T>(
+  priority: number,
+  run: () => Promise<T>,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    queue.push({
+      priority,
+      seq: seqCounter++,
+      run: async () => {
+        try {
+          resolve(await run());
+        } catch (err) {
+          reject(err);
+        }
+      },
+    });
+    queue.sort((a, b) => a.priority - b.priority || a.seq - b.seq);
+    drainQueue();
+  });
+}
+
+/** 依併發上限啟動隊首任務；完成後遞迴消化下一筆。 */
+function drainQueue(): void {
+  while (activeCount < MAX_CONCURRENCY && queue.length > 0) {
+    const entry = queue.shift()!;
+    activeCount += 1;
+    void (async () => {
+      // 佔用速率名額的時點 = 任務實際開始送出的瞬間（與舊行為一致）。
+      await waitForRateSlot();
+      try {
+        await entry.run();
+      } finally {
+        activeCount -= 1;
+        drainQueue();
+      }
+    })();
+  }
+}
+
 const callTimestamps: number[] = [];
 
 /** 最近一次 AI 呼叫的網路耗時（毫秒）EMA，初始保守假設 3 秒。
@@ -112,7 +178,8 @@ function toInt(v: unknown): number {
 }
 
 async function createMessage(params: AnthropicCreateParams): Promise<AnthropicMessage> {
-  return requestLimit(() => sendMessage(params));
+  const priority = priorityStorage.getStore() ?? 0;
+  return enqueueWithPriority(priority, () => sendMessage(params));
 }
 
 async function sendMessage(params: AnthropicCreateParams): Promise<AnthropicMessage> {
@@ -208,8 +275,8 @@ export interface AiQueueStats {
 
 /** 目前 AI 佇列狀態（供 /api/ai-queue 顯示排隊預計等待時間）。 */
 export function getAiQueueStats(): AiQueueStats {
-  const active = requestLimit.activeCount;
-  const queued = requestLimit.pendingCount;
+  const active = activeCount;
+  const queued = queue.length;
   const perCall = Math.max(emaCallMs, RATE_WINDOW_MS / MAX_CALLS_PER_WINDOW);
   return {
     active,

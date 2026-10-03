@@ -12,7 +12,12 @@ import {
 import { logger } from "./logger";
 import { getCurrentEraSlug } from "./nationStats";
 import { clampTaxRate, effectiveTaxEfficiencyPct } from "./economy";
-import { judgeFiscalPolicyIdea } from "./financeAi";
+import { judgeFiscalPolicyIdea, type FiscalPolicyJudgement } from "./financeAi";
+import {
+  PREGEN_KIND_FISCAL,
+  buildFiscalJudgeInput,
+  takePregenResult,
+} from "./aiPregenCache";
 import { buildNationGeoCultureContext } from "./nationGeoCulture";
 import { notifyFiscalPolicyJudged } from "./gameNotify";
 import {
@@ -100,14 +105,23 @@ export async function settleNation(
 
   let judgement;
   try {
-    judgement = await judgeFiscalPolicyIdea({
-      government: nation.government,
-      eraSlug,
-      currentTaxRatePct: nation.taxRatePct,
-      taxEfficiencyPct,
-      idea: pending.idea,
-      geoContext,
-    });
+    // v3 閒時預產：先以輸入雜湊比對背景預產快取，命中就直接用（不打 AI、
+    // 取用即消耗）；未命中（沒預產過／玩家改過想法／輸入已變）照舊現場判定。
+    const { hash } = await buildFiscalJudgeInput(nation, pending);
+    judgement =
+      (await takePregenResult<FiscalPolicyJudgement>(
+        PREGEN_KIND_FISCAL,
+        nation.id,
+        hash,
+      )) ??
+      (await judgeFiscalPolicyIdea({
+        government: nation.government,
+        eraSlug,
+        currentTaxRatePct: nation.taxRatePct,
+        taxEfficiencyPct,
+        idea: pending.idea,
+        geoContext,
+      }));
   } catch (err) {
     // AI 失敗：保留想法，下回合重試。
     summary.ideasFailedAi += 1;
