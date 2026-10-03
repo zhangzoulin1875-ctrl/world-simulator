@@ -45,6 +45,10 @@ const RATE_WINDOW_MS = 60_000;
 const requestLimit = pLimit(MAX_CONCURRENCY);
 const callTimestamps: number[] = [];
 
+/** 最近一次 AI 呼叫的網路耗時（毫秒）EMA，初始保守假設 3 秒。
+ *  用來估算「新進請求要等多久」：排隊人數 × 單次呼叫成本。 */
+let emaCallMs = 3_000;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -133,6 +137,7 @@ async function sendMessage(params: AnthropicCreateParams): Promise<AnthropicMess
   if (params.temperature !== undefined) body.temperature = params.temperature;
 
   let res: Response;
+  const callStart = Date.now();
   try {
     res = await fetch(url, {
       method: "POST",
@@ -174,6 +179,8 @@ async function sendMessage(params: AnthropicCreateParams): Promise<AnthropicMess
       .join("");
   }
 
+  emaCallMs = emaCallMs * 0.7 + (Date.now() - callStart) * 0.3;
+
   return {
     id: data.id ?? `chatcmpl-${Date.now()}`,
     type: "message",
@@ -185,6 +192,30 @@ async function sendMessage(params: AnthropicCreateParams): Promise<AnthropicMess
       input_tokens: toInt(data.usage?.prompt_tokens),
       output_tokens: toInt(data.usage?.completion_tokens),
     },
+  };
+}
+
+export interface AiQueueStats {
+  /** 正在執行中的請求數（0 或 1，併發鎖死為 1）。 */
+  active: number;
+  /** 排隊等待中的請求數。 */
+  queued: number;
+  /** 單次呼叫的估計成本（毫秒）＝max(實測平均耗時, 60s/35 次的限速地板)。 */
+  estPerCallMs: number;
+  /** 一個「現在新進來」的請求預計要等多久（毫秒）。 */
+  estNewWaitMs: number;
+}
+
+/** 目前 AI 佇列狀態（供 /api/ai-queue 顯示排隊預計等待時間）。 */
+export function getAiQueueStats(): AiQueueStats {
+  const active = requestLimit.activeCount;
+  const queued = requestLimit.pendingCount;
+  const perCall = Math.max(emaCallMs, RATE_WINDOW_MS / MAX_CALLS_PER_WINDOW);
+  return {
+    active,
+    queued,
+    estPerCallMs: Math.round(perCall),
+    estNewWaitMs: Math.round((active + queued) * perCall),
   };
 }
 

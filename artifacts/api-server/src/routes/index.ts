@@ -27,6 +27,7 @@ import giftsRouter from "./gifts";
 import { superEventsRouter } from "./superEvents";
 import gameBalanceRouter from "./gameBalance";
 import aiUsageRouter from "./aiUsage";
+import aiQueueRouter from "./aiQueue";
 import militaryAdminRouter from "./militaryAdmin";
 
 const router: IRouter = Router();
@@ -59,6 +60,7 @@ router.use(giftsRouter);
 router.use(superEventsRouter);
 router.use(gameBalanceRouter);
 router.use(aiUsageRouter);
+router.use(aiQueueRouter);
 router.use(militaryAdminRouter);
 
 export default router;
