@@ -51,7 +51,6 @@ import { AdminTokenSetup } from "./admin-token-setup";
 import { AdminGate } from "./admin-gate";
 import { DiscordAuthPanel } from "./discord-auth";
 import { useIsAdmin } from "@/lib/admin-token";
-import { AiQueueBadge } from "./ai-queue-badge";
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -75,7 +74,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           </div>
         </main>
       </div>
-      <AiQueueBadge />
     </SidebarProvider>
   );
 }

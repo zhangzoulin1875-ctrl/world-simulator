@@ -58,6 +58,7 @@ import {
   isOnboardingDone,
   markOnboardingDone,
 } from "@/lib/help-storage";
+import { useAiQueueStatus, formatWaitMs } from "@/hooks/use-ai-queue";
 
 const BASE = import.meta.env.BASE_URL;
 const DEFAULT_BG = `${BASE}game/home-bg-default.webp`;
@@ -68,6 +69,32 @@ function formatGameDate(iso: string): string {
   const m = /^(\d{1,4})-(\d{2})-(\d{2})/.exec(iso);
   if (!m) return iso;
   return `${Number(m[1])}年${Number(m[2])}月${Number(m[3])}日`;
+}
+
+/**
+ * 底部資訊欄常駐的 AI 排隊狀態（取代原先只在忙碌時才浮現的角落徽章——
+ * 玩家反映看不到，因為閒置時它會自動隱藏。現在永遠顯示一行文字，
+ * 閒置時明確告知「無需等待」，忙碌時顯示排隊件數與預計等待時間，
+ * 玩家不會誤以為卡住。手機版文字會自動截斷換行、不會把版面撐爛。
+ */
+function AiQueueStatusLine() {
+  const { data } = useAiQueueStatus();
+  const busy = !!data && (data.active + data.queued > 0);
+  const label = !data
+    ? "AI 狀態：讀取中…"
+    : busy
+      ? `AI 處理中：${data.active + data.queued} 筆排隊，新操作預計要等 ${formatWaitMs(data.estNewWaitMs)}`
+      : "AI 狀態：暢通，無需等待";
+  return (
+    <div
+      className="order-last flex w-full min-w-0 items-center justify-center gap-1.5 border-t border-white/10 pt-2 text-[11px] text-white/50 sm:text-xs"
+      data-testid="ai-queue-status"
+      aria-live="polite"
+    >
+      {busy && <Loader2 className="h-3 w-3 shrink-0 animate-spin" />}
+      <span className="min-w-0 truncate">{label}</span>
+    </div>
+  );
 }
 
 /** 右下角遊戲時間時鐘（年/月/日）。載入中或失敗時不顯示。 */
@@ -519,6 +546,7 @@ function GameScreen({
 
         {/* ── Bottom bar: name + emblem + government ──────── */}
         <footer className="relative flex flex-wrap items-center justify-between gap-3 border-t border-white/10 bg-black/60 px-3 py-3 backdrop-blur sm:px-4 md:px-6">
+          <AiQueueStatusLine />
           <div className="flex min-w-0 items-center gap-3" data-testid="footer-nation">
             {nation.emblemUrl ? (
               <img
