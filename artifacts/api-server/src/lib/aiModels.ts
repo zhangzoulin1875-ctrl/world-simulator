@@ -11,8 +11,11 @@ import { logger } from "./logger";
  *   3. 寫死的程式碼預設值
  */
 
-const DEFAULT_QUALITY_MODEL = "meta/llama-3.3-70b-instruct";
-const DEFAULT_BULK_MODEL = "meta/llama-3.3-70b-instruct";
+// 2026-10-03：原本的 meta/llama-3.3-70b-instruct 已於 2026-08-26 從 NIM 下架
+// （HTTP 410 Gone），所有 AI 呼叫因此失敗。改用 NIM 現行模型清單上
+// 中文表現好的指令模型：品質層用 GLM-5.3，量產層用 DeepSeek v4.1 flash。
+const DEFAULT_QUALITY_MODEL = "z-ai/glm-5.3";
+const DEFAULT_BULK_MODEL = "deepseek-ai/deepseek-v4.1-flash";
 
 export type AiModelTier = "quality" | "bulk";
 

@@ -508,7 +508,7 @@ export default function AiUsagePage() {
                       ) : (
                         <Zap className="w-4 h-4 mr-2" />
                       )}
-                      測試
+                      {testingTier === tier ? "測試中…" : "測試"}
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">

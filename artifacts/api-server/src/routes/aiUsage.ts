@@ -244,6 +244,18 @@ router.patch("/ai-usage/settings/:feature", requireAdmin, async (req, res) => {
  */
 const testBodySchema = z.object({ tier: z.enum(["quality", "bulk"]) }).strict();
 
+/** 連線測試逾時（毫秒）：測試只要 20 個輸出 token，30 秒拿不到回應
+ *  幾乎可斷定上游卡住（模型佇列過長／端點錯誤），不必等滿 120 秒的
+ *  一般請求逾時，讓後台按鈕快速得到結論。 */
+const AI_TEST_TIMEOUT_MS = 30_000;
+
+function testTimeoutError(): Error {
+  return new Error(
+    `測試逾時：${AI_TEST_TIMEOUT_MS / 1000} 秒內沒有收到 AI 回應。` +
+      "可能原因：模型佇列過長、模型 ID 不存在或已下架、或 AI 端點網址設定錯誤。",
+  );
+}
+
 router.post("/ai-usage/test", requireAdmin, async (req, res) => {
   const parsed = testBodySchema.safeParse(req.body ?? {});
   if (!parsed.success) {
@@ -254,12 +266,18 @@ router.post("/ai-usage/test", requireAdmin, async (req, res) => {
   const model = await getAiModel(tier);
   const startedAt = Date.now();
   try {
-    const message = await callGameAi("diagnostics.ping", tier, {
-      system: "你是系統連線測試工具，只需照指示簡短回覆，不要輸出其他內容。",
-      messages: [
-        { role: "user", content: "請只回覆「ok」兩個字，不要加任何其他文字或標點。" },
-      ],
-    });
+    const message = (await Promise.race([
+      callGameAi("diagnostics.ping", tier, {
+        system: "你是系統連線測試工具，只需照指示簡短回覆，不要輸出其他內容。",
+        messages: [
+          { role: "user", content: "請只回覆「ok」兩個字，不要加任何其他文字或標點。" },
+        ],
+      }),
+      new Promise<never>((_resolve, reject) => {
+        const t = setTimeout(() => reject(testTimeoutError()), AI_TEST_TIMEOUT_MS);
+        if (typeof t === "object" && t && "unref" in t) t.unref();
+      }),
+    ])) as Awaited<ReturnType<typeof callGameAi>>;
     const latencyMs = Date.now() - startedAt;
     const content = (message as { content?: Array<{ type?: string; text?: string }> })
       .content;
