@@ -11,6 +11,11 @@
  * 環境變數名稱沿用既有 key（部署腳本零改動）：
  *   AI_INTEGRATIONS_ANTHROPIC_BASE_URL — 例如 https://integrate.api.nvidia.com/v1
  *   AI_INTEGRATIONS_ANTHROPIC_API_KEY  — 例如 nvapi-...
+ *
+ * 備援（fallback）機制：主供應商（NIM）的單次呼叫失敗時，自動改用
+ * 備援供應商（例如 Gemini 的 OpenAI 相容端點）重試一次。備援的
+ * baseUrl／apiKey／模型經 registerAiFallbackProvider 注入（後台可調，
+ * 見 api-server lib/aiFallback.ts）；未註冊或回傳 null＝關閉備援。
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -44,6 +49,9 @@ const REQUEST_TIMEOUT_MS = 120_000;
  *   所有預設請求之後——玩家操作或結算 AI 絕不會被背景預產卡住。
  * 優先權經 AsyncLocalStorage 傳遞（runWithAiPriority）：呼叫端程式碼
  * （messages.create）介面完全不變。
+ *
+ * 備援呼叫也算一次網路請求，同樣佔用速率名額（保守做法：主供應商
+ * 429 爆量時備援不會加倍灌爆視窗）。
  */
 const MAX_CONCURRENCY = 1;
 const MAX_CALLS_PER_WINDOW = 35;
@@ -146,12 +154,17 @@ export interface AnthropicMessageParam {
   content: string | Array<{ type: string; text?: string }>;
 }
 
+/** 呼叫層級標記：備援時用來挑對應的模型（未標記時視為品質層）。 */
+export type AiModelTierLite = "quality" | "bulk";
+
 export interface AnthropicCreateParams {
   model: string;
   max_tokens: number;
   system?: string;
   messages: AnthropicMessageParam[];
   temperature?: number;
+  /** 選填：此呼叫的層級，備援時據此挑 quality/bulk 備援模型。 */
+  tier?: AiModelTierLite;
 }
 
 export interface AnthropicMessage {
@@ -162,6 +175,52 @@ export interface AnthropicMessage {
   content: TextBlock[];
   stop_reason: string;
   usage: { input_tokens: number; output_tokens: number };
+}
+
+/**
+ * 備援供應商設定（由 api-server 注入，後台可調）。
+ * apiKey 為空字串/null ＝ 關閉備援。
+ */
+export interface AiFallbackConfig {
+  baseUrl: string;
+  apiKey: string;
+  qualityModel: string;
+  bulkModel: string;
+}
+
+type FallbackProviderFn = (tier: AiModelTierLite) => Promise<AiFallbackConfig | null>;
+
+let fallbackProvider: FallbackProviderFn | null = null;
+
+/** 註冊備援設定來源（遊戲後端啟動時呼叫一次；測試可不註冊）。 */
+export function registerAiFallbackProvider(fn: FallbackProviderFn): void {
+  fallbackProvider = fn;
+}
+
+/** 備援診斷計數（供後台顯示）。 */
+export interface AiFallbackStats {
+  /** 主供應商失敗後實際嘗試備援的次數。 */
+  attempts: number;
+  /** 備援成功的次數。 */
+  successes: number;
+  /** 備援也失敗的次數。 */
+  failures: number;
+  /** 最近一次備援成功/失敗的時間（毫秒 epoch）；null=從未。 */
+  lastUsedAt: number | null;
+  /** 最近一次備援失敗的錯誤訊息（截斷）；null=無。 */
+  lastError: string | null;
+}
+
+const fallbackStats: AiFallbackStats = {
+  attempts: 0,
+  successes: 0,
+  failures: 0,
+  lastUsedAt: null,
+  lastError: null,
+};
+
+export function getAiFallbackStats(): AiFallbackStats {
+  return { ...fallbackStats };
 }
 
 function flattenContent(content: AnthropicMessageParam["content"]): string {
@@ -182,12 +241,17 @@ async function createMessage(params: AnthropicCreateParams): Promise<AnthropicMe
   return enqueueWithPriority(priority, () => sendMessage(params));
 }
 
-async function sendMessage(params: AnthropicCreateParams): Promise<AnthropicMessage> {
-  await waitForRateSlot();
-
-  const baseUrl = process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL!.replace(/\/+$/, "");
-  const url = `${baseUrl}/chat/completions`;
-
+/**
+ * 對任一 OpenAI 相容端點送出一次 chat-completions 請求並解析回應。
+ * 供應商設定完全由參數決定（主路徑與備援共用；也供後台「測試備援」
+ * 端點直接呼叫指定供應商，不必先讓主供應商失敗）。
+ */
+export async function postChatCompletion(
+  url: string,
+  apiKey: string,
+  params: AnthropicCreateParams,
+  model: string,
+): Promise<AnthropicMessage> {
   const messages: Array<{ role: string; content: string }> = [];
   if (params.system !== undefined && params.system !== "") {
     messages.push({ role: "system", content: params.system });
@@ -197,20 +261,19 @@ async function sendMessage(params: AnthropicCreateParams): Promise<AnthropicMess
   }
 
   const body: Record<string, unknown> = {
-    model: params.model,
+    model,
     max_tokens: params.max_tokens,
     messages,
   };
   if (params.temperature !== undefined) body.temperature = params.temperature;
 
   let res: Response;
-  const callStart = Date.now();
   try {
     res = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
         Accept: "application/json",
       },
       body: JSON.stringify(body),
@@ -246,13 +309,11 @@ async function sendMessage(params: AnthropicCreateParams): Promise<AnthropicMess
       .join("");
   }
 
-  emaCallMs = emaCallMs * 0.7 + (Date.now() - callStart) * 0.3;
-
   return {
     id: data.id ?? `chatcmpl-${Date.now()}`,
     type: "message",
     role: "assistant",
-    model: data.model ?? params.model,
+    model: data.model ?? model,
     content: [{ type: "text", text }],
     stop_reason: choice?.finish_reason ?? "end_turn",
     usage: {
@@ -260,6 +321,59 @@ async function sendMessage(params: AnthropicCreateParams): Promise<AnthropicMess
       output_tokens: toInt(data.usage?.completion_tokens),
     },
   };
+}
+
+async function sendMessage(params: AnthropicCreateParams): Promise<AnthropicMessage> {
+  const primaryUrl = `${process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL!.replace(/\/+$/, "")}/chat/completions`;
+  const tier: AiModelTierLite = params.tier ?? "quality";
+
+  const callStart = Date.now();
+  let primaryError: Error;
+  try {
+    const message = await postChatCompletion(
+      primaryUrl,
+      process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY!,
+      params,
+      params.model,
+    );
+    emaCallMs = emaCallMs * 0.7 + (Date.now() - callStart) * 0.3;
+    return message;
+  } catch (err) {
+    primaryError = err as Error;
+  }
+
+  // 主供應商失敗 → 備援（未註冊／無 key＝直接把原錯誤往上拋）。
+  let config: AiFallbackConfig | null = null;
+  try {
+    config = fallbackProvider ? await fallbackProvider(tier) : null;
+  } catch {
+    config = null;
+  }
+  if (!config || !config.apiKey || !config.baseUrl) throw primaryError;
+
+  fallbackStats.attempts += 1;
+  fallbackStats.lastUsedAt = Date.now();
+  // 備援也是一次真實網路請求：同樣排隊佔用速率名額。
+  await waitForRateSlot();
+  const fallbackModel = tier === "bulk" ? config.bulkModel : config.qualityModel;
+  try {
+    const message = await postChatCompletion(
+      `${config.baseUrl.replace(/\/+$/, "")}/chat/completions`,
+      config.apiKey,
+      params,
+      fallbackModel,
+    );
+    fallbackStats.successes += 1;
+    fallbackStats.lastError = null;
+    emaCallMs = emaCallMs * 0.7 + (Date.now() - callStart) * 0.3;
+    return message;
+  } catch (err) {
+    fallbackStats.failures += 1;
+    fallbackStats.lastError = String((err as Error).message).slice(0, 300);
+    throw new Error(
+      `primary failed: ${primaryError.message} | fallback also failed: ${fallbackStats.lastError}`,
+    );
+  }
 }
 
 export interface AiQueueStats {

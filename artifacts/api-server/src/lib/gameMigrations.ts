@@ -89,6 +89,13 @@ async function runGameMigrationsInner(): Promise<void> {
   await db.execute(sql`ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ai_model_quality text`);
   await db.execute(sql`ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ai_model_bulk text`);
 
+  // AI 備援（fallback）供應商：主供應商（NIM）單次呼叫失敗時自動改用
+  // （預設 Gemini OpenAI 相容端點）。key／模型後台可調（/api/bot/ai-fallback）。
+  await db.execute(sql`ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ai_fallback_base_url text`);
+  await db.execute(sql`ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ai_fallback_api_key text`);
+  await db.execute(sql`ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ai_fallback_model_quality text`);
+  await db.execute(sql`ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ai_fallback_model_bulk text`);
+
   // --- Discord OAuth login sessions -------------------------------------
   // Opaque, server-issued session tokens for the game's Discord login. The
   // `manageable_guild_ids` snapshot is retained (harmless) though the game no

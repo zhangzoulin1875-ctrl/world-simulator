@@ -11,6 +11,12 @@ export const botSettingsTable = pgTable("bot_settings", {
   token: text("token"),
   aiModelQuality: text("ai_model_quality"),
   aiModelBulk: text("ai_model_bulk"),
+  // AI 備援（fallback）供應商設定：主供應商失敗時改用（預設 Gemini 的
+  // OpenAI 相容端點）。key 存這裡讓後台可調（見 aiFallback.ts）。
+  aiFallbackBaseUrl: text("ai_fallback_base_url"),
+  aiFallbackApiKey: text("ai_fallback_api_key"),
+  aiFallbackModelQuality: text("ai_fallback_model_quality"),
+  aiFallbackModelBulk: text("ai_fallback_model_bulk"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

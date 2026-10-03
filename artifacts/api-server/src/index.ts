@@ -45,6 +45,7 @@ import { startTurnLoop } from "./lib/turnEngine";
 import { startWarEngineLoops } from "./lib/warEngine";
 import { startWorldSchedulerLoops } from "./lib/worldScheduler";
 import { startAiPregenWorker } from "./lib/aiPregenWorker";
+import { bootstrapAiFallback } from "./lib/aiFallback";
 
 // Open the HTTP port (health-check endpoint /api/healthz is DB-free).
 function openPort(): void {
@@ -153,6 +154,8 @@ function startBackgroundWork(): void {
   startWarEngineLoops();
   startWorldSchedulerLoops();
   startAiPregenWorker();
+  // 備援供應商註冊（主 AI 呼叫失敗時自動改用後台設定的備援 API 重試一次）。
+  bootstrapAiFallback();
 }
 
 async function bootstrap() {

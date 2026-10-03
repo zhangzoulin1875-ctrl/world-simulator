@@ -12,6 +12,8 @@ import {
   todayStartInstant,
 } from "../lib/gameAi";
 import { getAiModel } from "../lib/aiModels";
+import { getAiFallbackConfig } from "../lib/aiFallback";
+import { postChatCompletion } from "@workspace/integrations-anthropic-ai";
 import { NEWS_SCHEDULE_TZ, localDateString } from "../lib/time";
 
 /**
@@ -242,7 +244,13 @@ router.patch("/ai-usage/settings/:feature", requireAdmin, async (req, res) => {
  * 回傳的 HTTP 狀態碼＋錯誤內容，或逾時/網路錯誤訊息）整段回傳到後台頁面，
  * 不像一般遊戲呼叫路徑那樣把錯誤吞掉只留一筆失敗列。
  */
-const testBodySchema = z.object({ tier: z.enum(["quality", "bulk"]) }).strict();
+const testBodySchema = z
+  .object({
+    tier: z.enum(["quality", "bulk"]),
+    /** primary（預設）＝走一般遊戲路徑；fallback＝直接打備援供應商。 */
+    provider: z.enum(["primary", "fallback"]).default("primary"),
+  })
+  .strict();
 
 /** 連線測試逾時（毫秒）：測試只要 20 個輸出 token，30 秒拿不到回應
  *  幾乎可斷定上游卡住（模型佇列過長／端點錯誤），不必等滿 120 秒的
@@ -262,10 +270,49 @@ router.post("/ai-usage/test", requireAdmin, async (req, res) => {
     res.status(400).json({ ok: false, error: "tier 必須是 quality 或 bulk" });
     return;
   }
-  const { tier } = parsed.data;
-  const model = await getAiModel(tier);
+  const { tier, provider } = parsed.data;
+  const model =
+    provider === "fallback"
+      ? (await getAiFallbackConfig())?.[tier === "bulk" ? "bulkModel" : "qualityModel"] ?? ""
+      : await getAiModel(tier);
   const startedAt = Date.now();
   try {
+    if (provider === "fallback") {
+      // 直接測備援供應商（不必讓主供應商先失敗）：共用 adapter 的
+      // postChatCompletion 解析邏輯，但診斷路徑不進遊戲佇列、不佔
+      // 遊戲速率名額（備援供應商有自己的限速額度）。未設定備援 key
+      // 時提前回覆可操作的錯誤。
+      const config = await getAiFallbackConfig();
+      if (!config) throw new Error("備援未啟用：請先在後台設定備援 API key");
+      const fbModel = tier === "bulk" ? config.bulkModel : config.qualityModel;
+      const message = await Promise.race([
+        postChatCompletion(
+          `${config.baseUrl.replace(/\/+$/, "")}/chat/completions`,
+          config.apiKey,
+          {
+            model: fbModel,
+            max_tokens: 20,
+            system: "你是系統連線測試工具，只需照指示簡短回覆，不要輸出其他內容。",
+            messages: [
+              { role: "user", content: "請只回覆「ok」兩個字，不要加任何其他文字或標點。" },
+            ],
+            tier,
+          },
+          fbModel,
+        ),
+        new Promise<never>((_resolve, reject) => {
+          const t = setTimeout(() => reject(testTimeoutError()), AI_TEST_TIMEOUT_MS);
+          if (typeof t === "object" && t && "unref" in t) t.unref();
+        }),
+      ]);
+      const latencyMs = Date.now() - startedAt;
+      const reply = (message.content ?? [])
+        .map((b) => b.text ?? "")
+        .join("")
+        .slice(0, 200);
+      res.json({ ok: true, tier, provider, model: fbModel, latencyMs, reply });
+      return;
+    }
     const message = (await Promise.race([
       callGameAi("diagnostics.ping", tier, {
         system: "你是系統連線測試工具，只需照指示簡短回覆，不要輸出其他內容。",
@@ -284,12 +331,12 @@ router.post("/ai-usage/test", requireAdmin, async (req, res) => {
     const reply = Array.isArray(content)
       ? content.map((b) => (b.type === "text" ? b.text ?? "" : "")).join("").slice(0, 200)
       : "";
-    res.json({ ok: true, tier, model, latencyMs, reply });
+    res.json({ ok: true, tier, provider, model, latencyMs, reply });
   } catch (err) {
     const latencyMs = Date.now() - startedAt;
     const error = err instanceof Error ? err.message : String(err);
     req.log.warn({ err, tier, model }, "ai connectivity test failed");
-    res.json({ ok: false, tier, model, latencyMs, error });
+    res.json({ ok: false, tier, provider, model, latencyMs, error });
   }
 });
 

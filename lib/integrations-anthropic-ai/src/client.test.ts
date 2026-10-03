@@ -101,3 +101,91 @@ test("runWithAiPriority 巢狀上下文：內層覆寫、外層還原", async ()
   assert.equal(order.length, 2);
   assert.deepEqual([...order].sort(), ["in-nested-default", "in-pregen"]);
 });
+
+// ── 備援（fallback）機制測試 ──────────────────────────────────────────────
+const {
+  registerAiFallbackProvider,
+  getAiFallbackStats,
+} = await import("./client");
+
+test("主供應商失敗 → 自動改用備援；無備援設定時原錯誤上拋", async () => {
+  const calls: string[] = [];
+  // 第一個請求：主供應商 500 → 備援成功。
+  let n = 0;
+  globalThis.fetch = (async (url: unknown) => {
+    n += 1;
+    calls.push(String(url));
+    if (n === 1) {
+      return new Response(JSON.stringify({ error: "upstream boom" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response(
+      JSON.stringify({
+        id: "fb",
+        model: "gemini-stub",
+        choices: [
+          { index: 0, message: { role: "assistant", content: "fb-ok" }, finish_reason: "stop" },
+        ],
+        usage: { prompt_tokens: 2, completion_tokens: 2 },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  registerAiFallbackProvider(async (tier) =>
+    tier === "bulk"
+      ? { baseUrl: "https://fb.example/v1", apiKey: "fb-key", qualityModel: "q", bulkModel: "fb-bulk" }
+      : { baseUrl: "https://fb.example/v1", apiKey: "fb-key", qualityModel: "fb-quality", bulkModel: "b" },
+  );
+
+  const msg = await anthropic.messages.create({ ...paramsWith("t1"), tier: "quality" });
+  assert.equal(msg.content[0]?.text, "fb-ok");
+  assert.equal(msg.model, "gemini-stub");
+  // 兩次請求：第一次打主端點、第二次打備援端點（quality 模型）。
+  assert.match(calls[0], /stub\.invalid/);
+  assert.match(calls[1], /fb\.example\/v1\/chat\/completions/);
+  // tier=bulk 的呼叫失敗時，備援要用 bulk 模型（從請求 body 驗證）。
+  const bodies: string[] = [];
+  let m = 0;
+  globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    m += 1;
+    bodies.push(String(init?.body));
+    if (m === 1) return new Response("nope", { status: 500 });
+    return new Response(
+      JSON.stringify({
+        choices: [
+          { index: 0, message: { role: "assistant", content: "fb-ok" }, finish_reason: "stop" },
+        ],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+  const statsBefore = getAiFallbackStats();
+  await anthropic.messages.create({ ...paramsWith("t2"), tier: "bulk" });
+  assert.equal(getAiFallbackStats().attempts, statsBefore.attempts + 1);
+  const fallbackBody = JSON.parse(bodies[1]!) as { model: string };
+  assert.equal(fallbackBody.model, "fb-bulk");
+});
+
+test("備援也失敗 → 錯誤同時含主因與備援因；無 key 時不嘗試備援", async () => {
+  // 備援也失敗
+  let n = 0;
+  globalThis.fetch = (async () => {
+    n += 1;
+    return new Response("nope", { status: 503 });
+  }) as typeof fetch;
+  await assert.rejects(
+    anthropic.messages.create({ ...paramsWith("t3"), tier: "quality" }),
+    (err: Error) => err.message.includes("primary failed") && err.message.includes("fallback also failed"),
+  );
+  assert.equal(getAiFallbackStats().failures > 0, true);
+
+  // 取消註冊（回 null = 關閉備援）→ 主供應商錯誤原樣上拋。
+  registerAiFallbackProvider(async () => null);
+  await assert.rejects(
+    anthropic.messages.create({ ...paramsWith("t4"), tier: "quality" }),
+    (err: Error) => err.message.startsWith("AI provider error"),
+  );
+});

@@ -242,6 +242,8 @@ export async function callGameAi(
       max_tokens: maxTokens,
       ...(params.system !== undefined ? { system: params.system } : {}),
       messages: params.messages,
+      // 層級標記：備援重試時據此挑對應的備援模型（quality/bulk）。
+      tier,
     });
     await recordUsage(feature, tier, model, message, true);
     return message;

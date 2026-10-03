@@ -18,6 +18,7 @@ import {
   ArrowUpDown,
   CheckCircle2,
   Cpu,
+  KeyRound,
   Loader2,
   RefreshCw,
   Save,
@@ -72,6 +73,24 @@ interface AiTestResult {
   latencyMs: number;
   reply?: string;
   error?: string;
+}
+
+interface AiFallbackStats {
+  attempts: number;
+  successes: number;
+  failures: number;
+  lastUsedAt: number | null;
+  lastError: string | null;
+}
+
+interface AiFallbackInfo {
+  enabled: boolean;
+  baseUrl: string;
+  apiKeySet: boolean;
+  apiKeyMasked: string | null;
+  qualityModel: string;
+  bulkModel: string;
+  stats: AiFallbackStats;
 }
 
 interface DailyRow {
@@ -229,6 +248,112 @@ export default function AiUsagePage() {
       });
     } finally {
       setSavingModelTier(null);
+    }
+  };
+
+  // --- AI 備援（fallback）：主供應商失敗時自動改用的備援 API（預設 Gemini） ---
+  const [fallbackInfo, setFallbackInfo] = useState<AiFallbackInfo | null>(null);
+  const [fallbackEdits, setFallbackEdits] = useState({
+    baseUrl: "",
+    apiKey: "",
+    qualityModel: "",
+    bulkModel: "",
+  });
+  const [loadingFallback, setLoadingFallback] = useState(true);
+  const [savingFallback, setSavingFallback] = useState(false);
+  const [fallbackTestResults, setFallbackTestResults] = useState<
+    Partial<Record<"quality" | "bulk", AiTestResult>>
+  >({});
+  const [testingFallbackTier, setTestingFallbackTier] = useState<"quality" | "bulk" | null>(null);
+
+  const loadFallback = useCallback(async () => {
+    setLoadingFallback(true);
+    try {
+      const res = await authedFetch("/api/bot/ai-fallback");
+      if (!res.ok) throw new Error(await readError(res));
+      const body = (await res.json()) as AiFallbackInfo;
+      setFallbackInfo(body);
+      setFallbackEdits({
+        baseUrl: body.baseUrl,
+        apiKey: "",
+        qualityModel: body.qualityModel,
+        bulkModel: body.bulkModel,
+      });
+    } catch (err) {
+      toast({
+        title: "載入 AI 備援設定失敗",
+        description: err instanceof Error ? err.message : "未知錯誤",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingFallback(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    void loadFallback();
+  }, [loadFallback]);
+
+  const saveFallback = async (patch: Record<string, string | null>) => {
+    setSavingFallback(true);
+    try {
+      const res = await authedFetch("/api/bot/ai-fallback", {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const body = (await res.json()) as AiFallbackInfo;
+      setFallbackInfo(body);
+      setFallbackEdits((prev) => ({
+        baseUrl: body.baseUrl,
+        apiKey: "",
+        qualityModel: body.qualityModel,
+        bulkModel: body.bulkModel,
+      }));
+      toast({
+        title: "AI 備援設定已更新",
+        description: body.enabled
+          ? `備援已啟用（約 30 秒內生效，不需重啟服務）`
+          : "尚未設定備援 API key，備援未啟用",
+      });
+    } catch (err) {
+      toast({
+        title: "儲存 AI 備援設定失敗",
+        description: err instanceof Error ? err.message : "未知錯誤",
+        variant: "destructive",
+      });
+    } finally {
+      setSavingFallback(false);
+    }
+  };
+
+  const runFallbackTest = async (tier: "quality" | "bulk") => {
+    setTestingFallbackTier(tier);
+    try {
+      const res = await authedFetch("/api/ai-usage/test", {
+        method: "POST",
+        body: JSON.stringify({ tier, provider: "fallback" }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const body = (await res.json()) as AiTestResult;
+      setFallbackTestResults((prev) => ({ ...prev, [tier]: body }));
+      if (!body.ok) {
+        toast({
+          title: `備援${tier === "quality" ? "品質" : "量產"}模型連線測試失敗`,
+          description: body.error,
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: `備援${tier === "quality" ? "品質" : "量產"}模型連線正常` });
+      }
+    } catch (err) {
+      toast({
+        title: "備援連線測試失敗",
+        description: err instanceof Error ? err.message : "未知錯誤",
+        variant: "destructive",
+      });
+    } finally {
+      setTestingFallbackTier(null);
     }
   };
 
@@ -548,6 +673,160 @@ export default function AiUsagePage() {
                   )}
                 </div>
               ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card data-testid="card-ai-fallback">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <KeyRound className="w-5 h-5" />
+            AI 備援設定
+            {fallbackInfo?.enabled ? (
+              <Badge>備援已啟用</Badge>
+            ) : (
+              <Badge variant="outline">未啟用（無 API key）</Badge>
+            )}
+          </CardTitle>
+          <CardDescription>
+            主供應商（NVIDIA NIM）單次呼叫失敗時，自動改用備援 API 重試一次
+            （預設＝Google Gemini 的 OpenAI 相容端點，也可填其他 OpenAI 相容
+            供應商）。未設定 API key 時備援關閉，遊戲行為不變。
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loadingFallback || !fallbackInfo ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="w-4 h-4 animate-spin" /> 載入中...
+            </div>
+          ) : (
+            <div className="space-y-4" data-testid="ai-fallback-body">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">備援 API 端點（OpenAI 相容 base URL）</span>
+                </div>
+                <Input
+                  value={fallbackEdits.baseUrl}
+                  onChange={(e) =>
+                    setFallbackEdits((prev) => ({ ...prev, baseUrl: e.target.value }))
+                  }
+                  data-testid="input-ai-fallback-base-url"
+                />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">備援 API key</span>
+                  {fallbackInfo.apiKeySet && (
+                    <Badge variant="outline">已設定：{fallbackInfo.apiKeyMasked}</Badge>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    type="password"
+                    value={fallbackEdits.apiKey}
+                    placeholder={
+                      fallbackInfo.apiKeySet
+                        ? "留空＝沿用已設定的 key；輸入新值＝覆蓋"
+                        : "輸入 Gemini（或其他供應商）的 API key"
+                    }
+                    onChange={(e) =>
+                      setFallbackEdits((prev) => ({ ...prev, apiKey: e.target.value }))
+                    }
+                    data-testid="input-ai-fallback-api-key"
+                  />
+                  <Button
+                    size="icon"
+                    disabled={!fallbackInfo.apiKeySet || savingFallback}
+                    onClick={() => void saveFallback({ apiKey: null })}
+                    data-testid="button-clear-ai-fallback-key"
+                    title="清除後台設定的 key（回退到環境變數 AI_FALLBACK_API_KEY，若也沒設即關閉備援）"
+                  >
+                    <XCircle className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {(["quality", "bulk"] as const).map((tier) => (
+                  <div key={tier} className="space-y-2" data-testid={`ai-fallback-${tier}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">
+                        備援{tier === "quality" ? "品質" : "量產"}模型
+                      </span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Input
+                        value={fallbackEdits[tier === "quality" ? "qualityModel" : "bulkModel"]}
+                        onChange={(e) =>
+                          setFallbackEdits((prev) =>
+                            tier === "quality"
+                              ? { ...prev, qualityModel: e.target.value }
+                              : { ...prev, bulkModel: e.target.value },
+                          )
+                        }
+                        data-testid={`input-ai-fallback-model-${tier}`}
+                      />
+                      <Button
+                        variant="outline"
+                        onClick={() => void runFallbackTest(tier)}
+                        disabled={testingFallbackTier === tier || !fallbackInfo.enabled}
+                        data-testid={`button-test-ai-fallback-${tier}`}
+                      >
+                        {testingFallbackTier === tier ? (
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                          <Zap className="w-4 h-4 mr-2" />
+                        )}
+                        {testingFallbackTier === tier ? "測試中…" : "測試"}
+                      </Button>
+                    </div>
+                    {fallbackTestResults[tier] && (
+                      <div
+                        className={`rounded-md border p-2 text-xs ${
+                          fallbackTestResults[tier]!.ok
+                            ? "text-foreground"
+                            : "text-destructive"
+                        }`}
+                        data-testid={`ai-fallback-test-result-${tier}`}
+                      >
+                        {fallbackTestResults[tier]!.ok
+                          ? `備援連線正常（${fallbackTestResults[tier]!.latencyMs}ms）`
+                          : fallbackTestResults[tier]!.error}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-3">
+                <Button
+                  onClick={() =>
+                    void saveFallback({
+                      baseUrl: fallbackEdits.baseUrl.trim() || null,
+                      qualityModel: fallbackEdits.qualityModel.trim() || null,
+                      bulkModel: fallbackEdits.bulkModel.trim() || null,
+                      ...(fallbackEdits.apiKey.trim()
+                        ? { apiKey: fallbackEdits.apiKey.trim() }
+                        : {}),
+                    })
+                  }
+                  disabled={savingFallback}
+                  data-testid="button-save-ai-fallback"
+                >
+                  {savingFallback ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4 mr-2" />
+                  )}
+                  儲存備援設定
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  備援統計：成功 {fallbackInfo.stats.successes} 次／失敗{" "}
+                  {fallbackInfo.stats.failures} 次
+                  {fallbackInfo.stats.lastError
+                    ? `（最近錯誤：${fallbackInfo.stats.lastError}）`
+                    : ""}
+                </p>
+              </div>
             </div>
           )}
         </CardContent>
