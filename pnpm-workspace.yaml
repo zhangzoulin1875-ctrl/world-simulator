@@ -34,11 +34,14 @@ minimumReleaseAgeExclude:
   - '@replit/*'
   - stripe-replit-sync
 
-onlyBuiltDependencies:
-  - '@swc/core'
-  - esbuild
-  - msw
-  - unrs-resolver
+allowBuilds:
+  '@swc/core': true
+  better-sqlite3: true
+  esbuild: true
+  msgpackr-extract: true
+  msw: true
+  sharp: true
+  unrs-resolver: true
 
 overrides:
   '@esbuild-kit/esm-loader': npm:tsx@^4.21.0
