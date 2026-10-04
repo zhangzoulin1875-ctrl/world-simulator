@@ -7,7 +7,7 @@ export async function runAutopilotMigrations(): Promise<void> {
   await withMigrationLockStamped("autopilot", runAutopilotMigrationsInner);
 }
 
-async function runAutopilotMigrationsInner(): Promise<void> {
+export async function runAutopilotMigrationsInner(): Promise<void> {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS autopilot_settings (
       nation_id uuid PRIMARY KEY

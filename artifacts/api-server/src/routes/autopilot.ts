@@ -11,11 +11,25 @@ import { getSession, readSessionToken } from "../lib/sessions";
 import {
   getAutopilotSettings,
   invalidateAutopilotCache,
+  withAutopilotTable,
 } from "../lib/autopilotState";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
 const DIRECTIVE_MAX = 500;
+
+/** 取出最底層的資料庫錯誤訊息，方便從前端回應直接看出原因。 */
+function errText(err: unknown): string {
+  let cur: unknown = err;
+  let last = String((err as Error)?.message ?? err);
+  for (let i = 0; i < 4 && cur; i++) {
+    const m = (cur as Error).message;
+    if (m) last = m;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return last.slice(0, 300);
+}
 
 async function requirePlayer(
   req: Parameters<Parameters<IRouter["get"]>[1]>[0],
@@ -51,9 +65,14 @@ function publicView(row: Awaited<ReturnType<typeof getAutopilotSettings>>) {
 
 /** 讀取託管狀態（含最近行動紀錄）。 */
 router.get("/player/autopilot", async (req, res) => {
-  const ctx = await requirePlayer(req, res);
-  if (!ctx) return;
-  res.json(publicView(await getAutopilotSettings(ctx.nation.id)));
+  try {
+    const ctx = await requirePlayer(req, res);
+    if (!ctx) return;
+    res.json(publicView(await getAutopilotSettings(ctx.nation.id)));
+  } catch (err) {
+    logger.error({ err }, "autopilot: GET failed");
+    res.status(500).json({ error: "讀取託管狀態失敗", detail: errText(err) });
+  }
 });
 
 /**
@@ -77,7 +96,7 @@ router.post("/player/autopilot/enable", async (req, res) => {
     res.status(409).json({ error: "已在託管中" });
     return;
   }
-  await db
+  await withAutopilotTable(() => db
     .insert(autopilotSettingsTable)
     .values({
       nationId: ctx.nation.id,
@@ -98,7 +117,7 @@ router.post("/player/autopilot/enable", async (req, res) => {
         turnsRun: 0,
         recentActions: [],
       },
-    });
+    }));
   invalidateAutopilotCache(ctx.userId);
   res.json(publicView(await getAutopilotSettings(ctx.nation.id)));
 });
