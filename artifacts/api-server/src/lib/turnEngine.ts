@@ -41,6 +41,7 @@ import {
   type PoliticsSettlementSummary,
 } from "./politicsSettlement";
 import { runParliamentSettlement } from "./parliament/service";
+import { runFocusSettlement } from "./focus/service";
 import {
   runFinanceSettlement,
   type FinanceSettlementSummary,
@@ -397,6 +398,13 @@ export interface TurnUpdateSummary {
     error?: string;
     nations?: number;
     revolts?: number;
+    failed?: number;
+  };
+  focus?: {
+    ok: boolean;
+    error?: string;
+    nations?: number;
+    completed?: number;
     failed?: number;
   };
   customTreaties?: {
@@ -1259,6 +1267,19 @@ async function doRunTurn(
       error: err instanceof Error ? err.message : String(err),
     };
     logger.error({ err }, "turn engine: parliament settlement failed");
+  }
+
+  // 國策樹:議會結算之後跑(需讀取最新議會滿意度)。玩家與 NPC 都處理;
+  // 獨立 try/catch,失敗只記 log,絕不中斷回合。
+  try {
+    const focus = await runFocusSettlement();
+    summary.focus = { ok: true, ...focus };
+  } catch (err) {
+    summary.focus = {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+    logger.error({ err }, "turn engine: focus settlement failed");
   }
 
   // Task #333 — 超事件系統：每回合自動生成／推進全球重大事件，套用跨國數值影響、
