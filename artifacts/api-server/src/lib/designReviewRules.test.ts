@@ -21,3 +21,13 @@ test("lenient：放寬約一個時代且保留地區公平條款", () => {
   assert.match(r, /地區公平條款/);
   assert.match(r, /武器/);
 });
+
+test("地區公平條款涵蓋『貿易／交通斷絕』與『缺乏本地材料』", () => {
+  for (const level of ["balanced", "lenient"] as const) {
+    const r = buildEraAndRegionRules(level, "武器").join("\n");
+    assert.match(r, /沒有貿易或交通往來/);
+    assert.match(r, /缺乏某種本地材料/);
+    assert.match(r, /不是退件理由/);
+    assert.match(r, /在地可得的材料/);
+  }
+});

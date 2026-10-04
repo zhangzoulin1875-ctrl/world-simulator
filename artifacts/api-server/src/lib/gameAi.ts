@@ -1,4 +1,8 @@
 import { sql } from "drizzle-orm";
+import {
+  withWorldNeutrality,
+  stripChineseDynasty,
+} from "./worldNeutrality";
 import { db } from "@workspace/db";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { getAiModel, type AiModelTier } from "./aiModels";
@@ -239,11 +243,19 @@ export async function callGameAi(
 
   try {
     // 呼叫當下動態取用共享單例的 messages.create（測試以覆寫該方法為樁）。
+    // 世界中立化：所有 AI 功能共用出口，一次涵蓋（政治／財政／內閣／戰爭／
+    // 新聞／武器／兵種…）。system 加「世界中立原則」前言；system 與訊息內文
+    // 都去掉時代標籤的中國朝代括號，避免 AI 把所有玩家都當成中國人。
     const message = await anthropic.messages.create({
       model,
       max_tokens: maxTokens,
-      ...(params.system !== undefined ? { system: params.system } : {}),
-      messages: params.messages,
+      system: withWorldNeutrality(
+        params.system !== undefined ? stripChineseDynasty(params.system) : undefined,
+      ),
+      messages: params.messages.map((m) => ({
+        ...m,
+        content: stripChineseDynasty(m.content),
+      })),
       // 層級標記：備援重試時據此挑對應的備援模型（quality/bulk）。
       tier,
     });

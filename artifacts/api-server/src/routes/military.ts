@@ -1330,12 +1330,14 @@ router.post("/military/design-weapon", aiRateLimit, async (req, res) => {
       getCurrentEraSlug(),
       getCurrentGameYear(),
     ]);
+    const geoContext = await buildNationGeoCultureContext(claimed[0].id);
     weapon = await designCustomWeapon({
       ownerDiscordUserId: userId,
       requirement,
       eraSlug,
       gameYear,
       nation: { id: claimed[0].id, name: claimed[0].name },
+      geoContext,
     });
   } catch (err) {
     // 未入庫即失敗 → 退還次數（封頂 3；weaponDesignCharges 每回合回滿，

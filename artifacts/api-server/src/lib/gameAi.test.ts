@@ -160,14 +160,21 @@ test("system 有帶才進參數；tier 與 model 一併傳遞", async () => {
   await callGameAi(FEATURE, "quality", {
     messages: [{ role: "user", content: "hi" }],
   });
-  assert.equal("system" in (stub.calls[0] ?? {}), false);
+  // 未帶 system 時仍會注入「世界中立原則」前言（全域中立化）。
+  assert.match(String(stub.calls[0]?.system), /世界中立原則/);
   assert.equal(typeof stub.calls[0]?.model, "string");
 
   await callGameAi(FEATURE, "quality", {
     system: "sys",
-    messages: [{ role: "user", content: "hi" }],
+    messages: [{ role: "user", content: "當前時代：古典時代(秦朝)" }],
   });
-  assert.equal(stub.calls[1]?.system, "sys");
+  // 原 system 保留在前言之後；訊息內的中國朝代括號被移除。
+  assert.match(String(stub.calls[1]?.system), /世界中立原則/);
+  assert.ok(String(stub.calls[1]?.system).endsWith("sys"));
+  assert.equal(
+    (stub.calls[1]?.messages as Array<{ content: string }>)[0]?.content,
+    "當前時代：古典時代",
+  );
 });
 
 test("每日配額用罄 → 丟 AiQuotaExceededError 且不呼叫模型", async () => {
