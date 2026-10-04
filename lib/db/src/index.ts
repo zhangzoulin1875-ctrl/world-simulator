@@ -10,7 +10,19 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  // Neon 會在閒置時關閉連線；讓 pool 自己先淘汰閒置連線並開啟 TCP keepalive，
+  // 避免拿到已被伺服器端關掉的死連線。
+  idleTimeoutMillis: 30_000,
+  keepAlive: true,
+  connectionTimeoutMillis: 15_000,
+});
+// 閒置連線被遠端關閉時 pg 會在 pool 上發 'error'；沒有監聽者會變成
+// uncaughtException 直接把整個 Node 程序打掛（使用者端看到 "Load failed"）。
+pool.on("error", (err) => {
+  console.error("[db] idle pool client error (ignored, pool will reconnect):", err.message);
+});
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";

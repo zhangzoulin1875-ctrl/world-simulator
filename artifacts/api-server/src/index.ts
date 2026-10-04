@@ -1,5 +1,14 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+
+// 安全網：背景任務（fire-and-forget）或 DB 連線的意外錯誤只記錄、不讓整個服務掛掉。
+// 否則一次遺漏的 rejection 就會重啟程序，使用者看到的是 "Load failed"。
+process.on("unhandledRejection", (reason) => {
+  logger.error({ err: reason }, "unhandledRejection (process kept alive)");
+});
+process.on("uncaughtException", (err) => {
+  logger.error({ err }, "uncaughtException (process kept alive)");
+});
 import { startDiscordBot, getStoredToken, startBotWatchdog } from "./lib/discordBot";
 import {
   runGameMigrations,
