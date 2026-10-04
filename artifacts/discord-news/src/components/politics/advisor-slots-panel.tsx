@@ -21,7 +21,7 @@ export function AdvisorSlotsPanel({ unlocked }: { unlocked: boolean }) {
               </span>
             ) : (
               <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-bold text-white/55">
-                研發「政治哲學」可解鎖顧問席位
+                古典時代起自動解鎖顧問席位
               </span>
             )}
           </div>

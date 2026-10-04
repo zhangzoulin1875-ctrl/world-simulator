@@ -9,7 +9,7 @@ import {
   cityBuildingsTable,
   regionControlsTable,
   mapCitiesTable,
-  techTreeNodesTable,
+  worldGameStateTable,
   playerResearchedTreeNodesTable,
   type PlayerNation,
   type CabinetMinister,
@@ -282,25 +282,16 @@ before(async () => {
     POOR = Math.ceil(GRANARY_COST * 1.875);
   }
 
-  // 研發前置：社會科技「部落革新」開啟建築槽、生產科技「灌溉農業」解鎖糧倉。
-  // Task #469 起兩者皆為全球統一科技樹節點（tech_tree_nodes.key_slug）。
-  const [social] = await db
-    .select({ id: techTreeNodesTable.id })
-    .from(techTreeNodesTable)
-    .where(eq(techTreeNodesTable.keySlug, "tribal_innovation"));
-  assert.ok(social, "找不到社會科技 tribal_innovation");
-  const [production] = await db
-    .select({ id: techTreeNodesTable.id })
-    .from(techTreeNodesTable)
-    .where(eq(techTreeNodesTable.keySlug, "irrigation"));
-  assert.ok(production, "找不到生產科技 irrigation");
-  await db
-    .insert(playerResearchedTreeNodesTable)
-    .values([
-      { nationId, nodeId: social.id },
-      { nationId, nodeId: production.id },
-    ])
-    .onConflictDoNothing();
+  // 前置:科技樹下線後,糧倉(灌溉農業,古典)與建築槽(部落革新,羅馬)
+  // 皆依世界時代自動解鎖。把世界時代鎖在羅馬時代,兩者都已解鎖。
+  const [ws] = await db.select().from(worldGameStateTable).where(eq(worldGameStateTable.id, 1)).limit(1);
+  hadWorldRow = !!ws;
+  originalWorldEra = ws?.currentEra ?? null;
+  if (ws) {
+    await db.update(worldGameStateTable).set({ currentEra: "roman" }).where(eq(worldGameStateTable.id, 1));
+  } else {
+    await db.insert(worldGameStateTable).values({ id: 1, currentEra: "roman", gameDate: "0001-01-01" } as never);
+  }
 });
 
 beforeEach(async () => {
@@ -323,9 +314,17 @@ beforeEach(async () => {
 
 after(async () => {
   anthropic.messages.create = realMessagesCreate;
+  if (hadWorldRow && originalWorldEra) {
+    await db.update(worldGameStateTable).set({ currentEra: originalWorldEra }).where(eq(worldGameStateTable.id, 1));
+  } else if (!hadWorldRow) {
+    await db.delete(worldGameStateTable).where(eq(worldGameStateTable.id, 1));
+  }
   await purgeTestData();
   await pool.end();
 });
+
+let hadWorldRow = false;
+let originalWorldEra: string | null = null;
 
 test("已授權且非重大：興建糧倉自動代理執行並扣除金錢", async () => {
   nextPlan = { ...emptyPlan(), building: { cityId, buildingType: "granary" } };

@@ -440,6 +440,17 @@ export default function TechTreeAdmin() {
 
   return (
     <div className="space-y-6" data-testid="page-tech-tree-admin">
+      <div
+        className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 text-sm"
+        data-testid="banner-tech-tree-offline"
+      >
+        <div className="font-semibold text-amber-600">科技樹已下線,此頁的編輯目前不會影響遊戲</div>
+        <p className="mt-1 text-muted-foreground">
+          關鍵技術改為隨世界時代自動解鎖(數值與解鎖內容由程式內的關鍵技術目錄決定),
+          一般節點不再生效,玩家也無法再研發。這裡的資料只是保留,日後若要還原舊科技樹才會用到。
+        </p>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">

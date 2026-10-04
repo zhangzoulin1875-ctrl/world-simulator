@@ -185,15 +185,14 @@ export function RegionsTab() {
         >
           <Lock className="h-5 w-5 shrink-0 text-white/35" />
           <p className="flex-1 text-xs leading-relaxed text-white/55">
-            城市建築槽需先研發社會關鍵技術「部落革新」才會啟用（起始 5 格，上限{" "}
-            {data.buildingSlotsMax} 格）。解鎖前仍可對掌控地區進行生產力投資。
+            城市建築槽會隨世界時代自動啟用(社會關鍵技術「部落革新」,起始 5 格,上限 {data.buildingSlotsMax} 格)。解鎖前仍可對掌控地區進行生產力投資。
           </p>
           <Link
-            href="/game/military/research"
+            href="/game/technology?tab=social"
             className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold transition hover:bg-white/20"
             data-testid="link-to-research"
           >
-            前往科技研發
+            查看年代解鎖
           </Link>
         </section>
       )}

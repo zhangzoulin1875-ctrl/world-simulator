@@ -59,14 +59,14 @@ export function BuildDialog({
               尚無已解鎖建築
             </p>
             <p className="mt-1 text-xs leading-relaxed text-white/50">
-              先於「科技 → 生產科技」研發解鎖建築的關鍵技術，即可在此建造。
+              建築會隨世界時代自動解鎖(例如糧倉、工坊、水車、圖書館、工廠、瓦斯廠),進入對應年代後即可在此建造。
             </p>
             <Link
-              href="/game/military/tech"
+              href="/game/technology?tab=production"
               className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold transition hover:bg-white/20"
               data-testid="link-to-production-tech"
             >
-              前往生產科技
+              查看年代解鎖
             </Link>
           </div>
         ) : (

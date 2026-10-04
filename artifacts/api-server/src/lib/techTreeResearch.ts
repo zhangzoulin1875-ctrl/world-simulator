@@ -35,6 +35,15 @@ import {
  * IS NULL）擋並發重複選研。
  */
 
+import { TECH_TREE_RESEARCH_ENABLED } from "./techTreeFlags";
+
+/** 科技樹下線時所有寫入操作共用的回應。 */
+const TECH_TREE_OFFLINE = {
+  ok: false as const,
+  status: 410,
+  error: "科技樹已下線:關鍵技術改為隨世界時代自動解鎖,不需要也無法再研發",
+};
+
 export type TechTreeOpResult<T> =
   | ({ ok: true } & T)
   | { ok: false; status: number; error: string };
@@ -48,6 +57,7 @@ export async function startTechTreeResearch(params: {
 }): Promise<
   TechTreeOpResult<{ node: TechTreeNode; domain: TechTreeDomain; cost: number }>
 > {
+  if (!TECH_TREE_RESEARCH_ENABLED) return TECH_TREE_OFFLINE;
   const { nation, nodeId } = params;
   const [node] = await db
     .select()
@@ -127,6 +137,7 @@ export async function listTechTreeResearchCandidates(
   nation: PlayerNation,
   domain: TechTreeDomain,
 ): Promise<{ id: number; name: string; cost: number }[]> {
+  if (!TECH_TREE_RESEARCH_ENABLED) return [];
   const [states, domainNodes, researchedIds] = await Promise.all([
     loadTechTreeStates(nation.id),
     loadDomainNodes(domain),
@@ -158,6 +169,7 @@ export async function cancelTechTreeResearch(params: {
   nationId: string;
   domain: TechTreeDomain;
 }): Promise<TechTreeOpResult<{ cancelled: true }>> {
+  if (!TECH_TREE_RESEARCH_ENABLED) return TECH_TREE_OFFLINE;
   const { nationId, domain } = params;
   const updated = await db
     .update(playerTechTreeStateTable)
@@ -186,6 +198,7 @@ export async function setTechTreeAllocation(params: {
   nationId: string;
   allocation: TechTreeAllocation;
 }): Promise<TechTreeOpResult<{ allocation: TechTreeAllocation }>> {
+  if (!TECH_TREE_RESEARCH_ENABLED) return TECH_TREE_OFFLINE;
   const { nationId, allocation } = params;
   const invalid = validateAllocation(allocation);
   if (invalid) return { ok: false, status: 400, error: invalid };

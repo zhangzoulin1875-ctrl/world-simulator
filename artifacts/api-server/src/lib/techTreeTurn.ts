@@ -1,3 +1,4 @@
+import { TECH_TREE_RESEARCH_ENABLED } from "./techTreeFlags";
 import { and, eq, sql } from "drizzle-orm";
 import {
   db,
@@ -325,6 +326,9 @@ export async function runTechTreeResearchTurn(
     npcResearchStarted: 0,
     failures: 0,
   };
+  // 科技樹已下線(關鍵技術改依世界時代解鎖):不再把科研點灌進任何節點,
+  // 也不消耗玩家庫存科技點(tech_points),留給日後的國策樹使用。
+  if (!TECH_TREE_RESEARCH_ENABLED) return summary;
   const { currentEra: worldEra } = await getEraSlugs();
   for (const { nation, techGain } of entries) {
     try {

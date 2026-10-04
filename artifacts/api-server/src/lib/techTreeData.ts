@@ -13,6 +13,8 @@ import {
 import { DEFAULT_ERA_SLUG, getEraIndex } from "./mapRegionEras";
 import { DEFAULT_ALLOCATION, advanceDomainEra } from "./techTree";
 import { logger } from "./logger";
+import { getEraSlugs } from "./nationStats";
+import { virtualNodesUnlockedByEra, normalizeEra } from "./eraUnlockedTech";
 
 /**
  * Task #469 — 科技樹 DB 存取層（routes／回合引擎／內閣共用）。
@@ -121,26 +123,15 @@ export async function getTechTreeDomainEraByNation(
   return row?.eraSlug ?? DEFAULT_ERA_SLUG;
 }
 
-/** 讀取某玩家（discord_user_id）某領域目前時代（無國家／無列 → 古典）。 */
+/**
+ * 科技樹下線:領域時代一律等於世界當前時代(不再有個別研發進度)。
+ * 簽名保留 (userId, domain) 讓既有呼叫端不必改。
+ */
 export async function getTechTreeDomainEra(
-  userId: string,
-  domain: TechTreeDomain,
+  _userId: string,
+  _domain: TechTreeDomain,
 ): Promise<string> {
-  const [row] = await db
-    .select({ eraSlug: playerTechTreeStateTable.eraSlug })
-    .from(playerTechTreeStateTable)
-    .innerJoin(
-      playerNationsTable,
-      eq(playerNationsTable.id, playerTechTreeStateTable.nationId),
-    )
-    .where(
-      and(
-        eq(playerNationsTable.discordUserId, userId),
-        eq(playerTechTreeStateTable.domain, domain),
-      ),
-    )
-    .limit(1);
-  return row?.eraSlug ?? DEFAULT_ERA_SLUG;
+  return normalizeEra((await getEraSlugs()).currentEra);
 }
 
 /** 載入單一領域全部節點（線內排序）。 */
@@ -202,60 +193,36 @@ export async function loadResearchedNodesByNation(
   return rows.map((r) => r.node);
 }
 
-/** 某玩家（discord_user_id）某領域已研發節點（join 其國家；id 排序）。 */
+/**
+ * 科技樹下線:已研發節點 = 世界時代(含)以內的關鍵技術(虛擬節點)。
+ * 舊表 player_researched_tree_nodes 保留但不再讀取。
+ */
 export async function loadResearchedNodes(
-  userId: string,
+  _userId: string,
   domain: TechTreeDomain,
 ): Promise<TechTreeNode[]> {
-  const rows = await db
-    .select({ node: techTreeNodesTable })
-    .from(playerResearchedTreeNodesTable)
-    .innerJoin(
-      playerNationsTable,
-      eq(playerNationsTable.id, playerResearchedTreeNodesTable.nationId),
-    )
-    .innerJoin(
-      techTreeNodesTable,
-      eq(techTreeNodesTable.id, playerResearchedTreeNodesTable.nodeId),
-    )
-    .where(
-      and(
-        eq(playerNationsTable.discordUserId, userId),
-        eq(techTreeNodesTable.domain, domain),
-      ),
-    )
-    .orderBy(asc(techTreeNodesTable.id));
-  return rows.map((r) => r.node);
+  const { currentEra } = await getEraSlugs();
+  return virtualNodesUnlockedByEra(domain, currentEra);
 }
 
 /**
- * 一次載入全部「有主玩家」某領域的已研發節點（回合引擎／戰爭引擎批次用）。
- * key = discord_user_id（join player_nations；NPC／無主國家不在其中）。
+ * 科技樹下線:所有有主玩家共用「世界時代以內的關鍵技術」。
+ * key = discord_user_id(NPC/無主國家不在其中,與舊行為一致)。
  */
 export async function loadResearchedNodesByUser(
   domain: TechTreeDomain,
 ): Promise<Map<string, TechTreeNode[]>> {
-  const rows = await db
-    .select({
-      userId: playerNationsTable.discordUserId,
-      node: techTreeNodesTable,
-    })
-    .from(playerResearchedTreeNodesTable)
-    .innerJoin(
-      playerNationsTable,
-      eq(playerNationsTable.id, playerResearchedTreeNodesTable.nationId),
-    )
-    .innerJoin(
-      techTreeNodesTable,
-      eq(techTreeNodesTable.id, playerResearchedTreeNodesTable.nodeId),
-    )
-    .where(eq(techTreeNodesTable.domain, domain));
+  const [{ currentEra }, owners] = await Promise.all([
+    getEraSlugs(),
+    db
+      .select({ userId: playerNationsTable.discordUserId })
+      .from(playerNationsTable),
+  ]);
+  const nodes = virtualNodesUnlockedByEra(domain, currentEra);
   const out = new Map<string, TechTreeNode[]>();
-  for (const r of rows) {
-    if (r.userId === null) continue;
-    const list = out.get(r.userId) ?? [];
-    list.push(r.node);
-    out.set(r.userId, list);
+  for (const o of owners) {
+    if (o.userId === null) continue;
+    out.set(o.userId, nodes);
   }
   return out;
 }

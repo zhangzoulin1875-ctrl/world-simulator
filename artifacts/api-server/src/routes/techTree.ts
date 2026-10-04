@@ -8,34 +8,19 @@ import {
   type ProductionTechEffect,
   type SocialTechEffect,
   type TechTreeDomain,
-  type TechTreeNode,
 } from "@workspace/db";
 import { getSession, readSessionToken } from "../lib/sessions";
 import { ERAS, getEraIndex } from "../lib/mapRegionEras";
-import {
-  TECH_TREE_DOMAIN_LABELS,
-  computeNodeStatuses,
-  isTechTreeDomain,
-} from "../lib/techTree";
-import {
-  loadDomainNodes,
-  loadResearchedNodeIdSet,
-  loadTechTreeStates,
-} from "../lib/techTreeData";
-import {
-  cancelTechTreeResearch,
-  setTechTreeAllocation,
-  startTechTreeResearch,
-} from "../lib/techTreeResearch";
-import {
-  adjustedResearchCost,
-  getNationResearchCostMultiplierForDomain,
-} from "../lib/researchCost";
-import { allocateResearchPoints } from "../lib/researchAllocation";
-import { computeAdjustedNationStats, getEraSlugs } from "../lib/nationStats";
+import { TECH_TREE_DOMAIN_LABELS } from "../lib/techTree";
+import { getEraSlugs } from "../lib/nationStats";
 import { describeSocialEffect } from "../lib/socialTech";
 import { describeProductionEffect } from "../lib/production";
 import { describeMilitaryBonus } from "../lib/military";
+import {
+  allKeyTechsOf,
+  keyTechsUnlockedByEra,
+  normalizeEra,
+} from "../lib/eraUnlockedTech";
 
 /**
  * Task #469 — 全球統一線性科技樹玩家路由（Discord session 閘門，進 OpenAPI spec）。
@@ -74,192 +59,99 @@ function eraLabel(slug: string): string {
   return ERAS[getEraIndex(slug)]?.label ?? slug;
 }
 
-/** 依領域把節點效果轉成 zh-TW 顯示文字。 */
-function effectLabels(node: TechTreeNode): string[] {
-  const domain = node.domain;
-  return node.effects.map((eff) => {
-    if (domain === "social") return describeSocialEffect(eff as SocialTechEffect);
-    if (domain === "production") {
-      return describeProductionEffect(eff as ProductionTechEffect);
-    }
-    return describeMilitaryBonus(eff as MilitaryTechBonus);
-  });
+const GONE_MESSAGE =
+  "科技樹已下線:關鍵技術改為隨世界時代自動解鎖,不需要也無法再研發";
+
+/** 單一效果轉成 zh-TW 顯示文字。 */
+function effectLabel(domain: TechTreeDomain, eff: unknown): string {
+  if (domain === "social") return describeSocialEffect(eff as SocialTechEffect);
+  if (domain === "production") {
+    return describeProductionEffect(eff as ProductionTechEffect);
+  }
+  return describeMilitaryBonus(eff as MilitaryTechBonus);
 }
 
-/** 三領域科技樹總覽。 */
+/**
+ * 三領域「年代解鎖一覽」。
+ *
+ * 科技樹已下線:關鍵技術改依世界時代自動解鎖,不再有研發。回應形狀沿用舊
+ * TechTreeOverview(前端與 OpenAPI 相容),內容則是:
+ * - 每領域只列關鍵技術,世界時代(含)以內者 status="researched",之後者
+ *   status="locked" 並註明解鎖年代;
+ * - 沒有進行中研發、分配比例固定 0、每回合點數 0。
+ */
 router.get("/tech-tree/overview", async (req, res) => {
   const auth = await requirePlayer(req, res);
   if (!auth) return;
-  const { nation, userId } = auth;
+  const { nation } = auth;
 
-  const [{ statsEra }, states] = await Promise.all([
-    getEraSlugs(),
-    loadTechTreeStates(nation.id),
-  ]);
-  const stats = await computeAdjustedNationStats(nation, statsEra);
-  const techGainPerTurn = Math.max(0, Math.round(stats.techPerTurn));
-  // Task #548 — 與回合引擎同一個純函式（最大餘數法），三領域份額總和恰好
-  // 等於整數回合科研收入，顯示與實際灌入量一致。
-  const perTurnAlloc = allocateResearchPoints(techGainPerTurn, {
-    social: states.social.ratioPct,
-    production: states.production.ratioPct,
-    military: states.military.ratioPct,
-  });
+  const { currentEra } = await getEraSlugs();
+  const worldEra = normalizeEra(currentEra);
+  const worldIdx = getEraIndex(worldEra);
 
-  const domains = await Promise.all(
-    (["social", "production", "military"] as const).map(async (domain) => {
-      const state = states[domain];
-      const [nodes, researchedIds, costMult] = await Promise.all([
-        loadDomainNodes(domain),
-        loadResearchedNodeIdSet(nation.id, domain),
-        getNationResearchCostMultiplierForDomain(nation, state.eraSlug),
-      ]);
-      const statuses = computeNodeStatuses({
-        nodes,
-        researchedIds,
-        domainEraSlug: state.eraSlug,
-        activeNodeId: state.activeNodeId,
-      });
-      const perTurnPoints = perTurnAlloc[domain];
-
-      let active: {
-        nodeId: number;
-        name: string;
-        costSnapshot: number;
-        progressPoints: number;
-        remainingPoints: number;
-        estimatedTurns: number | null;
-      } | null = null;
-      if (state.activeNodeId !== null) {
-        const activeNode = nodes.find((n) => n.id === state.activeNodeId);
-        const cost = state.costSnapshot ?? 0;
-        const remaining = Math.max(0, cost - state.progressPoints);
-        active = {
-          nodeId: state.activeNodeId,
-          name: activeNode?.name ?? "未知科技",
-          costSnapshot: cost,
-          progressPoints: state.progressPoints,
-          remainingPoints: remaining,
-          estimatedTurns:
-            perTurnPoints > 0 ? Math.ceil(remaining / perTurnPoints) : null,
-        };
-      }
-
+  const domains = (["social", "production", "military"] as const).map(
+    (domain) => {
+      const unlocked = new Set(
+        keyTechsUnlockedByEra(domain, worldEra).map((k) => k.keySlug),
+      );
+      const all = allKeyTechsOf(domain);
       return {
         domain,
         domainLabel: TECH_TREE_DOMAIN_LABELS[domain],
-        eraSlug: state.eraSlug,
-        eraLabel: eraLabel(state.eraSlug),
-        ratioPct: state.ratioPct,
-        perTurnPoints,
-        active,
-        nodes: nodes.map((n) => {
-          const detail = statuses.get(n.id);
+        eraSlug: worldEra,
+        eraLabel: eraLabel(worldEra),
+        ratioPct: 0,
+        perTurnPoints: 0,
+        active: null,
+        nodes: all.map((k, i) => {
+          const isOpen = unlocked.has(k.keySlug);
           return {
-            id: n.id,
-            eraSlug: n.eraSlug,
-            eraLabel: eraLabel(n.eraSlug),
-            lineKey: n.lineKey,
-            lineLabel: n.lineLabel,
-            lineKind: n.lineKind,
-            sortOrder: n.sortOrder,
-            branchFromNodeId: n.branchFromNodeId,
-            name: n.name,
-            description: n.description,
-            keySlug: n.keySlug,
-            isKey: n.keySlug !== null,
-            // Task #548 — 研發中節點顯示選研當下鎖定的成本快照（與結算
-            // 口徑一致，研發期間不再隨國力浮動）；其餘節點維持動態計價。
-            costPoints:
-              n.id === state.activeNodeId && state.costSnapshot !== null
-                ? state.costSnapshot
-                : adjustedResearchCost(n.baseCost, costMult),
-            effects: effectLabels(n),
-            status: detail?.status ?? "locked",
-            lockedReason: detail?.lockedReason ?? null,
+            id: -(i + 1),
+            eraSlug: k.eraSlug,
+            eraLabel: eraLabel(k.eraSlug),
+            lineKey: "key",
+            lineLabel: "關鍵技術",
+            lineKind: "main",
+            sortOrder: i + 1,
+            branchFromNodeId: null,
+            name: k.name,
+            description: k.description,
+            keySlug: k.keySlug,
+            isKey: true,
+            costPoints: 0,
+            effects: k.effects.map((e) => effectLabel(domain, e)),
+            status: isOpen ? "researched" : "locked",
+            lockedReason: isOpen
+              ? null
+              : `世界進入「${eraLabel(k.eraSlug)}」時自動解鎖`,
           };
         }),
       };
-    }),
+    },
   );
+  void worldIdx;
 
   res.json({
-    techGainPerTurn,
-    // Task #524 — 庫存科技點數：每回合依分配比例自動投入研發（只扣實際吸收量）。
+    techGainPerTurn: 0,
     stockTechPoints: Math.max(0, nation.techPoints),
-    allocation: {
-      social: states.social.ratioPct,
-      production: states.production.ratioPct,
-      military: states.military.ratioPct,
-    },
+    allocation: { social: 0, production: 0, military: 0 },
     domains,
   });
 });
 
 /** 選定節點開始研發。 */
-router.post("/tech-tree/research", async (req, res) => {
-  const auth = await requirePlayer(req, res);
-  if (!auth) return;
-  const nodeId = Number(req.body?.nodeId);
-  if (!Number.isInteger(nodeId) || nodeId <= 0) {
-    res.status(400).json({ error: "請提供有效的科技節點編號" });
-    return;
-  }
-  const result = await startTechTreeResearch({
-    nation: auth.nation,
-    nodeId,
-  });
-  if (!result.ok) {
-    res.status(result.status).json({ error: result.error });
-    return;
-  }
-  res.json({
-    nodeId: result.node.id,
-    name: result.node.name,
-    domain: result.domain,
-    cost: result.cost,
-  });
+router.post("/tech-tree/research", (_req, res) => {
+  res.status(410).json({ error: GONE_MESSAGE });
 });
 
 /** 取消該領域進行中研發（進度作廢）。 */
-router.post("/tech-tree/cancel", async (req, res) => {
-  const auth = await requirePlayer(req, res);
-  if (!auth) return;
-  const domain = String(req.body?.domain ?? "");
-  if (!isTechTreeDomain(domain)) {
-    res.status(400).json({ error: "請提供有效的領域（social／production／military）" });
-    return;
-  }
-  const result = await cancelTechTreeResearch({
-    nationId: auth.nation.id,
-    domain,
-  });
-  if (!result.ok) {
-    res.status(result.status).json({ error: result.error });
-    return;
-  }
-  res.json({ ok: true });
+router.post("/tech-tree/cancel", (_req, res) => {
+  res.status(410).json({ error: GONE_MESSAGE });
 });
 
 /** 設定三領域科研點數分配比例。 */
-router.put("/tech-tree/allocation", async (req, res) => {
-  const auth = await requirePlayer(req, res);
-  if (!auth) return;
-  const body = req.body ?? {};
-  const allocation = {
-    social: Number(body.social),
-    production: Number(body.production),
-    military: Number(body.military),
-  };
-  const result = await setTechTreeAllocation({
-    nationId: auth.nation.id,
-    allocation,
-  });
-  if (!result.ok) {
-    res.status(result.status).json({ error: result.error });
-    return;
-  }
-  res.json({ allocation: result.allocation });
+router.put("/tech-tree/allocation", (_req, res) => {
+  res.status(410).json({ error: GONE_MESSAGE });
 });
 
 export default router;

@@ -311,7 +311,7 @@ export function NavalLandingBar({ info }: { info: NavalLandingInfo }) {
       <p className="mt-2 text-[11px] leading-relaxed text-sky-100/55">
         {info.compass
           ? "已解鎖指南針：可無視距離跨洋登陸，容許量已提升。"
-          : "研發「指南針」後可無視距離跨洋登陸，並提升登陸容許量。"}
+          : "大航海時代起自動解鎖指南針,可無視距離跨洋登陸並提升登陸容許量。"}
       </p>
     </div>
   );

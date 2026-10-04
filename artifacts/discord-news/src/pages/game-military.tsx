@@ -205,7 +205,7 @@ function BuildTab({
                 ? undefined
                 : (c.lockReason ??
                   (c.requiredKeyName
-                    ? `${c.label}需研發關鍵技術「${c.requiredKeyName}」解鎖`
+                    ? `${c.label}將隨世界時代自動解鎖(${c.requiredKeyName})`
                     : `${c.label}尚未解鎖`))
             }
             className={`flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-sm font-semibold transition ${

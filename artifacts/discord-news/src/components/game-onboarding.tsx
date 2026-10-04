@@ -50,7 +50,7 @@ const WELCOME_CARDS: WelcomeCard[] = [
     title: "回合制與資源",
     body: [
       "遊戲以「回合制」推進，一回合從幾小時到一天不等，會自動結算科技點數、稅收、維護費與人口等變化，每回合會推進遊戲時間數年。",
-      "科技點數用來研發科技與設計兵種；生產力用來建軍；金錢來自稅收，用於購買軍隊與支付開銷。",
+      "科技點數用來設計兵種；生產力用來建軍；金錢來自稅收，用於購買軍隊與支付開銷。",
     ],
   },
   {
@@ -65,7 +65,7 @@ const WELCOME_CARDS: WelcomeCard[] = [
     icon: Swords,
     title: "軍事與戰爭",
     body: [
-      "在軍事介面招募軍隊、研發軍事科技、甚至用 AI 設計專屬兵種。",
+      "在軍事介面招募軍隊,甚至用 AI 設計專屬兵種。",
       "對關係惡化的國家宣戰後，即可對相鄰地區發動戰役、編組軍團並下達每回合的作戰指令。",
     ],
   },
@@ -244,7 +244,7 @@ const TOUR_STEPS: TourStep[] = [
     targets: ["stat-tech"],
     icon: FlaskConical,
     title: "科技點數",
-    body: "點數每回合會自動成長（綠色數字是每回合的增量），用來研發科技與設計兵種。點擊可看來源明細。",
+    body: "點數每回合會自動成長（綠色數字是每回合的增量），用來設計兵種。點擊可看來源明細。",
   },
   {
     targets: ["stat-money"],
@@ -262,7 +262,7 @@ const TOUR_STEPS: TourStep[] = [
     targets: ["button-nav-軍事", "button-nav-m-軍事"],
     icon: Swords,
     title: "軍事",
-    body: "招募軍隊、研發軍事科技、設計兵種，並在宣戰後發動戰役。",
+    body: "招募軍隊、設計兵種，並在宣戰後發動戰役。",
   },
   {
     targets: ["button-nav-外交", "button-nav-m-外交"],

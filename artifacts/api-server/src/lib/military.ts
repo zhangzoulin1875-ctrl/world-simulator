@@ -2,7 +2,7 @@ import type {
   MilitaryTechBonus,
   MilitaryUnitTemplate,
 } from "@workspace/db";
-import { getEraIndex, isEraSlug } from "./mapRegionEras";
+import { ERAS, getEraIndex, isEraSlug } from "./mapRegionEras";
 
 /**
  * Task #27 — 軍事系統核心常數與純函式（類別解鎖、成本計算、科技加成疊算、
@@ -100,6 +100,10 @@ export function isCategoryUnlocked(
 }
 
 /** 類別的鎖定資訊（供前端顯示解鎖條件與鎖定原因）。 */
+function eraLabelOf(eraSlug: string): string {
+  return ERAS.find((e) => e.slug === eraSlug)?.label ?? eraSlug;
+}
+
 export interface CategoryLockInfo {
   unlocked: boolean;
   requiredKeySlug: string | null;
@@ -122,7 +126,7 @@ export function categoryLockInfo(
     ) {
       lockReason = "已研發「火槍兵」，弓弩射手已被火槍取代（步兵改為遠程作戰）";
     } else if (requiredDef) {
-      lockReason = `需先研發關鍵技術「${requiredDef.name}」`;
+      lockReason = `世界進入「${eraLabelOf(requiredDef.eraSlug)}」時自動解鎖(關鍵技術「${requiredDef.name}」)`;
     }
   }
   return {
