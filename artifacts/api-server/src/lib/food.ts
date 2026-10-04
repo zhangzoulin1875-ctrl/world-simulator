@@ -4,10 +4,15 @@ import type { MilitaryTechBonus } from "@workspace/db";
  * Task #382 — 糧食系統純函式（DB-free、可單元測試）。
  *
  * 糧食為「非累積性」資源：每回合計算產出與消耗，不儲存結餘。
- * - 產出 = Σ各控制地區（控制面積 × 肥沃度 × 時代指數 × 農民比例 × 校準常數）
- *   × 科技/政策修正（面積基準，2026-07 起；不再以人口為基準）。
- *   控制面積 = 地區面積 km² × 控制比例；農民比例 = farmer_population_pct。
+ * - 產出 = Σ各控制地區 max(土地項, 人均保底項) × 科技/政策修正
+ *   （2026-10 起：面積基準 + 人均保底混合，見 FOOD_PER_CAPITA_FLOOR）。
+ *   土地項 = 控制面積 × 肥沃度 × 時代指數 × 農民比例 × 校準常數
+ *   （控制面積 = 地區面積 km² × 控制比例；農民比例 = farmer_population_pct）。
+ *   人均保底項 = 控制人口 × 時代指數 × FOOD_PER_CAPITA_FLOOR × 農民比例
+ *   （集約農業：精耕細作的畝產由勞動力密度決定）。
  * - 消耗 = 平民每人口 1 ＋ 軍人每人 5（軍人數 = Σ 軍隊數量 × 兵種人口消耗）。
+ * - 保底讓平民在任何年代開局都不飢荒（保底 ≥ 1.2 × 消耗），但養兵
+ *   （每人 5）仍受土地肥沃度限制——軍事潛力由糧食剩餘決定，符合史實。
  * - 產出 < 消耗 → 飢荒：每日回合 −20% 人口（走 region_controls.population_bonus 路徑）。
  * - 人口每下跌 1% → 四階級滿意度與支持度各 −2（適用任何人口下跌來源）。
  *
@@ -59,10 +64,21 @@ export function foodEraIndexForEra(
  * 「全球」產出大致等於全球平民消耗（每人口 1 糧食）。以全部 373 區實測：
  * Σ(面積×肥沃度) ≈ 4,799,227,317、古典全球人口 ≈ 216,074,250 →
  * C ≈ 216,074,250 ÷ (4,799,227,317 × 0.1) ≈ 0.45。
- * 注意：面積基準下各國開局不再保證各自收支平衡——地廣人稀盈餘、
- * 人口稠密吃緊，這是刻意的設計取捨。具名常數方便日後調整平衡。
+ * 注意：面積項代表「土地潛力」，人口稠密區靠人均保底項（見
+ * FOOD_PER_CAPITA_FLOOR）補足，地廣人稀區僅吃土地項盈餘。
  */
 export const FOOD_CALIBRATION = 0.45;
+
+/**
+ * 人均糧食保底：每人每回合至少產出「時代指數 × 12」糧食（再乘農民比例）。
+ * 兩層意義：
+ *  - 平民不飢荒：古典時代指數 0.1 → 保底 1.2 > 消耗 1，任何年代開局皆然
+ *   （時代指數最小 0.1，保底恆 ≥ 1.2）。
+ *  - 養兵見真章：軍人每人吃 5，土地貧瘠區養不起大軍、肥沃平原餘裕大，
+ *   軍事潛力差異由土地項（面積×肥沃度）決定——這是前工業化國家的史實。
+ * 兩項同乘時代指數與農民比例，管理員覆寫 eraIndex 時保底自動跟隨。
+ */
+export const FOOD_PER_CAPITA_FLOOR = 12;
 
 /** 平民每人口每回合糧食消耗。 */
 export const CIVILIAN_FOOD_PER_CAPITA = 1;
@@ -107,7 +123,7 @@ export interface RegionFoodInput {
   controlledAreaKm2: number | null;
   /**
    * 該區「控制人口」＝ round(percent × 時代人口 / 100) + 累積量，下限 0。
-   * 面積基準後不再參與產出公式，僅供人口/消耗口徑與顯示使用。
+   * 人均保底項（FOOD_PER_CAPITA_FLOOR）的輸入，也供消耗口徑與顯示使用。
    */
   controlledPopulation: number;
 }
@@ -124,7 +140,13 @@ export function regionFoodBase(
   const fertility = Math.max(0, region.fertility ?? 0);
   const area = Math.max(0, region.controlledAreaKm2 ?? 0);
   const farmerShare = Math.min(100, Math.max(0, farmerPct)) / 100;
-  return area * fertility * eraIndex * farmerShare * FOOD_CALIBRATION;
+  const landTerm = area * fertility * eraIndex * farmerShare * FOOD_CALIBRATION;
+  const popTerm =
+    Math.max(0, region.controlledPopulation) *
+    eraIndex *
+    FOOD_PER_CAPITA_FLOOR *
+    farmerShare;
+  return Math.max(landTerm, popTerm);
 }
 
 /**

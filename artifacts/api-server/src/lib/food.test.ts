@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   FOOD_ERA_INDEX,
   FOOD_CALIBRATION,
+  FOOD_PER_CAPITA_FLOOR,
   FOOD_POLICY_OUTPUT_BONUS_PCT,
   FOOD_POLICY_RATION_SAVING_PCT,
   FOOD_POLICY_SATISFACTION_COST_PER_TURN,
@@ -86,38 +87,58 @@ test("computeFoodProduction：eraIndexOverrides 直接改變產出", () => {
   assert.ok(Math.abs(doubled.total - base.total * 2) < 1e-9);
 });
 
-test("regionFoodBase：控制面積 × 肥沃度 × 時代指數 × 農民比例 × 校準常數", () => {
+test("regionFoodBase：土地項勝出時 = 面積 × 肥沃度 × 時代指數 × 農民比例 × 校準常數", () => {
   const out = regionFoodBase(
-    { fertility: 60, controlledAreaKm2: 1000, controlledPopulation: 12345 },
+    { fertility: 60, controlledAreaKm2: 1000, controlledPopulation: 100 },
     50,
     0.1,
   );
-  // 1000 × 60 × 0.1 × 0.5 × 0.45 = 1350；人口不參與產出。
+  // 1000 × 60 × 0.1 × 0.5 × 0.45 = 1350 > 保底項 100 × 0.1 × 12 × 0.5 = 60。
   assert.equal(out, 1000 * 60 * 0.1 * 0.5 * FOOD_CALIBRATION);
 });
 
-test("regionFoodBase：人口不影響產出（面積基準）", () => {
+test("regionFoodBase：人均保底項勝出時 = 人口 × 時代指數 × FOOD_PER_CAPITA_FLOOR × 農民比例", () => {
+  // 地小人稠（土地項：10 × 60 × 0.1 × 0.5 × 0.45 = 13.5；
+  // 保底項：10000 × 0.1 × 12 × 0.5 = 6000）→ 保底勝出。
+  const out = regionFoodBase(
+    { fertility: 60, controlledAreaKm2: 10, controlledPopulation: 10_000 },
+    50,
+    0.1,
+  );
+  assert.equal(out, 10_000 * 0.1 * FOOD_PER_CAPITA_FLOOR * 0.5);
+  // 平民保底自給：古典指數 0.1、農民 100% → 每人 1.2 > 消耗 1，不飢荒。
+  const perCapita = regionFoodBase(
+    { fertility: 0, controlledAreaKm2: 0, controlledPopulation: 1000 },
+    100,
+    foodEraIndexForEra("classical"),
+  ) / 1000;
+  assert.ok(perCapita >= 1.2);
+});
+
+test("regionFoodBase：土地項勝出時人口不影響產出", () => {
+  // 500 × 60 × 1 × 1 × 0.45 = 13500；保底項 100 × 12 = 1200 < 13500。
   const a = regionFoodBase(
-    { fertility: 60, controlledAreaKm2: 500, controlledPopulation: 0 },
+    { fertility: 60, controlledAreaKm2: 500, controlledPopulation: 100 },
     100,
     1,
   );
   const b = regionFoodBase(
-    { fertility: 60, controlledAreaKm2: 500, controlledPopulation: 9_999_999 },
+    { fertility: 60, controlledAreaKm2: 500, controlledPopulation: 500 },
     100,
     1,
   );
   assert.equal(a, b);
 });
 
-test("regionFoodBase：null 肥沃度/面積視為 0；負值/超界農民比例夾限", () => {
+test("regionFoodBase：null 肥沃度/面積視為 0（保底項接手）；負值/超界農民比例夾限", () => {
+  // 土地項歸零後仍有人均保底（1000 × 1 × 12 × 1 = 12000）。
   assert.equal(
     regionFoodBase(
       { fertility: null, controlledAreaKm2: 1000, controlledPopulation: 1000 },
       100,
       1,
     ),
-    0,
+    1000 * FOOD_PER_CAPITA_FLOOR,
   );
   assert.equal(
     regionFoodBase(
@@ -125,11 +146,19 @@ test("regionFoodBase：null 肥沃度/面積視為 0；負值/超界農民比例
       100,
       1,
     ),
-    0,
+    1000 * FOOD_PER_CAPITA_FLOOR,
   );
   assert.equal(
     regionFoodBase(
       { fertility: 60, controlledAreaKm2: -5, controlledPopulation: 1000 },
+      100,
+      1,
+    ),
+    1000 * FOOD_PER_CAPITA_FLOOR,
+  );
+  assert.equal(
+    regionFoodBase(
+      { fertility: 60, controlledAreaKm2: -5, controlledPopulation: 0 },
       100,
       1,
     ),

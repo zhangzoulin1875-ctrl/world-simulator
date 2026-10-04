@@ -419,6 +419,19 @@ router.get("/player/nation/stat-breakdown", async (req, res) => {
 });
 
 /**
+ * 建國生產力上限的年代縮放：基準為古典時代（prodAvg = 5）。
+ * worldGameState.foundingProductionCap 是管理員設定的「古典基準值」；
+ * 實際上限 = 基準 × 當前年代 prodAvg ÷ 5，讓所有年代保有同樣的選地寬度
+ * （分子 productivity × population 隨年代暴漲，固定上限晚期會形同虛設）。
+ * 未知時代 slug 回落古典（prodAvg 5 → 不縮放）。
+ */
+function eraScaledFoundingCap(baseCap: number, eraSlug: string | undefined): number {
+  const era = ERAS.find((e) => e.slug === eraSlug);
+  const prodAvg = era?.prodAvg ?? 5;
+  return Math.round(baseCap * (prodAvg / 5));
+}
+
+/**
  * Task #433 — 建國可選政體清單（含決策難度等量化提示）。數值直接取自
  * governments.ts SSOT，前端不再自抄一份會漂移的數字。
  */
@@ -440,11 +453,19 @@ router.get("/player/founding-governments", async (req, res) => {
   }).filter((g) => g !== null);
 
   const [worldRow] = await db
-    .select({ foundingProductionCap: worldGameStateTable.foundingProductionCap })
+    .select({
+      foundingProductionCap: worldGameStateTable.foundingProductionCap,
+      currentEra: worldGameStateTable.currentEra,
+    })
     .from(worldGameStateTable)
     .where(eq(worldGameStateTable.id, 1))
     .limit(1);
-  const foundingProductionCap = worldRow?.foundingProductionCap ?? 10000;
+  // 生產力上限依當前年代縮放：分子（productivity × population）隨年代暴漲
+  // （prodAvg 5 → 10000），固定上限會讓晚期年代幾乎選不了第二塊地。
+  const foundingProductionCap = eraScaledFoundingCap(
+    worldRow?.foundingProductionCap ?? 10000,
+    worldRow?.currentEra,
+  );
 
   res.json({ governments, foundingProductionCap });
 });
@@ -536,7 +557,10 @@ router.post("/player/nation", async (req, res) => {
       .from(worldGameStateTable)
       .where(eq(worldGameStateTable.id, 1))
       .limit(1);
-    const productionCap = capRow?.foundingProductionCap ?? 10000;
+    const productionCap = eraScaledFoundingCap(
+      capRow?.foundingProductionCap ?? 10000,
+      worldEra,
+    );
 
     const eraStats = await db.execute<{ production: string }>(sql`
       SELECT FLOOR(productivity * population / 10000)::bigint AS production
