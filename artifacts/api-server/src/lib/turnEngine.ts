@@ -34,6 +34,7 @@ import {
   warWearinessRecovery,
 } from "./politics";
 import { computeTurnFinance, effectiveTaxEfficiencyPct } from "./economy";
+import { settleMercenaryRent } from "./mercenaryService";
 import { upkeepShortfallMilitaryPenalty } from "./militaryPolitics";
 import {
   runPoliticsSettlement,
@@ -745,7 +746,7 @@ async function doRunTurn(
         ore: 0,
         upkeep: 0,
       };
-      const upkeep =
+      const baseUpkeep =
         (nation.discordUserId
           ? (upkeepByUser.get(nation.discordUserId) ?? 0)
           : 0) +
@@ -760,6 +761,24 @@ async function doRunTurn(
         statsEra,
         nation.taxEfficiencyBonus + socialTaxBonus,
       );
+      // 僱傭兵租金:併入維護費;付不起(扣完其他維護費後)就自動解約、本回合不收。
+      // 僅玩家國家有合約;NPC 與無合約國家不會查資料庫以外的東西(getMercenaryState 單筆查詢)。
+      let upkeep = baseUpkeep;
+      if (!nation.isNpc && nation.discordUserId) {
+        const taxOnly = computeTurnFinance({
+          money: nation.money,
+          population: stats.population,
+          taxRatePct: nation.taxRatePct,
+          taxEfficiencyPct,
+          upkeep: 0,
+        });
+        const rentRes = await settleMercenaryRent({
+          nationId: nation.id,
+          availableFunds: nation.money + taxOnly.taxIncome,
+          otherUpkeep: baseUpkeep,
+        });
+        upkeep = baseUpkeep + rentRes.rentCharged;
+      }
       const finance = computeTurnFinance({
         money: nation.money,
         population: stats.population,

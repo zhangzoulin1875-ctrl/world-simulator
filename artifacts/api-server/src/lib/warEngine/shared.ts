@@ -111,6 +111,11 @@ export interface LoadedLegion {
   morale: number;
   supply: number;
   garrisoningCity: boolean;
+  /**
+   * 僱傭兵軍團:戰力由 mercenary_states 即時推算(資料庫沒有單位列)。
+   * 結算時傷亡一律歸零(只有士氣/補給會變),寫回時跳過單位列更新。
+   */
+  mercenary?: boolean;
   /** 武將系統 — 坐鎮武將（無 = undefined；只加成與其專精分類相同的兵種）。 */
   general?: {
     id: number;

@@ -1028,3 +1028,23 @@ export function computeLocalPopulationLossPct(
   return (effective / 100) * 5;
 }
 
+
+
+/**
+ * 把陣營傷亡分配給各軍團。僱傭兵軍團(isMercenary)永遠零損失,
+ * 損失全由同陣營的真實軍團按兵力比例承擔;沒有任何真實軍團時,傷亡直接落空(不硬塞)。
+ *
+ * 注意:allocateProportionally 在權重全為 0 時會改成平均分配,所以不能只把
+ * 僱傭兵權重設 0,必須在「沒有真實軍團」時明確回傳全 0。
+ */
+export function allocateLegionLosses(
+  legions: ReadonlyArray<{ troops: number; isMercenary: boolean }>,
+  sideCasualties: number,
+): number[] {
+  const weights = legions.map((l) => (l.isMercenary ? 0 : Math.max(0, l.troops)));
+  if (weights.every((w) => w <= 0)) return legions.map(() => 0);
+  const alloc = allocateProportionally(weights, sideCasualties);
+  return alloc.map((loss, i) =>
+    legions[i]!.isMercenary ? 0 : Math.min(loss, weights[i]!),
+  );
+}

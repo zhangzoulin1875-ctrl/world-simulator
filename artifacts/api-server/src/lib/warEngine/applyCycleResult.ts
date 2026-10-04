@@ -18,6 +18,7 @@ import {
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   allocateProportionally,
+  allocateLegionLosses,
   normalizeSplitWeights,
   applyTacticalBonus,
   applyTerritoryTransfer,
@@ -414,15 +415,20 @@ export async function applyCycleResult(
     // 士氣／補給：僵持週期用固定常數（確定性）；一般週期依傷亡比例計算。
     // 兩者皆為伺服器決定性，不再由 AI legionResult 給定。
     for (const side of sides) {
-      const legionTroops = side.legions.map((l) =>
-        l.units.reduce((s, u) => s + u.quantity, 0),
-      );
-      const sideTotal = legionTroops.reduce((a, b) => a + b, 0);
+      // 僱傭兵無傷亡:損失由同陣營真實軍團承擔(allocateLegionLosses)。
+      // sideTotal 仍含僱傭兵兵力,所以士氣/補給用的「傷亡率」會被他們稀釋,
+      // 陣營被打垮時士氣照樣會降。
+      const sideTotal = side.legions
+        .map((l) => l.units.reduce((s, u) => s + u.quantity, 0))
+        .reduce((a, b) => a + b, 0);
       const ownCasualties = sideCasualtyTotal[side.key];
       const enemyCasualties =
         sideCasualtyTotal[side.key === "attacker" ? "defender" : "attacker"];
-      const perLegionLoss = allocateProportionally(
-        legionTroops,
+      const perLegionLoss = allocateLegionLosses(
+        side.legions.map((l) => ({
+          troops: l.units.reduce((sum, u) => sum + u.quantity, 0),
+          isMercenary: !!l.mercenary,
+        })),
         ownCasualties,
       );
       side.legions.forEach((legion, li) => {
@@ -433,10 +439,7 @@ export async function applyCycleResult(
           ratePct: 0,
         };
         const isPlayer = !owner.isNpc && owner.discordUserId !== null;
-        const legionLoss = Math.min(
-          perLegionLoss[li] ?? 0,
-          legionTroops[li] ?? 0,
-        );
+        const legionLoss = legion.mercenary ? 0 : (perLegionLoss[li] ?? 0);
         if (legionLoss > 0) {
           const perUnitLoss = allocateProportionally(
             legion.units.map((u) => u.quantity),
@@ -489,6 +492,8 @@ export async function applyCycleResult(
           .set({ morale: legion.morale, supply: legion.supply })
           .where(eq(warCampaignLegionsTable.id, legion.id));
         for (const unit of legion.units) {
+          // 僱傭兵是虛擬單位(unitRowId < 0):沒有資料列可更新,也沒有真實軍隊可扣。
+          if (legion.mercenary || unit.unitRowId < 0) continue;
           await tx
             .update(warCampaignLegionUnitsTable)
             .set({

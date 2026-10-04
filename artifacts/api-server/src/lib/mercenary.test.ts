@@ -152,3 +152,21 @@ test("規則:解除武裝、建軍閘門、簽約判定", () => {
   assert.equal(canSignContract({ ...base, activeContractCompanyId: "grey_wolves" }).ok, false);
   assert.equal(canSignContract({ ...base, companyId: "x" }).ok, false);
 });
+
+
+import { decideRentCharge as _decideRentCharge } from "./mercenary";
+
+test("租金決策:付完其他維護費後仍足夠才收租", () => {
+  assert.deepEqual(_decideRentCharge({ rent: 100, availableFunds: 1000, otherUpkeep: 500 }), { charge: true, rentCharged: 100 });
+  assert.deepEqual(_decideRentCharge({ rent: 100, availableFunds: 600, otherUpkeep: 500 }), { charge: true, rentCharged: 100 });
+});
+
+test("租金決策:差一塊錢也算付不起,自動解約、租金 0", () => {
+  assert.deepEqual(_decideRentCharge({ rent: 100, availableFunds: 599, otherUpkeep: 500 }), { charge: false, rentCharged: 0 });
+  assert.deepEqual(_decideRentCharge({ rent: 100, availableFunds: 0, otherUpkeep: 0 }), { charge: false, rentCharged: 0 });
+});
+
+test("租金決策:租金 0 一律放行;小數租金無條件進位", () => {
+  assert.deepEqual(_decideRentCharge({ rent: 0, availableFunds: 0, otherUpkeep: 999 }), { charge: true, rentCharged: 0 });
+  assert.deepEqual(_decideRentCharge({ rent: 10.2, availableFunds: 50, otherUpkeep: 0 }), { charge: true, rentCharged: 11 });
+});

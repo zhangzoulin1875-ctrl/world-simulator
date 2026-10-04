@@ -1316,3 +1316,49 @@ describe("detectAnachronisticUnits", () => {
   });
 });
 
+
+
+import { allocateLegionLosses } from "./war";
+
+test("僱傭兵傷亡:有真實軍團時,損失全由真實軍團按兵力承擔", () => {
+  const r = allocateLegionLosses(
+    [
+      { troops: 300, isMercenary: false },
+      { troops: 5000, isMercenary: true },
+      { troops: 100, isMercenary: false },
+    ],
+    40,
+  );
+  assert.equal(r[1], 0);
+  assert.equal(r[0]! + r[2]!, 40);
+  assert.ok(r[0]! > r[2]!);
+});
+
+test("僱傭兵傷亡:全靠僱傭兵(小國)時傷亡落空,不會被平均硬塞", () => {
+  assert.deepEqual(
+    allocateLegionLosses(
+      [
+        { troops: 800, isMercenary: true },
+        { troops: 800, isMercenary: true },
+      ],
+      30,
+    ),
+    [0, 0],
+  );
+});
+
+test("僱傭兵傷亡:真實軍團的損失不會超過自身兵力", () => {
+  const r = allocateLegionLosses(
+    [
+      { troops: 10, isMercenary: false },
+      { troops: 9999, isMercenary: true },
+    ],
+    500,
+  );
+  assert.deepEqual(r, [10, 0]);
+});
+
+test("僱傭兵傷亡:沒有軍團或傷亡為 0 時回全 0", () => {
+  assert.deepEqual(allocateLegionLosses([], 10), []);
+  assert.deepEqual(allocateLegionLosses([{ troops: 50, isMercenary: false }], 0), [0]);
+});

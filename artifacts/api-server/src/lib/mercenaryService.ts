@@ -17,6 +17,7 @@ import {
   getMercenaryCompany,
   canDisarm,
   canSignContract,
+  decideRentCharge,
   canRecruit,
   computeMercenaryForce,
   computeMercenaryRent,
@@ -397,6 +398,61 @@ export async function terminateContract(
   });
 }
 
+/* ───────────── 回合租金 ───────────── */
+
+export interface RentChargeResult {
+  /** 本回合要併入維護費的租金(無合約或已解約 = 0)。 */
+  rentCharged: number;
+  /** 是否因付不起而自動解約。 */
+  terminated: boolean;
+  companyName: string | null;
+}
+
+/**
+ * 回合結算用:決定該國本回合的僱傭兵租金。
+ * 付得起 → 回傳租金並累計 total_rent_paid;付不起 → 自動解約並留下備註,租金 0。
+ * 只處理有生效合約的玩家國家;其餘回 0,不碰資料庫。
+ */
+export async function settleMercenaryRent(params: {
+  nationId: string;
+  availableFunds: number;
+  otherUpkeep: number;
+}): Promise<RentChargeResult> {
+  const state = await getMercenaryState(params.nationId);
+  if (!state?.companyId) return { rentCharged: 0, terminated: false, companyName: null };
+  const quote = await quoteCompany(params.nationId, state.companyId);
+  if (!quote) {
+    await terminateContract(params.nationId, "合約公司已不存在,自動解約");
+    return { rentCharged: 0, terminated: true, companyName: null };
+  }
+  // 派遣中的回合,除了租金還要付戰役出動費;兩者一起過「付不付得起」這道關。
+  const deployed = !!state.deployedCampaignId;
+  const perTurn = quote.rent + (deployed ? quote.deployFee : 0);
+  const decision = decideRentCharge({
+    rent: perTurn,
+    availableFunds: params.availableFunds,
+    otherUpkeep: params.otherUpkeep,
+  });
+  if (!decision.charge) {
+    await terminateContract(
+      params.nationId,
+      `資金不足,無法支付「${quote.company.name}」本回合費用 ${perTurn},合約已自動終止`,
+    );
+    return { rentCharged: 0, terminated: true, companyName: quote.company.name };
+  }
+  if (decision.rentCharged > 0) {
+    await db
+      .update(mercenaryStatesTable)
+      .set({
+        totalRentPaid: sql`${mercenaryStatesTable.totalRentPaid} + ${quote.rent}`,
+        totalDeployPaid: sql`${mercenaryStatesTable.totalDeployPaid} + ${decision.rentCharged - quote.rent}`,
+        updatedAt: new Date(),
+      })
+      .where(eq(mercenaryStatesTable.nationId, params.nationId));
+  }
+  return { rentCharged: decision.rentCharged, terminated: false, companyName: quote.company.name };
+}
+
 /* ───────────── 派遣 / 召回 ───────────── */
 
 /** 僱傭兵軍團在資料庫裡的標記:軍團單位的 template_id 為 null 不可行,改用 nation 自己的軍團列 + 專屬旗標表。 */
@@ -545,6 +601,65 @@ export async function recallMercenaries(nationId: string): Promise<void> {
       })
       .where(eq(mercenaryStatesTable.nationId, nationId));
   });
+}
+
+/** 虛擬單位的 unitRowId:負數,絕不會對應到真實的 war_campaign_legion_units.id。 */
+export const MERCENARY_UNIT_ROW_ID = -1;
+
+export interface MercenaryLegionUnit {
+  unitRowId: number;
+  templateId: number;
+  name: string;
+  category: string;
+  quantity: number;
+  wounded: number;
+  attack: number;
+  defense: number;
+  hp: number;
+  speed: number;
+  accuracy: number;
+  range: string;
+  antiCavalryPct: number;
+  antiRangedPct: number;
+  siegePct: number;
+}
+
+/**
+ * 某場戰役中,所有「已派遣到這場戰役」的僱傭兵,換算成 nationId + slot → 虛擬單位。
+ * 戰力依「當下」的國力與全服平均重算,所以會隨時代與科技自然成長。
+ */
+export async function loadMercenaryUnitsForCampaign(
+  campaignId: number,
+): Promise<Map<string, MercenaryLegionUnit>> {
+  const rows = await db
+    .select()
+    .from(mercenaryStatesTable)
+    .where(eq(mercenaryStatesTable.deployedCampaignId, campaignId));
+  const out = new Map<string, MercenaryLegionUnit>();
+  for (const st of rows) {
+    if (!st.companyId || !st.deployedSlot) continue;
+    const quotes = await quoteCompanies(st.nationId);
+    const q = quotes.find((x) => x.company.id === st.companyId);
+    if (!q) continue;
+    out.set(`${st.nationId}:${st.deployedSlot}`, {
+      unitRowId: MERCENARY_UNIT_ROW_ID,
+      templateId: 0,
+      name: q.company.name,
+      category: "infantry",
+      quantity: q.force.troops,
+      wounded: 0,
+      attack: q.force.attack,
+      defense: q.force.defense,
+      hp: q.force.hp,
+      speed: 5,
+      accuracy: 60,
+      range: "melee",
+      antiCavalryPct: 0,
+      antiRangedPct: 0,
+      siegePct: 0,
+    });
+  }
+  return out;
 }
 
 void inArray;

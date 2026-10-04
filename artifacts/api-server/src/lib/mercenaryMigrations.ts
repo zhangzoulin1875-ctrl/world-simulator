@@ -30,10 +30,24 @@ export async function runMercenaryMigrationsInner(): Promise<void> {
         CHECK (deployed_mode IS NULL OR deployed_mode IN ('defend','attack')),
       CONSTRAINT mercenary_states_deploy_consistency_check
         CHECK (
-          (deployed_campaign_id IS NULL AND deployed_slot IS NULL AND deployed_mode IS NULL)
-          OR (deployed_campaign_id IS NOT NULL AND deployed_slot IS NOT NULL AND deployed_mode IS NOT NULL)
+          deployed_campaign_id IS NULL
+          OR (deployed_slot IS NOT NULL AND deployed_mode IS NOT NULL)
         )
     )
+  `);
+  // 升級已建好的舊表:戰役被刪時外鍵只會把 deployed_campaign_id 置空,
+  // slot/mode 殘留無害(讀取一律以 campaign_id 為準),所以約束只單向要求「有戰役就要有 slot+mode」。
+  await db.execute(sql`
+    ALTER TABLE mercenary_states
+      DROP CONSTRAINT IF EXISTS mercenary_states_deploy_consistency_check
+  `);
+  await db.execute(sql`
+    ALTER TABLE mercenary_states
+      ADD CONSTRAINT mercenary_states_deploy_consistency_check
+      CHECK (
+        deployed_campaign_id IS NULL
+        OR (deployed_slot IS NOT NULL AND deployed_mode IS NOT NULL)
+      )
   `);
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS mercenary_states_campaign_idx

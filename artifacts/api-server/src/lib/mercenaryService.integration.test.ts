@@ -290,6 +290,74 @@ test("已結束的戰役不可派遣", async () => {
   await assert.rejects(() => svc.deployMercenaries({ nationId: nB, campaignId: cid, slot: "A", mode: "defend" }), /已經結束/);
 });
 
+test("回合租金:付得起就收並累計 total_rent_paid", async () => {
+  await reset(nB, userB);
+  await svc.disarmNation(nB);
+  await svc.signContract(nB, "grey_wolves");
+  const q = await svc.quoteCompany(nB, "grey_wolves");
+  const r = await svc.settleMercenaryRent({ nationId: nB, availableFunds: q!.rent + 1000, otherUpkeep: 1000 });
+  assert.equal(r.terminated, false);
+  assert.equal(r.rentCharged, q!.rent);
+  assert.equal((await svc.getMercenaryState(nB))?.totalRentPaid, q!.rent);
+  const r2 = await svc.settleMercenaryRent({ nationId: nB, availableFunds: q!.rent + 1000, otherUpkeep: 1000 });
+  assert.equal((await svc.getMercenaryState(nB))?.totalRentPaid, q!.rent * 2);
+  assert.equal(r2.rentCharged, q!.rent);
+});
+
+test("回合租金:付不起 → 自動解約、留下備註、不收租、召回派遣", async () => {
+  await reset(nA, userA); await reset(nB, userB);
+  await svc.disarmNation(nB);
+  await svc.signContract(nB, "obsidian");
+  const cid = await mkCampaign(nA, nB);
+  await svc.deployMercenaries({ nationId: nB, campaignId: cid, slot: "A", mode: "defend" });
+  const r = await svc.settleMercenaryRent({ nationId: nB, availableFunds: 0, otherUpkeep: 0 });
+  assert.equal(r.terminated, true);
+  assert.equal(r.rentCharged, 0);
+  const st = await svc.getMercenaryState(nB);
+  assert.equal(st?.companyId, null);
+  assert.equal(st?.deployedCampaignId, null);
+  assert.match(st?.lastTerminationNote ?? "", /資金不足/);
+  assert.equal((await db.select().from(warCampaignLegionsTable).where(eq(warCampaignLegionsTable.campaignId, cid))).filter((l) => l.nationId === nB).length, 0);
+});
+
+test("回合租金:派遣中額外收戰役出動費,分開累計", async () => {
+  await reset(nA, userA); await reset(nB, userB);
+  await svc.disarmNation(nB);
+  await svc.signContract(nB, "iron_shield");
+  const q = (await svc.quoteCompany(nB, "iron_shield"))!;
+  const idle = await svc.settleMercenaryRent({ nationId: nB, availableFunds: 1e9, otherUpkeep: 0 });
+  assert.equal(idle.rentCharged, q.rent, "未派遣只收租金");
+  const cid = await mkCampaign(nA, nB);
+  await svc.deployMercenaries({ nationId: nB, campaignId: cid, slot: "A", mode: "defend" });
+  const busy = await svc.settleMercenaryRent({ nationId: nB, availableFunds: 1e9, otherUpkeep: 0 });
+  assert.equal(busy.rentCharged, q.rent + q.deployFee, "派遣中租金 + 出動費");
+  const st = await svc.getMercenaryState(nB);
+  assert.equal(st?.totalRentPaid, q.rent * 2);
+  assert.equal(st?.totalDeployPaid, q.deployFee);
+});
+
+test("回合租金:沒有合約的國家回 0、不報錯", async () => {
+  await reset(nB, userB);
+  const r = await svc.settleMercenaryRent({ nationId: nB, availableFunds: 0, otherUpkeep: 0 });
+  assert.deepEqual(r, { rentCharged: 0, terminated: false, companyName: null });
+});
+
+test("戰役載入:已派遣的僱傭兵得到虛擬單位(負數 unitRowId),未派遣的沒有", async () => {
+  await reset(nA, userA); await reset(nB, userB);
+  await svc.disarmNation(nB);
+  await svc.signContract(nB, "white_raven");
+  const cid = await mkCampaign(nA, nB);
+  assert.equal((await svc.loadMercenaryUnitsForCampaign(cid)).size, 0);
+  await svc.deployMercenaries({ nationId: nB, campaignId: cid, slot: "B", mode: "defend" });
+  const m = await svc.loadMercenaryUnitsForCampaign(cid);
+  assert.equal(m.size, 1);
+  const u = m.get(`${nB}:B`)!;
+  assert.ok(u, "key 應為 nationId:slot");
+  assert.ok(u.unitRowId < 0, "虛擬單位不可對應真實資料列");
+  assert.ok(u.quantity >= 1 && u.attack > 0 && u.defense > 0 && u.hp > 0);
+  assert.equal(u.wounded, 0);
+});
+
 test("報價:五間公司兵力隨公司遞增、租金低於常備軍", async () => {
   const q = await svc.quoteCompanies(nB);
   assert.equal(q.length, 5);

@@ -195,3 +195,34 @@ export function canSignContract(input: SignCheckInput): DisarmCheck {
   if (input.hasStandingForces) return { ok: false, reason: "仍持有常備軍或訓練中的單位,請先解除武裝" };
   return { ok: true };
 }
+
+
+/* ───────────── 回合租金:付得起就收,付不起就自動解約 ───────────── */
+
+export interface RentDecisionInput {
+  /** 本回合租金(來自報價)。 */
+  rent: number;
+  /** 當回合可支配資金:現金 + 本回合稅收。 */
+  availableFunds: number;
+  /** 其他維護費(建築、資源區等);僱傭兵租金排在它們之後,不排擠必要支出。 */
+  otherUpkeep: number;
+}
+
+export interface RentDecision {
+  /** true = 收租;false = 付不起,自動解約。 */
+  charge: boolean;
+  /** 本回合實際要併入維護費的租金(解約時為 0)。 */
+  rentCharged: number;
+}
+
+/**
+ * 僱傭兵租金只在「付完其他維護費後還付得起」時才收;
+ * 否則自動解約,避免玩家因租金陷入赤字螺旋(與常備軍赤字懲罰脫鉤)。
+ */
+export function decideRentCharge(input: RentDecisionInput): RentDecision {
+  const rent = Math.max(0, Math.ceil(input.rent));
+  const remaining = input.availableFunds - Math.max(0, input.otherUpkeep);
+  if (rent <= 0) return { charge: true, rentCharged: 0 };
+  if (remaining >= rent) return { charge: true, rentCharged: rent };
+  return { charge: false, rentCharged: 0 };
+}

@@ -57,6 +57,7 @@ import { getPoliticsSettings } from "../politicsSettings";
 import { logger } from "../logger";
 import { pgErrorCode } from "../playerValidation";
 import { getRecoveryBonuses, type LoadedLegion, type Tx } from "./shared";
+import { loadMercenaryUnitsForCampaign } from "../mercenaryService";
 import { weaponCombatMods, type WeaponSkillEffect } from "../weapons";
 import { generalCombatMods } from "../generals";
 import { generalsTable } from "@workspace/db";
@@ -633,6 +634,19 @@ async function settleCampaignInner(
     nationById.get(nationId)?.name ?? "未知國家";
 
   const legionsByNation = await loadLegions(campaignId);
+  // 僱傭兵:軍團列存在但沒有單位列 → 以即時推算的虛擬單位補上,並標記旗標。
+  const mercUnits = await loadMercenaryUnitsForCampaign(campaignId);
+  if (mercUnits.size > 0) {
+    for (const legions of legionsByNation.values()) {
+      for (const legion of legions) {
+        const unit = mercUnits.get(`${legion.nationId}:${legion.slot}`);
+        if (unit && legion.units.length === 0) {
+          legion.units.push({ ...unit });
+          legion.mercenary = true;
+        }
+      }
+    }
+  }
   // 該邊全部參戰國的軍團加總（主帥在前）。
   const attackerLegions = attackerNations.flatMap(
     (n) => legionsByNation.get(n.id) ?? [],
