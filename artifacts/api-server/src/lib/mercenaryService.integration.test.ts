@@ -461,6 +461,25 @@ test("多戰線:戰役被刪除時,派遣紀錄跟著刪除,不會卡住", async
   assert.equal((await svc.listDeployments(nB)).length, 0);
 });
 
+test("軍團視圖:傭兵欄位標 mercenary(公司名/兵力/攻防),一般軍團為 null", async () => {
+  const { buildMyLegionsView } = await import("../routes/war/shared");
+  await reset(nA, userA); await reset(nB, userB);
+  await svc.disarmNation(nB);
+  await svc.signContract(nB, "obsidian");
+  const cid = await mkCampaign(nA, nB);
+  await svc.deployMercenaries({ nationId: nB, campaignId: cid, slot: "B", mode: "defend" });
+  const view = await buildMyLegionsView(cid, nB, userB);
+  assert.equal(view.length, 1);
+  assert.equal(view[0]!.slot, "B");
+  assert.ok(view[0]!.mercenary, "傭兵欄位應帶 mercenary 資訊");
+  assert.ok(view[0]!.mercenary!.troops > 0);
+  assert.ok(view[0]!.mercenary!.companyName.length > 0);
+  assert.equal(view[0]!.units.length, 0, "傭兵軍團沒有自己的兵種列");
+  assert.equal(await svc.hasActiveMercenaryContract(nB), true);
+  await svc.terminateContract(nB);
+  assert.equal(await svc.hasActiveMercenaryContract(nB), false);
+});
+
 test("回合租金:沒有合約的國家回 0、不報錯", async () => {
   await reset(nB, userB);
   const r = await svc.settleMercenaryRent({ nationId: nB, availableFunds: 0, otherUpkeep: 0 });

@@ -4842,6 +4842,11 @@ export const GetWarCampaignDetailResponse = zod
   })
   .and(
     zod.object({
+      mercenaryLocked: zod
+        .boolean()
+        .describe(
+          "該國簽有傭兵合約;期間軍團由傭兵團代管,不能自行編組或儲存軍團配置。",
+        ),
       participants: zod
         .array(
           zod.object({
@@ -4904,6 +4909,17 @@ export const GetWarCampaignDetailResponse = zod
         .nullable(),
       myLegions: zod.array(
         zod.object({
+          mercenary: zod
+            .object({
+              companyName: zod.string(),
+              troops: zod.number(),
+              attack: zod.number(),
+              defense: zod.number(),
+            })
+            .nullable()
+            .describe(
+              "傭兵團代管的軍團(戰力於結算時動態計算,玩家不可編輯);一般軍團為 null。",
+            ),
           slot: zod.enum(["A", "B", "C"]),
           morale: zod.number(),
           supply: zod.number(),
@@ -5037,6 +5053,17 @@ export const UpdateWarCampaignLegionsBody = zod.object({
 export const UpdateWarCampaignLegionsResponse = zod.object({
   legions: zod.array(
     zod.object({
+      mercenary: zod
+        .object({
+          companyName: zod.string(),
+          troops: zod.number(),
+          attack: zod.number(),
+          defense: zod.number(),
+        })
+        .nullable()
+        .describe(
+          "傭兵團代管的軍團(戰力於結算時動態計算,玩家不可編輯);一般軍團為 null。",
+        ),
       slot: zod.enum(["A", "B", "C"]),
       morale: zod.number(),
       supply: zod.number(),

@@ -15,6 +15,8 @@ import type { WarLegionView } from "./warLegionView";
 import type { WarOrderView } from "./warOrderView";
 
 export type WarCampaignDetail = WarCampaignListItem & {
+  /** 該國簽有傭兵合約;期間軍團由傭兵團代管,不能自行編組或儲存軍團配置。 */
+  mercenaryLocked: boolean;
   /** 全部參戰國（含雙方主帥與晚加入者） */
   participants: WarCampaignParticipantView[];
   /** AI 開戰時生成的地理與地形敘述（生成中為 null） */

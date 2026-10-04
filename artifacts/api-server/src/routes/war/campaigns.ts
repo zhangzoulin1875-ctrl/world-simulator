@@ -1,3 +1,4 @@
+import { hasActiveMercenaryContract } from "../../lib/mercenaryService";
 import { type IRouter } from "express";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
@@ -380,6 +381,7 @@ export function registerWarCampaignRoutes(router: IRouter): void {
         })),
       },
       availableUnits,
+      mercenaryLocked: await hasActiveMercenaryContract(nation.id),
       myOrders: myOrderRows.map((o) => ({
         orderType: o.orderType,
         body: o.body,

@@ -288,6 +288,7 @@ export * from "./warLegionsUpdateRequestLegionsItemUnitsItem";
 export * from "./warLegionsUpdateResult";
 export * from "./warLegionUnitView";
 export * from "./warLegionView";
+export * from "./warLegionViewMercenary";
 export * from "./warLegionViewSlot";
 export * from "./warOrderRequest";
 export * from "./warOrderRequestOrderType";

@@ -53,13 +53,16 @@ function coupAdjustedMorale(morale: number, penalty: number): number {
 
 export function LegionEditor({
   detail,
-  disabled,
+  disabled: disabledProp,
   coupMoralePenalty = 0,
 }: {
   detail: WarCampaignDetail;
   disabled: boolean;
   coupMoralePenalty?: number;
 }) {
+  // 簽有傭兵合約:軍團由傭兵團代管,整區唯讀(沒有自己的兵可編)。
+  const locked = detail.mercenaryLocked;
+  const disabled = disabledProp || locked;
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [drafts, setDrafts] = useState<Record<SlotKey, LegionDraft>>(() => draftsFromDetail(detail));
@@ -118,6 +121,11 @@ export function LegionEditor({
           軍團配置
           <span className="text-xs font-normal text-white/45">（最多 3 個軍團，各 5 種兵種）</span>
         </div>
+        {locked && (
+          <span className="rounded border border-amber-400/40 bg-amber-500/15 px-2 py-1 text-xs text-amber-100" data-testid="badge-mercenary-locked">
+            傭兵團代管中
+          </span>
+        )}
         {!disabled && (
           <button
             onClick={save}
@@ -147,6 +155,7 @@ export function LegionEditor({
             woundedBySlotTemplate={woundedBySlotTemplate}
             availableUnits={detail.availableUnits}
             disabled={disabled}
+            lockedByMercenary={locked}
             coupMoralePenalty={coupMoralePenalty}
             onChange={(fn) => mutateDraft(slot, fn)}
           />
@@ -154,6 +163,7 @@ export function LegionEditor({
       </div>
 
       {/* 可用兵力 */}
+      {!locked && (
       <div className="mt-4">
         <div className="mb-1.5 text-xs font-semibold text-white/60">全國可派遣兵力</div>
         {detail.availableUnits.length === 0 ? (
@@ -179,6 +189,7 @@ export function LegionEditor({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
@@ -309,6 +320,7 @@ function LegionSlotCard({
   woundedBySlotTemplate,
   availableUnits,
   disabled,
+  lockedByMercenary,
   coupMoralePenalty,
   onChange,
 }: {
@@ -320,6 +332,7 @@ function LegionSlotCard({
   woundedBySlotTemplate: Map<string, number>;
   availableUnits: WarCampaignDetail["availableUnits"];
   disabled: boolean;
+  lockedByMercenary: boolean;
   coupMoralePenalty: number;
   onChange: (fn: (d: LegionDraft) => LegionDraft) => void;
 }) {
@@ -327,10 +340,46 @@ function LegionSlotCard({
   const usedIds = new Set(draft.units.map((u) => u.templateId));
   const addable = availableUnits.filter((u) => !usedIds.has(u.templateId) && u.available > 0);
 
+  // 傭兵團代管的軍團:只讀顯示,不可編輯/刪除/指派武將。
+  if (legion?.mercenary) {
+    const m = legion.mercenary;
+    return (
+      <div
+        className="rounded-xl border border-amber-400/40 bg-amber-500/[0.07] p-3"
+        data-testid={`card-mercenary-legion-${slot}`}
+      >
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="text-sm font-bold text-white/85">{SLOT_LABELS[slot]}</div>
+          <span className="rounded border border-amber-400/40 bg-amber-500/20 px-2 py-0.5 text-[11px] font-bold text-amber-100">
+            傭兵團
+          </span>
+        </div>
+        <div className="mb-1 font-serif text-base font-bold text-amber-100">{m.companyName}</div>
+        <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+          <dt className="text-white/50">兵力</dt>
+          <dd className="text-right font-mono text-white/85">{formatBigNumber(m.troops)}</dd>
+          <dt className="text-white/50">攻擊 / 防禦</dt>
+          <dd className="text-right font-mono text-white/85">
+            {formatBigNumber(m.attack)} / {formatBigNumber(m.defense)}
+          </dd>
+          <dt className="text-white/50">士氣 / 補給</dt>
+          <dd className="text-right font-mono text-white/85">
+            {legion.morale} / {legion.supply}
+          </dd>
+          <dt className="text-white/50">姿態</dt>
+          <dd className="text-right text-white/85">{legion.garrisoningCity ? "駐防城市" : "野戰"}</dd>
+        </dl>
+        <p className="mt-2 text-[11px] text-white/45">傭兵不會陣亡,只有士氣會變化。要調整請到「軍事合約」召回或增派。</p>
+      </div>
+    );
+  }
+
   if (!draft.enabled) {
     return (
       <div className="flex min-h-[120px] items-center justify-center rounded-xl border border-dashed border-white/20 bg-white/[0.03] p-4">
-        {disabled ? (
+        {lockedByMercenary ? (
+          <span className="text-xs text-white/40" data-testid={`text-slot-locked-${slot}`}>傭兵團代管</span>
+        ) : disabled ? (
           <span className="text-xs text-white/40">未編組</span>
         ) : (
           <button

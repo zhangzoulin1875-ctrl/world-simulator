@@ -2771,6 +2771,16 @@ export interface WarLegionUnitView {
   wounded: number;
 }
 
+/**
+ * 傭兵團代管的軍團(戰力於結算時動態計算,玩家不可編輯);一般軍團為 null。
+ */
+export type WarLegionViewMercenary = {
+  companyName: string;
+  troops: number;
+  attack: number;
+  defense: number;
+} | null;
+
 export type WarLegionViewSlot =
   (typeof WarLegionViewSlot)[keyof typeof WarLegionViewSlot];
 
@@ -2781,6 +2791,8 @@ export const WarLegionViewSlot = {
 } as const;
 
 export interface WarLegionView {
+  /** 傭兵團代管的軍團(戰力於結算時動態計算,玩家不可編輯);一般軍團為 null。 */
+  mercenary: WarLegionViewMercenary;
   slot: WarLegionViewSlot;
   morale: number;
   supply: number;
@@ -2903,6 +2915,8 @@ export interface WarJoinResult {
 }
 
 export type WarCampaignDetail = WarCampaignListItem & {
+  /** 該國簽有傭兵合約;期間軍團由傭兵團代管,不能自行編組或儲存軍團配置。 */
+  mercenaryLocked: boolean;
   /** 全部參戰國（含雙方主帥與晚加入者） */
   participants: WarCampaignParticipantView[];
   /** AI 開戰時生成的地理與地形敘述（生成中為 null） */

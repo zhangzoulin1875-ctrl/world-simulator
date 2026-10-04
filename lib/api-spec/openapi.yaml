@@ -6897,8 +6897,18 @@ components:
 
     WarLegionView:
       type: object
-      required: [slot, morale, supply, garrisoningCity, units]
+      required: [slot, morale, supply, garrisoningCity, units, mercenary]
       properties:
+        mercenary:
+          nullable: true
+          description: 傭兵團代管的軍團(戰力於結算時動態計算,玩家不可編輯);一般軍團為 null。
+          type: object
+          required: [companyName, troops, attack, defense]
+          properties:
+            companyName: { type: string }
+            troops: { type: number }
+            attack: { type: number }
+            defense: { type: number }
         slot:
           type: string
           enum: [A, B, C]
@@ -7016,8 +7026,12 @@ components:
               myOrders,
               ceasefire,
               participants,
+              mercenaryLocked,
             ]
           properties:
+            mercenaryLocked:
+              type: boolean
+              description: 該國簽有傭兵合約;期間軍團由傭兵團代管,不能自行編組或儲存軍團配置。
             participants:
               type: array
               description: 全部參戰國（含雙方主帥與晚加入者）

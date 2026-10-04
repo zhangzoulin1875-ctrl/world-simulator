@@ -1,3 +1,4 @@
+import { loadMercenaryUnitsForCampaign } from "../../lib/mercenaryService";
 import { type IRouter } from "express";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import {
@@ -129,6 +130,8 @@ export async function loadDisplayNames(
 }
 
 interface LegionView {
+  /** 傭兵團代管的軍團(戰力於結算時動態計算),玩家不可編輯。 */
+  mercenary: { companyName: string; troops: number; attack: number; defense: number } | null;
   slot: string;
   morale: number;
   supply: number;
@@ -169,7 +172,13 @@ export async function buildMyLegionsView(
   const names = await loadDisplayNames(userId, [
     ...new Set(units.map((u) => u.templateId)),
   ]);
-  return legions.map((l) => ({
+  const mercUnits = await loadMercenaryUnitsForCampaign(campaignId);
+  return legions.map((l) => {
+    const m = mercUnits.get(`${nationId}:${l.slot}`);
+    return {
+    mercenary: m
+      ? { companyName: m.name, troops: m.quantity, attack: m.attack, defense: m.defense }
+      : null,
     slot: l.slot,
     morale: l.morale,
     supply: l.supply,
@@ -182,7 +191,8 @@ export async function buildMyLegionsView(
         quantity: u.quantity,
         wounded: u.wounded,
       })),
-  }));
+  };
+  });
 }
 
 interface AvailableUnitView {

@@ -1,3 +1,4 @@
+import { hasActiveMercenaryContract } from "../../lib/mercenaryService";
 import { type IRouter } from "express";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import {
@@ -31,6 +32,10 @@ export function registerWarLegionRoutes(router: IRouter): void {
     const ctx = await requireCampaignParticipant(req, res);
     if (!ctx) return;
     const { campaign, nation, userId } = ctx;
+    if (await hasActiveMercenaryContract(nation.id)) {
+      res.status(409).json({ error: "簽有傭兵合約期間,軍團由傭兵團代管,無法自行編組" });
+      return;
+    }
     if (campaign.status !== "active") {
       res.status(409).json({ error: "戰役已結束，無法調整軍團" });
       return;

@@ -6,9 +6,12 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { WarLegionUnitView } from "./warLegionUnitView";
+import type { WarLegionViewMercenary } from "./warLegionViewMercenary";
 import type { WarLegionViewSlot } from "./warLegionViewSlot";
 
 export interface WarLegionView {
+  /** 傭兵團代管的軍團(戰力於結算時動態計算,玩家不可編輯);一般軍團為 null。 */
+  mercenary: WarLegionViewMercenary;
   slot: WarLegionViewSlot;
   morale: number;
   supply: number;
