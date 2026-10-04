@@ -1,3 +1,4 @@
+import { isPgInt4Id } from "../lib/pgInt";
 import { loadNationScales } from "../lib/nationScale";
 import { Router, type IRouter } from "express";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
@@ -1092,7 +1093,7 @@ router.post("/military/design-unit", aiRateLimit, async (req, res) => {
 
 function parseTemplateIdParam(raw: string): number {
   const id = Number(raw);
-  if (!Number.isInteger(id) || id <= 0) {
+  if (!isPgInt4Id(id)) {
     throw new HttpError(400, "兵種模板編號不正確");
   }
   return id;
@@ -1555,7 +1556,7 @@ router.post("/military/equip-weapon", async (req, res) => {
     typeof rawTemplateId === "number"
       ? rawTemplateId
       : Number(rawTemplateId);
-  if (!Number.isInteger(templateId) || templateId <= 0) {
+  if (!isPgInt4Id(templateId)) {
     res.status(400).json({ error: "templateId 不正確" });
     return;
   }
@@ -1579,7 +1580,7 @@ router.post("/military/equip-weapon", async (req, res) => {
     if (rawWeaponId !== null && rawWeaponId !== undefined) {
       const weaponId =
         typeof rawWeaponId === "number" ? rawWeaponId : Number(rawWeaponId);
-      if (!Number.isInteger(weaponId) || weaponId <= 0) {
+      if (!isPgInt4Id(weaponId)) {
         throw new HttpError(400, "weaponId 不正確");
       }
       const [row] = await db

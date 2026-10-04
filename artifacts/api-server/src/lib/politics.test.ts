@@ -7,6 +7,8 @@ import {
   clampPct,
   computeFoodGrowthRatePct,
   computePoliticsState,
+  baseSatisfaction,
+  LEGACY_CLASS_SATISFACTION_NEUTRAL,
   counterEventChancePct,
   coupChancePct,
   decisionSuccessChance,
@@ -329,191 +331,36 @@ test("coupChancePct — 門檻以下為 0，夾 0–max", () => {
   assert.equal(coupChancePct(100, 0, { ...S, coupBaseChancePct: 60 }), 80);
 });
 
-test("computePoliticsState — 有效值與方向加減成", () => {
+test("computePoliticsState 加成疊加後夾在 0~100;舊階級欄位不影響基礎值(固定 60)", () => {
   const nation = {
     stability: 50,
     unrest: 20,
     warWeariness: 30,
-    satisfactionFarmers: 60,
-    satisfactionWorkers: 60,
-    satisfactionClergy: 60,
-    satisfactionMilitary: 60,
-    satisfactionNobles: 60,
-  };
-  const state = computePoliticsState(
-    nation,
-    [
-      {
-        direction: "law",
-        entryType: "policy",
-        durationTurns: null,
-        remainingTurns: null,
-        status: "active",
-        modifiers: [
-          { target: "satisfaction", value: 15 },
-          { target: "stability", value: 10 },
-          { target: "production", value: 20 },
-        ],
-      },
-      {
-        direction: "culture",
-        entryType: "event",
-        durationTurns: 2,
-        remainingTurns: 1,
-        status: "active",
-        modifiers: [
-          { target: "satisfaction", value: -20 },
-          { target: "tech", value: 10 },
-        ],
-      },
-    ],
-    S,
-  );
-  assert.equal(state.stability, 60);
-  assert.equal(state.satisfactions.law, 75);
-  assert.equal(state.satisfactions.culture, 50);
-  assert.equal(state.satisfactions.religion, 60);
-  assert.equal(state.productionPct, 20);
-  assert.equal(state.techPct, 5);
-  assert.equal(state.populationGrowthPct, 0);
-  assert.equal(state.stabilityOffset, 10);
-  // 有效穩定度 60 → 乘數 1.06
-  assert.ok(Math.abs(state.stabilityMult - 1.06) < 1e-9);
-});
-
-test("computePoliticsState — general 條目：指名滿意度 target 進各方向、全域效果進總和", () => {
-  const nation = {
-    stability: 50,
-    unrest: 20,
-    warWeariness: 30,
-    satisfactionFarmers: 60,
-    satisfactionWorkers: 60,
-    satisfactionClergy: 60,
-    satisfactionMilitary: 60,
-    satisfactionNobles: 60,
-  };
-  const state = computePoliticsState(
-    nation,
-    [
-      {
-        direction: "general",
-        entryType: "policy",
-        durationTurns: null,
-        remainingTurns: null,
-        status: "active",
-        modifiers: [
-          { target: "satisfactionLaw", value: 10 },
-          { target: "satisfactionReligion", value: -15 },
-          { target: "stability", value: 5 },
-          { target: "production", value: 8 },
-          { target: "tech", value: 4 },
-          { target: "populationGrowth", value: 0.5 },
-          // 舊式不指名 satisfaction 在 general 條目上無方向，應被忽略
-          { target: "satisfaction", value: 99 },
-        ],
-      },
-    ],
-    S,
-  );
-  assert.equal(state.satisfactions.law, 70);
-  assert.equal(state.satisfactions.religion, 45);
-  assert.equal(state.satisfactions.culture, 60);
-  assert.equal(state.satisfactions.rights, 60);
-  assert.equal(state.directionTotals.law.satisfaction, 10);
-  assert.equal(state.directionTotals.religion.satisfaction, -15);
-  assert.equal(state.stabilityOffset, 5);
-  assert.equal(state.productionPct, 8);
-  assert.equal(state.techPct, 4);
-  assert.equal(state.populationGrowthPct, 0.5);
-});
-
-test("computePoliticsState — 舊制方向條目也可用指名滿意度 target（跨方向）", () => {
-  const nation = {
-    stability: 50,
-    unrest: 20,
-    warWeariness: 30,
-    satisfactionFarmers: 60,
-    satisfactionWorkers: 60,
-    satisfactionClergy: 60,
-    satisfactionMilitary: 60,
-    satisfactionNobles: 60,
-  };
-  const state = computePoliticsState(
-    nation,
-    [
-      {
-        direction: "law",
-        entryType: "policy",
-        durationTurns: null,
-        remainingTurns: null,
-        status: "active",
-        modifiers: [
-          { target: "satisfaction", value: 5 }, // 舊式 → 依條目方向 law
-          { target: "satisfactionCulture", value: 7 }, // 指名 → culture
-        ],
-      },
-    ],
-    S,
-  );
-  assert.equal(state.satisfactions.law, 65);
-  assert.equal(state.satisfactions.culture, 67);
-});
-
-test("restrictModifiersToEnabledDirections — 未解鎖方向的指名滿意度歸零、其餘保留", () => {
-  const input: PoliticsModifier[] = [
-    { target: "satisfactionLaw", value: 10 },
-    { target: "satisfactionReligion", value: -15 },
-    { target: "satisfactionRights", value: 8 },
-    { target: "stability", value: 5 },
-    { target: "production", value: 3 },
-  ];
-  const out = restrictModifiersToEnabledDirections(input, ["law", "culture"]);
-  assert.deepEqual(out, [
-    { target: "satisfactionLaw", value: 10 },
-    { target: "stability", value: 5 },
-    { target: "production", value: 3 },
-  ]);
-  // 全部解鎖 → 原樣保留
-  assert.deepEqual(
-    restrictModifiersToEnabledDirections(input, [
-      "law",
-      "culture",
-      "religion",
-      "rights",
-    ]),
-    input,
-  );
-});
-
-test("satisfactionTargetDirection — 指名滿意度 target 對應方向、其他回 null", () => {
-  assert.equal(satisfactionTargetDirection("satisfactionLaw"), "law");
-  assert.equal(satisfactionTargetDirection("satisfactionCulture"), "culture");
-  assert.equal(satisfactionTargetDirection("satisfactionReligion"), "religion");
-  assert.equal(satisfactionTargetDirection("satisfactionRights"), "rights");
-  assert.equal(satisfactionTargetDirection("satisfaction"), null);
-  assert.equal(satisfactionTargetDirection("stability"), null);
-});
-
-test("computePoliticsState — 管理員暫時滿意度 buff（satisfactionOffsets）逐方向加成並夾 0–100", () => {
-  const nation = {
-    stability: 50,
-    unrest: 20,
-    warWeariness: 30,
-    satisfactionFarmers: 60,
-    satisfactionWorkers: 60,
+    // 舊四項階級滿意度已由議會取代:即使欄位值極端,基礎值也固定為中性 60
+    satisfactionFarmers: 5,
+    satisfactionWorkers: 99,
     satisfactionClergy: 95,
     satisfactionMilitary: 95,
     satisfactionNobles: 10,
   };
   const state = computePoliticsState(nation, [], S, {
     law: 10,
-    religion: 20, // 95 + 20 → 夾 100
-    rights: -30, // 10 − 30 → 夾 0
+    religion: 50, // 60 + 50 → 夾到 100
+    rights: -80, // 60 - 80 → 夾到 0
+    military: 20, // 軍事仍讀 satisfactionMilitary:95 + 20 → 夾到 100
   });
   assert.equal(state.satisfactions.law, 70);
-  assert.equal(state.satisfactions.culture, 60); // 未指定方向不受影響
+  assert.equal(state.satisfactions.culture, 60); // 不吃 satisfactionWorkers=99
   assert.equal(state.satisfactions.religion, 100);
   assert.equal(state.satisfactions.rights, 0);
+  assert.equal(state.satisfactions.military, 100);
+});
+
+test("baseSatisfaction: 四個階級方向固定中性值,軍事方向讀 satisfactionMilitary", () => {
+  const n = { satisfactionMilitary: 33 };
+  for (const d of ["law", "culture", "religion", "rights"] as const)
+    assert.equal(baseSatisfaction(n, d), LEGACY_CLASS_SATISFACTION_NEUTRAL);
+  assert.equal(baseSatisfaction(n, "military"), 33);
 });
 
 test("adjustStatValue — 乘數與百分比加成、不低於 0", () => {

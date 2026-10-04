@@ -507,29 +507,20 @@ export interface NationPoliticsState {
   stabilityMult: number;
 }
 
+/**
+ * 舊四項階級滿意度(農民/工人/教士/貴族)已由「議會」取代(設計決定:只留軍方+議會)。
+ * 這四個方向的基礎值固定為中性值,不再隨舊欄位波動,以免與議會系統重複懲罰玩家。
+ * 欄位本身保留(惰性資料),日後可安全移除;軍事方向仍讀 satisfactionMilitary。
+ */
+export const LEGACY_CLASS_SATISFACTION_NEUTRAL = 60;
+
 export function baseSatisfaction(
-  nation: Pick<
-    PlayerNation,
-    | "satisfactionFarmers"
-    | "satisfactionWorkers"
-    | "satisfactionNobles"
-    | "satisfactionClergy"
-    | "satisfactionMilitary"
-  >,
+  nation: Pick<PlayerNation, "satisfactionMilitary">,
   direction: PoliticsDirection,
 ): number {
-  switch (direction) {
-    case "law":
-      return nation.satisfactionFarmers;
-    case "culture":
-      return nation.satisfactionWorkers;
-    case "religion":
-      return nation.satisfactionClergy;
-    case "rights":
-      return nation.satisfactionNobles;
-    case "military":
-      return nation.satisfactionMilitary;
-  }
+  return direction === "military"
+    ? nation.satisfactionMilitary
+    : LEGACY_CLASS_SATISFACTION_NEUTRAL;
 }
 
 /** 由國家列 + 有效條目算出全部有效內政數值。 */

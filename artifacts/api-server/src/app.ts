@@ -1,3 +1,4 @@
+import { apiErrorHandler } from "./middlewares/apiErrorHandler";
 import express, { type Express } from "express";
 import path from "node:path";
 import fs from "node:fs";
@@ -73,5 +74,7 @@ if (staticDir && fs.existsSync(staticDir)) {
     res.sendFile(path.join(staticDir, "index.html"));
   });
 }
+
+app.use(apiErrorHandler);
 
 export default app;

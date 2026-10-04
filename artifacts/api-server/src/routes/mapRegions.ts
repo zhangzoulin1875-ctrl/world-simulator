@@ -1,3 +1,4 @@
+import { isPgInt4Id } from "../lib/pgInt";
 import { Router, type IRouter } from "express";
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import {
@@ -172,7 +173,7 @@ async function getCurrentEraSlug(): Promise<string> {
 router.get("/map/regions/:id/era-stats", async (req, res) => {
   try {
     const regionId = Number(req.params.id);
-    if (!Number.isInteger(regionId) || regionId <= 0) {
+    if (!isPgInt4Id(regionId)) {
       res.status(404).json({ error: "Region not found" });
       return;
     }
@@ -436,7 +437,7 @@ router.patch("/map/cities/:id/name", async (req, res) => {
     const userId = session.discordUserId;
 
     const cityId = Number(req.params.id);
-    if (!Number.isInteger(cityId) || cityId <= 0) {
+    if (!isPgInt4Id(cityId)) {
       throw new HttpError(400, "城市編號無效");
     }
 

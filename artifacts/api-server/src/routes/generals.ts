@@ -1,3 +1,4 @@
+import { isPgInt4Id } from "../lib/pgInt";
 import { Router, type IRouter } from "express";
 import { asc, eq, sql } from "drizzle-orm";
 import {
@@ -440,6 +441,10 @@ router.post("/military/generals/:id/recruit", async (req, res) => {
   if (!auth) return;
   const { nation } = auth;
   const generalId = Number(req.params.id);
+  if (!isPgInt4Id(generalId)) {
+    res.status(404).json({ error: "General not found" });
+    return;
+  }
   try {
     const result = await db.transaction(async (t) => {
       const [{ n }] = await t
@@ -489,6 +494,10 @@ router.post("/military/generals/:id/dismiss", async (req, res) => {
   if (!auth) return;
   const { nation } = auth;
   const generalId = Number(req.params.id);
+  if (!isPgInt4Id(generalId)) {
+    res.status(404).json({ error: "General not found" });
+    return;
+  }
   try {
     const updated = await db
       .update(generalsTable)
@@ -517,6 +526,10 @@ router.post("/military/generals/:id/upgrade", async (req, res) => {
   if (!auth) return;
   const { nation } = auth;
   const generalId = Number(req.params.id);
+  if (!isPgInt4Id(generalId)) {
+    res.status(404).json({ error: "General not found" });
+    return;
+  }
   try {
     const [general] = await db
       .select()
@@ -670,6 +683,10 @@ router.post("/military/generals/:id/assign", async (req, res) => {
   if (!auth) return;
   const { nation } = auth;
   const generalId = Number(req.params.id);
+  if (!isPgInt4Id(generalId)) {
+    res.status(404).json({ error: "General not found" });
+    return;
+  }
   try {
     const body = assignBodySchema.safeParse(req.body);
     if (!body.success) {
@@ -745,6 +762,10 @@ router.post("/military/generals/:id/unassign", async (req, res) => {
   if (!auth) return;
   const { nation } = auth;
   const generalId = Number(req.params.id);
+  if (!isPgInt4Id(generalId)) {
+    res.status(404).json({ error: "General not found" });
+    return;
+  }
   try {
     const updated = await db
       .update(generalsTable)
