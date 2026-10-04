@@ -82,6 +82,19 @@ import {
 import { localDateString } from "../lib/time";
 import { computeAvailableProduction } from "../lib/economy";
 import { loadCurrentTurnRecruitSpend } from "../lib/recruitSpend";
+import {
+  cancelQueueOrder,
+  enqueueInTx,
+  isRecruitQueueEnabled,
+  listNationQueue,
+  RecruitQueueFullError,
+} from "../lib/recruitQueue";
+import {
+  estimateTurnsToFinish,
+  MAX_QUEUE_TEMPLATES,
+  trainingPointsPerUnit,
+  turnCapacity,
+} from "../lib/recruitQueueCore";
 import { buildNationGeoCultureContext } from "../lib/nationGeoCulture";
 import {
   getGlobalAveragePopulation,
@@ -499,6 +512,73 @@ async function loadOrderTemplate(
   return template;
 }
 
+/**
+ * 訓練佇列：目前排隊中的訂單、每回合產能、預估完成回合。
+ * 功能關閉時 enabled=false 且佇列為空（前端據此隱藏「訓練中」區塊）。
+ */
+router.get("/military/queue", async (req, res) => {
+  const auth = await requirePlayer(req, res);
+  if (!auth) return;
+  const { nation } = auth;
+  try {
+    const enabled = await isRecruitQueueEnabled();
+    const rows = await listNationQueue(nation.id);
+    const { statsEra } = await getEraSlugs();
+    const stats = await computeAdjustedNationStats(nation, statsEra);
+    const capacity = turnCapacity(stats.population);
+    const eta = estimateTurnsToFinish(
+      rows.map((r) => ({
+        id: r.id,
+        templateId: r.templateId,
+        remaining: r.remaining,
+        tpPerUnit: r.tpPerUnit,
+      })),
+      capacity,
+    );
+    res.json({
+      enabled,
+      maxTemplates: MAX_QUEUE_TEMPLATES,
+      capacityPerTurn: capacity,
+      orders: rows.map((r) => ({
+        id: r.id,
+        templateId: r.templateId,
+        totalQuantity: r.totalQuantity,
+        remaining: r.remaining,
+        tpPerUnit: r.tpPerUnit,
+        turnsToFinish: eta.get(r.id) ?? null,
+        createdAt: r.createdAt,
+      })),
+    });
+  } catch (err) {
+    req.log.error({ err }, "military queue read failed");
+    res.status(500).json({ error: "讀取訓練佇列失敗，請稍後再試" });
+  }
+});
+
+/** 取消一筆訂單的剩餘部分，100% 退還資源與佔用（已完成的單位不受影響）。 */
+router.post("/military/queue/cancel", async (req, res) => {
+  const auth = await requirePlayer(req, res);
+  if (!auth) return;
+  const { nation } = auth;
+  try {
+    const orderId = Number((req.body as { orderId?: unknown } | undefined)?.orderId);
+    if (!Number.isInteger(orderId) || orderId <= 0) {
+      throw new HttpError(400, "訂單編號無效");
+    }
+    const refund = await cancelQueueOrder(nation.id, orderId);
+    if (!refund) throw new HttpError(404, "找不到該訓練訂單（可能已完成或已取消）");
+    req.log.info({ nationId: nation.id, orderId, refund }, "recruit queue order cancelled");
+    res.json({ refund });
+  } catch (err) {
+    if (err instanceof HttpError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    req.log.error({ err }, "military queue cancel failed");
+    res.status(500).json({ error: "取消失敗，請稍後再試" });
+  }
+});
+
 /** 徵召：原子性扣除生產力與人口（兩者皆以累計 spent 守衛，競態安全）。 */
 router.post("/military/recruit", async (req, res) => {
   const auth = await requirePlayer(req, res);
@@ -525,6 +605,7 @@ router.post("/military/recruit", async (req, res) => {
     // 消耗，記錄為當回合流量；解散不退還、跨回合失效）。
     const spendAmount = recruitProductionSpend(effective, quantity);
     const stats = await computeAdjustedNationStats(nation, statsEra);
+    const queueOn = await isRecruitQueueEnabled();
 
     const result = await db.transaction(async (tx) => {
       // 條件式 UPDATE 先取得該國列鎖（同國的並發招募在此序列化），粗守衛
@@ -590,6 +671,27 @@ router.post("/military/recruit", async (req, res) => {
         });
       }
 
+      // 訓練佇列（功能開關開啟時）：資源與佔用已在上面扣除，兵力改進佇列，
+      // 回合依產能逐批完成後才併入 player_armies。
+      if (queueOn) {
+        try {
+          await enqueueInTx(tx, {
+            nationId: nation.id,
+            templateId,
+            quantity,
+            tpPerUnit: trainingPointsPerUnit(effective.prodCostPer100),
+            productionReserved: cost.production,
+            populationReserved: cost.population,
+            woodPaid: cost.wood,
+            orePaid: cost.ore,
+          });
+        } catch (e) {
+          if (e instanceof RecruitQueueFullError) throw new HttpError(400, e.message);
+          throw e;
+        }
+        return { freshNation, army: null, currentSpend };
+      }
+
       const [army] = await tx
         .insert(playerArmiesTable)
         .values({
@@ -619,7 +721,8 @@ router.post("/military/recruit", async (req, res) => {
     );
     res.json({
       templateId,
-      quantity: result.army.quantity,
+      queued: queueOn,
+      quantity: result.army ? result.army.quantity : null,
       resources: resourceSnapshot(
         result.freshNation,
         stats,
@@ -672,6 +775,7 @@ router.post("/military/purchase", async (req, res) => {
     // Task #546 — 金錢購買也佔用生產力：⌈數量 × 每單位生產力維護費 ÷ 100⌉。
     // 守門口徑與招募一致：spent + 佔用 ≤ 總生產力 − 本回合生產力維護費實扣量。
     const prodReserve = unitProductionReservation(effective, quantity);
+    const queueOn = await isRecruitQueueEnabled();
 
     const result = await db.transaction(async (tx) => {
       // Quota claim: insert-or-increment guarded by the cap. The insert path
@@ -739,6 +843,32 @@ router.post("/military/purchase", async (req, res) => {
         );
       }
 
+      // 訓練佇列（功能開關開啟時）：錢／木礦／佔用已扣，兵力改進佇列。
+      // 滿 3 種被拒時整筆交易回滾（含每日購買額度），不會白白消耗額度。
+      if (queueOn) {
+        try {
+          await enqueueInTx(tx, {
+            nationId: nation.id,
+            templateId,
+            quantity,
+            tpPerUnit: trainingPointsPerUnit(effective.prodCostPer100),
+            productionReserved: prodReserve,
+            woodPaid: woodCost,
+            orePaid: oreCost,
+            moneyPaid: moneyCost,
+          });
+        } catch (e) {
+          if (e instanceof RecruitQueueFullError) throw new HttpError(400, e.message);
+          throw e;
+        }
+        return {
+          freshNation,
+          army: null,
+          usedUnits: Number(quotaRow.used_units),
+          currentSpend,
+        };
+      }
+
       const [army] = await tx
         .insert(playerArmiesTable)
         .values({
@@ -771,7 +901,8 @@ router.post("/military/purchase", async (req, res) => {
     );
     res.json({
       templateId,
-      quantity: result.army.quantity,
+      queued: queueOn,
+      quantity: result.army ? result.army.quantity : null,
       resources: resourceSnapshot(
         result.freshNation,
         stats,

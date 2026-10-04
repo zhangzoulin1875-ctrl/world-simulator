@@ -270,3 +270,68 @@ export async function listNationQueue(nationId: string): Promise<RecruitQueueRow
     .where(eq(recruitQueueTable.nationId, nationId))
     .orderBy(asc(recruitQueueTable.id));
 }
+
+/**
+ * NPC 入列：NPC 的「每回合固定生產」不是玩家下單，不該被「3 種兵種」上限擋下
+ * （NPC 一次就會產多個兵種），因此這裡不做 canEnqueue 檢查；同兵種合併進既有
+ * 訂單，避免每回合新增一筆造成佇列列數無限成長。
+ */
+export async function enqueueNpcOrderInTx(
+  tx: Tx,
+  input: { nationId: string; templateId: number; quantity: number; tpPerUnit: number },
+): Promise<void> {
+  const tp = Math.max(1, Math.floor(input.tpPerUnit));
+  const merged = await tx.execute(sql`
+    UPDATE recruit_queue
+    SET total_quantity = total_quantity + ${input.quantity},
+        remaining = remaining + ${input.quantity},
+        tp_per_unit = ${tp}
+    WHERE id = (
+      SELECT id FROM recruit_queue
+      WHERE nation_id = ${input.nationId} AND template_id = ${input.templateId}
+      ORDER BY id LIMIT 1
+      FOR UPDATE
+    )
+    RETURNING id
+  `);
+  if (merged.rows.length > 0) return;
+  await tx.insert(recruitQueueTable).values({
+    nationId: input.nationId,
+    templateId: input.templateId,
+    totalQuantity: input.quantity,
+    remaining: input.quantity,
+    tpPerUnit: tp,
+  });
+}
+
+/**
+ * 回合推進：對所有有訂單的國家依人口產能推進一個回合。每國獨立 try/catch，
+ * 單國失敗不阻斷其他國與回合。功能關閉時直接略過（已排隊的訂單保留，
+ * 重新開啟後繼續，不會遺失）。
+ */
+export async function runRecruitQueueTurn(
+  statsEra: string,
+  loadPopulation: (nationId: string, statsEra: string) => Promise<number>,
+): Promise<{ nations: number; completedUnits: number; failed: number }> {
+  const summary = { nations: 0, completedUnits: 0, failed: 0 };
+  if (!(await isRecruitQueueEnabled())) return summary;
+  const rows = await db
+    .selectDistinct({
+      nationId: recruitQueueTable.nationId,
+      isNpc: playerNationsTable.isNpc,
+    })
+    .from(recruitQueueTable)
+    .innerJoin(playerNationsTable, eq(playerNationsTable.id, recruitQueueTable.nationId));
+  const { turnCapacity } = await import("./recruitQueueCore");
+  for (const r of rows) {
+    try {
+      const pop = await loadPopulation(r.nationId, statsEra);
+      const done = await advanceNationQueue(r.nationId, turnCapacity(pop), r.isNpc);
+      summary.nations++;
+      summary.completedUnits += done.reduce((a, d) => a + d.units, 0);
+    } catch {
+      summary.failed++;
+    }
+  }
+  return summary;
+}

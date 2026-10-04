@@ -43,6 +43,8 @@ import {
 import { localDateString } from "../../time";
 import { resolveUsableTemplate } from "./militaryPolicy";
 import { loadCurrentTurnRecruitSpend } from "../../recruitSpend";
+import { enqueueInTx, isRecruitQueueEnabled } from "../../recruitQueue";
+import { trainingPointsPerUnit } from "../../recruitQueueCore";
 import { startTechTreeResearch } from "../../techTreeResearch";
 
 /**
@@ -130,6 +132,7 @@ export async function executeRecruit(
   // 解散不退還、跨回合失效）。
   const spendAmount = recruitProductionSpend(effective, quantity);
   const stats = await computeAdjustedNationStats(nation, statsEra);
+  const queueOn = await isRecruitQueueEnabled();
 
   await db.transaction(async (tx) => {
     // 條件式 UPDATE 先取得該國列鎖（同國並發在此序列化），粗守衛佔用/人口；
@@ -179,6 +182,19 @@ export async function executeRecruit(
         quantity,
         amount: spendAmount,
       });
+    }
+    // 訓練佇列（功能開關開啟時）：與玩家路由同口徑，兵力改進佇列。
+    // 內閣招募本來就不扣木礦，故 woodPaid/orePaid 為 0（取消時不會多退）。
+    if (queueOn) {
+      await enqueueInTx(tx, {
+        nationId: nation.id,
+        templateId,
+        quantity,
+        tpPerUnit: trainingPointsPerUnit(effective.prodCostPer100),
+        productionReserved: cost.production,
+        populationReserved: cost.population,
+      });
+      return;
     }
     const [army] = await tx
       .insert(playerArmiesTable)
@@ -238,6 +254,7 @@ export async function executePurchase(
   // Task #546 — 金錢購買也佔用生產力：⌈數量 × 每單位生產力維護費 ÷ 100⌉，
   // 守門口徑與招募一致（spent + 佔用 ≤ 總生產力；Task #568 起無維護費實扣）。
   const prodReserve = unitProductionReservation(effective, quantity);
+  const queueOn = await isRecruitQueueEnabled();
 
   await db.transaction(async (tx) => {
     const quotaResult = await tx.execute(sql`
@@ -283,6 +300,17 @@ export async function executePurchase(
       throw new Error(
         `生產力不足（購買需佔用 ${prodReserve.toLocaleString("en-US")}）`,
       );
+    }
+    if (queueOn) {
+      await enqueueInTx(tx, {
+        nationId: nation.id,
+        templateId,
+        quantity,
+        tpPerUnit: trainingPointsPerUnit(effective.prodCostPer100),
+        productionReserved: prodReserve,
+        moneyPaid: moneyCost,
+      });
+      return;
     }
     const [army] = await tx
       .insert(playerArmiesTable)

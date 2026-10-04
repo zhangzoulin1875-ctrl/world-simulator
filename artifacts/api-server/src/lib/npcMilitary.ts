@@ -2,6 +2,7 @@ import {
   db,
   militaryUnitTemplatesTable,
   npcArmiesTable,
+  recruitQueueTable,
   playerNationsTable,
   playerResearchedTreeNodesTable,
   playerTechTreeStateTable,
@@ -10,6 +11,8 @@ import {
 } from "@workspace/db";
 import { and, asc, eq, gt, isNotNull, sql } from "drizzle-orm";
 import { logger } from "./logger";
+import { enqueueNpcOrderInTx, isRecruitQueueEnabled } from "./recruitQueue";
+import { trainingPointsPerUnit } from "./recruitQueueCore";
 import { getEraIndex } from "./mapRegionEras";
 import {
   isCategoryUnlocked,
@@ -225,6 +228,7 @@ export async function runNpcMilitaryTurn(): Promise<NpcMilitaryTurnSummary> {
     designed: 0,
   };
   let designBudget = NPC_UNIT_DESIGN_BUDGET_PER_TURN;
+  const queueOn = await isRecruitQueueEnabled();
 
   for (const npc of npcs) {
     try {
@@ -279,7 +283,15 @@ export async function runNpcMilitaryTurn(): Promise<NpcMilitaryTurnSummary> {
           })
           .from(npcArmiesTable)
           .where(eq(npcArmiesTable.nationId, npc.id));
-        const current = Number(totals?.total ?? 0);
+        // 佇列中尚未完成的單位也占用常備軍上限，否則開關開啟後 NPC 會因「佇列
+        // 還沒進 npc_armies」而每回合都補滿，實際兵力遠超 0.5% 上限。
+        const [queued] = await tx
+          .select({
+            total: sql<string>`COALESCE(SUM(${recruitQueueTable.remaining}), 0)`,
+          })
+          .from(recruitQueueTable)
+          .where(eq(recruitQueueTable.nationId, npc.id));
+        const current = Number(totals?.total ?? 0) + Number(queued?.total ?? 0);
         const cap = Math.floor(population * NPC_ARMY_CAP_RATIO);
         const perTurn = Math.max(
           NPC_ARMY_PRODUCTION_MIN,
@@ -299,6 +311,18 @@ export async function runNpcMilitaryTurn(): Promise<NpcMilitaryTurnSummary> {
         for (let i = 0; i < templates.length; i++) {
           const qty = shares[i] ?? 0;
           if (qty <= 0) continue;
+          // 訓練佇列（功能開關開啟時）：NPC 同樣先入列，由回合推進依產能完成。
+          // NPC 招兵不扣國家資源，訂單上的資源欄位皆為 0。
+          if (queueOn) {
+            await enqueueNpcOrderInTx(tx, {
+              nationId: npc.id,
+              templateId: templates[i]!.id,
+              quantity: qty,
+              tpPerUnit: trainingPointsPerUnit(templates[i]!.prodCostPer100),
+            });
+            produced += qty;
+            continue;
+          }
           await tx
             .insert(npcArmiesTable)
             .values({

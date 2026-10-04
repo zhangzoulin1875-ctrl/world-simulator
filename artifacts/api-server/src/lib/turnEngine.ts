@@ -55,6 +55,7 @@ import {
   type NationResearchEntry,
 } from "./techTreeTurn";
 import { runNpcMilitaryTurn } from "./npcMilitary";
+import { runRecruitQueueTurn } from "./recruitQueue";
 import { runNpcExtinctionCheck } from "./npcExtinction";
 import { endCampaignsForLocallyEliminatedNpcs } from "./warEngine/npcLocalCollapse";
 import { recoveryTick } from "./warEngine/recovery";
@@ -1074,6 +1075,29 @@ async function doRunTurn(
     logger.info({ npcMilitary }, "turn engine: NPC military turn done");
   } catch (err) {
     logger.error({ err }, "turn engine: NPC military turn failed");
+  }
+
+  // 招募訓練佇列：依各國人口產能推進一個回合，完成的單位併入軍隊。放在 NPC
+  // 生產之後（當回合入列的 NPC 訂單本回合即可開始訓練）、快照之前。功能開關
+  // 關閉時為 no-op。獨立 try/catch，失敗不阻斷回合。
+  try {
+    const rq = await runRecruitQueueTurn(statsEra, async (nationId, era) => {
+      // 與 GET /military/queue 顯示的產能同口徑（含政策／科技調整後人口），
+      // 否則玩家看到的預估回合數會與實際不符。
+      const [row] = await db
+        .select()
+        .from(playerNationsTable)
+        .where(eq(playerNationsTable.id, nationId))
+        .limit(1);
+      if (!row) return 0;
+      const st = await computeAdjustedNationStats(row, era);
+      return Math.max(0, st.population);
+    });
+    if (rq.nations > 0 || rq.failed > 0) {
+      logger.info({ recruitQueue: rq }, "turn engine: recruit queue advanced");
+    }
+  } catch (err) {
+    logger.error({ err }, "turn engine: recruit queue advance failed");
   }
 
   // Task #400 — 每日全國軍力快照（NPC 生產／傷兵歸隊之後，反映本回合末狀態）。
