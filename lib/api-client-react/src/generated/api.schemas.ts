@@ -697,11 +697,27 @@ export interface General {
   combatMods: GeneralCombatMods;
 }
 
+/**
+ * 各品級升階報價（key 為當前品級 1–4；按目前國庫／可用生產力比例計價）
+ */
+export type GeneralCostsUpgrade = {
+  [key: string]: {
+    /** 升階扣款（金錢） */
+    money: number;
+    /** 升階扣款（生產力） */
+    production: number;
+    /** 成功率 % */
+    successPct: number;
+  };
+};
+
 export interface GeneralCosts {
   /** 抽取成本：5% 國庫 */
   drawMoney: number;
   /** 抽取成本：5% 可用生產力 */
   drawProduction: number;
+  /** 各品級升階報價（key 為當前品級 1–4；按目前國庫／可用生產力比例計價） */
+  upgrade?: GeneralCostsUpgrade;
 }
 
 export interface GeneralsQuota {

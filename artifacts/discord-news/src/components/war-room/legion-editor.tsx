@@ -4,6 +4,10 @@ import { Loader2, Plus, Save, Shield, Trash2 } from "lucide-react";
 import {
   useUpdateWarCampaignLegions,
   getGetWarCampaignDetailQueryKey,
+  useListGenerals,
+  getListGeneralsQueryKey,
+  useAssignGeneral,
+  useUnassignGeneral,
 } from "@workspace/api-client-react";
 import type {
   WarCampaignDetail,
@@ -135,6 +139,7 @@ export function LegionEditor({
         {SLOTS.map((slot) => (
           <LegionSlotCard
             key={slot}
+            campaignId={detail.id}
             slot={slot}
             draft={drafts[slot]}
             legion={detail.myLegions.find((l) => l.slot === slot) ?? null}
@@ -178,7 +183,125 @@ export function LegionEditor({
   );
 }
 
+
+/** 軍團坐鎮武將：在戰役指揮頁直接指派／解除（武將頁不再提供指派）。 */
+function LegionGeneralPicker({
+  campaignId,
+  slot,
+  disabled,
+}: {
+  campaignId: number;
+  slot: SlotKey;
+  disabled: boolean;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data } = useListGenerals({
+    query: { queryKey: getListGeneralsQueryKey(), refetchInterval: 30_000 },
+  });
+  const [pick, setPick] = useState("");
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: getListGeneralsQueryKey() });
+  const onErr = (title: string) => (err: unknown) =>
+    toast({ variant: "destructive", title, description: apiErrorMessage(err) });
+
+  const assign = useAssignGeneral({
+    mutation: {
+      onSuccess: () => {
+        invalidate();
+        setPick("");
+        toast({ title: "武將已坐鎮此軍團" });
+      },
+      onError: onErr("指派失敗"),
+    },
+  });
+  const unassign = useUnassignGeneral({
+    mutation: {
+      onSuccess: () => {
+        invalidate();
+        toast({ title: "已解除武將坐鎮" });
+      },
+      onError: onErr("解除失敗"),
+    },
+  });
+
+  const seated = (data?.assignmentOptions ?? []).find(
+    (o) => o.campaignId === campaignId && o.slot === slot,
+  );
+  const recruited = (data?.generals ?? []).filter((g) => g.status === "recruited");
+  const seatedGeneral = seated?.assignedGeneralId
+    ? recruited.find((g) => g.id === seated.assignedGeneralId)
+    : undefined;
+  // 可指派：已招募且尚未坐鎮任何軍團（一名武將一個軍團）。
+  const free = recruited.filter((g) => g.assignedLegionId == null);
+  const busy = assign.isPending || unassign.isPending;
+
+  return (
+    <div
+      className="mb-2 rounded-lg border border-amber-300/20 bg-amber-300/[0.05] p-2 text-xs"
+      data-testid={`panel-legion-general-${slot}`}
+    >
+      <div className="mb-1 font-bold text-amber-200/90">坐鎮武將</div>
+      {seatedGeneral || seated?.assignedGeneralName ? (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-white/85">
+            {seatedGeneral?.name ?? seated?.assignedGeneralName}
+            {seatedGeneral && (
+              <span className="ml-1 text-white/50">
+                {seatedGeneral.title}・{seatedGeneral.grade} 階
+              </span>
+            )}
+          </span>
+          {!disabled && seatedGeneral && (
+            <button
+              disabled={busy}
+              onClick={() => unassign.mutate({ id: seatedGeneral.id })}
+              className="rounded border border-white/20 bg-white/10 px-2 py-1 text-white/75 transition hover:bg-white/20 disabled:opacity-40"
+              data-testid={`button-legion-unassign-${slot}`}
+            >
+              解除
+            </button>
+          )}
+        </div>
+      ) : disabled ? (
+        <span className="text-white/40">無</span>
+      ) : !seated ? (
+        <span className="text-white/45">儲存軍團配置後即可指派武將</span>
+      ) : free.length === 0 ? (
+        <span className="text-white/45">沒有可指派的在營武將（請先到武將頁招募）</span>
+      ) : (
+        <div className="flex items-center gap-1.5">
+          <select
+            value={pick}
+            onChange={(e) => setPick(e.target.value)}
+            className="min-w-0 flex-1 rounded border border-white/20 bg-black/40 px-2 py-1 text-xs text-white outline-none"
+            data-testid={`select-legion-general-${slot}`}
+          >
+            <option value="">選擇武將…</option>
+            {free.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}（{g.categoryLabel}・{g.grade} 階）
+              </option>
+            ))}
+          </select>
+          <button
+            disabled={busy || !pick}
+            onClick={() =>
+              assign.mutate({ id: Number(pick), data: { campaignId, slot } })
+            }
+            className="rounded border border-white/20 bg-white/10 px-2 py-1 text-white/75 transition hover:bg-white/20 disabled:opacity-40"
+            data-testid={`button-legion-assign-${slot}`}
+          >
+            指派
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LegionSlotCard({
+  campaignId,
   slot,
   draft,
   legion,
@@ -189,6 +312,7 @@ function LegionSlotCard({
   coupMoralePenalty,
   onChange,
 }: {
+  campaignId: number;
   slot: SlotKey;
   draft: LegionDraft;
   legion: WarCampaignDetail["myLegions"][number] | null;
@@ -272,6 +396,8 @@ function LegionSlotCard({
         />
         駐防城市（防守城市防線）
       </label>
+
+      <LegionGeneralPicker campaignId={campaignId} slot={slot} disabled={disabled || legion == null} />
 
       <div className="space-y-1.5">
         {draft.units.map((u, idx) => {

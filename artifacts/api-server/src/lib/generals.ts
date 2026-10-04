@@ -21,7 +21,10 @@ export const GENERAL_DRAW_MONEY_PCT = 5;
 /** 抽取：當回合可用生產力百分比。 */
 export const GENERAL_DRAW_PRODUCTION_PCT = 5;
 /** 升階成本倍率（每品級 ×2.5）。 */
-export const GENERAL_UPGRADE_COST_MULTIPLIER = 2.5;
+export const GENERAL_UPGRADE_COST_MULTIPLIER = 2;
+/** 升階基礎成本占「國庫 / 可用生產力」百分比（1→2 階起算，之後每階 ×倍率；單次封頂 90%）。 */
+export const GENERAL_UPGRADE_BASE_PCT_OF_TREASURY = 10;
+export const GENERAL_UPGRADE_MAX_PCT_OF_TREASURY = 90;
 /** 升階成功率基準與衰減（80% × 0.6^級）。 */
 export const GENERAL_UPGRADE_BASE_PCT = 80;
 export const GENERAL_UPGRADE_DECAY = 0.6;
@@ -68,16 +71,26 @@ export function drawCost(money: number, availableProduction: number): {
   };
 }
 
-/** 升階成本：抽取成本 × 2.5^(當前品級−1)。 */
+/**
+ * 升階成本（按比例扣除）：國庫與可用生產力的 10% × 2^(當前品級−1)，
+ * 即 1→2 階 10%、2→3 階 20%、3→4 階 40%、4→5 階 80%；單次上限 90%，
+ * 失敗照扣。比例制讓富國與窮國的痛感一致。
+ */
 export function upgradeCost(money: number, availableProduction: number, grade: number): {
   money: number;
   production: number;
 } {
-  const base = drawCost(money, availableProduction);
-  const mult = Math.pow(GENERAL_UPGRADE_COST_MULTIPLIER, grade - 1);
+  const pct = Math.min(
+    GENERAL_UPGRADE_MAX_PCT_OF_TREASURY,
+    GENERAL_UPGRADE_BASE_PCT_OF_TREASURY *
+      Math.pow(GENERAL_UPGRADE_COST_MULTIPLIER, grade - 1),
+  );
   return {
-    money: Math.max(1, Math.ceil(base.money * mult)),
-    production: Math.max(1, Math.ceil(base.production * mult)),
+    money: Math.max(1, Math.ceil((Math.max(0, money) * pct) / 100)),
+    production: Math.max(
+      1,
+      Math.ceil((Math.max(0, availableProduction) * pct) / 100),
+    ),
   };
 }
 

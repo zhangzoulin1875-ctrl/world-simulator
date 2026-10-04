@@ -74,6 +74,13 @@ export const gameBalanceSettingsSchema = z.object({
     .object({
       /** AI 退件（離譜／穿越時代需求直接 400 並退點）。 */
       aiRejectionEnabled: z.boolean().default(true),
+      /**
+       * AI 退件鬆緊度：strict=嚴格比照真實歷史；balanced=容許合理原型並不以
+       * 地理位置退件（預設）；lenient=再放寬約一個時代。僅在 aiRejectionEnabled 開啟時生效。
+       */
+      aiRejectionStrictness: z
+        .enum(["strict", "balanced", "lenient"])
+        .default("balanced"),
       /** 各類別「相對全庫平均值」的倍率上限（戰鬥數值 hp/attack/defense/speed）。 */
       multiplierCaps: z
         .object({

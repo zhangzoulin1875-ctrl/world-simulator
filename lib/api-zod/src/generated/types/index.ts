@@ -110,6 +110,7 @@ export * from "./generalAssignRequestSlot";
 export * from "./generalCategory";
 export * from "./generalCombatMods";
 export * from "./generalCosts";
+export * from "./generalCostsUpgrade";
 export * from "./generalDrawResponse";
 export * from "./generalDrawResponseSpent";
 export * from "./generalMutationResponse";

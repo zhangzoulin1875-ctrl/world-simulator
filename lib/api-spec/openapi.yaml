@@ -4069,6 +4069,16 @@ components:
       properties:
         drawMoney: { type: integer, description: 抽取成本：5% 國庫 }
         drawProduction: { type: integer, description: 抽取成本：5% 可用生產力 }
+        upgrade:
+          type: object
+          description: 各品級升階報價（key 為當前品級 1–4；按目前國庫／可用生產力比例計價）
+          additionalProperties:
+            type: object
+            required: [money, production, successPct]
+            properties:
+              money: { type: integer, description: 升階扣款（金錢） }
+              production: { type: integer, description: 升階扣款（生產力） }
+              successPct: { type: integer, description: 成功率 % }
 
     GeneralsQuota:
       type: object

@@ -1876,6 +1876,19 @@ export const ListGeneralsResponse = zod.object({
   costs: zod.object({
     drawMoney: zod.number().describe("抽取成本：5% 國庫"),
     drawProduction: zod.number().describe("抽取成本：5% 可用生產力"),
+    upgrade: zod
+      .record(
+        zod.string(),
+        zod.object({
+          money: zod.number().describe("升階扣款（金錢）"),
+          production: zod.number().describe("升階扣款（生產力）"),
+          successPct: zod.number().describe("成功率 %"),
+        }),
+      )
+      .optional()
+      .describe(
+        "各品級升階報價（key 為當前品級 1–4；按目前國庫／可用生產力比例計價）",
+      ),
   }),
   assignmentOptions: zod
     .array(

@@ -1,0 +1,37 @@
+/**
+ * 兵種／武器設計的 AI 審查鬆緊度。
+ *
+ * 遊戲是「架空歷史」：地圖上任何國家都可能佔領任何地區，玩家也會在美洲、
+ * 大洋洲等「真實歷史上沒有某些資源」的地方開局。審查只應擋「時代科技
+ * 本身還不存在」的設計，不應因「這個地區在真實歷史上沒有馬／鐵／火藥」
+ * 而駁回——否則不同起點的玩家會嚴重不公平。
+ */
+export type DesignReviewStrictness = "strict" | "balanced" | "lenient";
+
+export const DESIGN_REVIEW_STRICTNESS_VALUES: readonly DesignReviewStrictness[] = [
+  "strict",
+  "balanced",
+  "lenient",
+];
+
+/** 規則 (c)（時代科技）與地區公平條款，依鬆緊度產出。 */
+export function buildEraAndRegionRules(
+  strictness: DesignReviewStrictness,
+  subject: "兵種" | "武器",
+): string[] {
+  const eraTech =
+    "早期火藥（火槍、火炮）約西元 1000 年後開始出現、1400 年後普及；飛行器（飛機、直升機）約 1914 年後；雷射、核武、導彈約 1950 年後";
+  if (strictness === "strict") {
+    return [
+      `   (c) 超越當前時代的真實科技——以遊戲年份為基準，嚴格比照真實歷史：${eraTech}；任何超出該年份真實歷史科技水準的概念一律退件；`,
+    ];
+  }
+  const slack =
+    strictness === "lenient"
+      ? "容許比真實歷史提早最多約 1 個時代的「合理原型」（例如中世紀的原始火器原型、簡易火藥武器），只有明顯跨越數個時代的科技才退件"
+      : "容許比真實歷史略早一點的合理原型（例如同時代其他文明已有雛形的技術），只有明顯超前整個時代的科技才退件";
+  return [
+    `   (c) 明顯超越當前時代的科技——以遊戲年份為基準參考真實歷史：${eraTech}。${slack}；`,
+    `   【地區公平條款】遊戲是架空歷史，任何國家都可能佔領任何地區。「該地區在真實歷史上沒有某種動物、礦產或技術」（例如美洲原本沒有馬、大洋洲沒有鐵）**不是退件理由**——玩家的${subject}可以使用透過貿易、征服、交流或遊戲內資源取得的同時代通用裝備與技術。只依「該${subject}的技術本身在當前年份是否已存在於世界某處」判斷，不要依玩家所在地理位置判斷。`,
+  ];
+}

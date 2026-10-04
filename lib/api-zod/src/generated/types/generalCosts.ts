@@ -5,10 +5,13 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { GeneralCostsUpgrade } from "./generalCostsUpgrade";
 
 export interface GeneralCosts {
   /** 抽取成本：5% 國庫 */
   drawMoney: number;
   /** 抽取成本：5% 可用生產力 */
   drawProduction: number;
+  /** 各品級升階報價（key 為當前品級 1–4；按目前國庫／可用生產力比例計價） */
+  upgrade?: GeneralCostsUpgrade;
 }

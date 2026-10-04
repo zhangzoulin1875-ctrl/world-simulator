@@ -179,7 +179,7 @@ router.get("/military/generals", async (req, res) => {
   if (!auth) return;
   const { nation } = auth;
   try {
-    const [rows, cost, drawn, options] = await Promise.all([
+    const [rows, snapshot, drawn, options] = await Promise.all([
       db
         .select()
         .from(generalsTable)
@@ -191,6 +191,7 @@ router.get("/military/generals", async (req, res) => {
       hasDrawnThisTurn(nation.id),
       assignmentOptions(nation.id),
     ]);
+    const cost = { money: snapshot.money, production: snapshot.production };
     const recruited = rows.filter((r) => r.status === "recruited").length;
     res.json({
       generals: rows.map(serializeGeneral),
@@ -205,6 +206,22 @@ router.get("/military/generals", async (req, res) => {
       costs: {
         drawMoney: cost.money,
         drawProduction: cost.production,
+        // 各品級升階報價（以目前國庫/可用生產力即時換算；按鈕上直接顯示）。
+        upgrade: Object.fromEntries(
+          Array.from({ length: GENERAL_MAX_GRADE - 1 }, (_, i) => i + 1).map(
+            (grade) => {
+              const q = upgradeCost(nation.money, snapshot.availableProduction, grade);
+              return [
+                String(grade),
+                {
+                  money: q.money,
+                  production: q.production,
+                  successPct: upgradeSuccessPct(grade),
+                },
+              ];
+            },
+          ),
+        ),
       },
       assignmentOptions: options,
     });
@@ -519,9 +536,17 @@ router.post("/military/generals/:id/upgrade", async (req, res) => {
       res.status(400).json({ error: "已達最高品級" });
       return;
     }
-    const snapshot = await costSnapshot(nation);
+    // 重新讀取國庫（requirePlayer 的 nation 可能是請求前載入的舊值），
+    // 升階按「當下」國庫與可用生產力的比例計價。
+    const [freshNation] = await db
+      .select()
+      .from(playerNationsTable)
+      .where(eq(playerNationsTable.id, nation.id))
+      .limit(1);
+    const liveNation = freshNation ?? nation;
+    const snapshot = await costSnapshot(liveNation);
     const cost = upgradeCost(
-      nation.money,
+      liveNation.money,
       snapshot.availableProduction,
       general.grade,
     );

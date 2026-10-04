@@ -118,6 +118,7 @@ interface SourceSetting {
 interface BalanceSettings {
   unitDesign: {
     aiRejectionEnabled: boolean;
+    aiRejectionStrictness?: "strict" | "balanced" | "lenient";
     multiplierCaps: Record<UnitCategory, number>;
     hpMax: number;
     attackMax: number;
@@ -537,6 +538,26 @@ export default function GameBalance() {
             />
             啟用 AI 退件（關閉後仍套夾限）
           </label>
+          <div className="space-y-1">
+            <Label className="text-xs">退件鬆緊度</Label>
+            <select
+              className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+              disabled={!settings.unitDesign.aiRejectionEnabled}
+              value={settings.unitDesign.aiRejectionStrictness ?? "balanced"}
+              onChange={(e) =>
+                patch((s) => {
+                  s.unitDesign.aiRejectionStrictness = e.target
+                    .value as "strict" | "balanced" | "lenient";
+                  return s;
+                })
+              }
+              data-testid="select-ai-rejection-strictness"
+            >
+              <option value="strict">嚴格：嚴格比照真實歷史年代</option>
+              <option value="balanced">平衡（預設）：容許合理原型，不以起始地區資源退件</option>
+              <option value="lenient">寬鬆：再放寬約一個時代</option>
+            </select>
+          </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {UNIT_CATEGORIES.map((c) => (
               <div key={c} className="space-y-1">

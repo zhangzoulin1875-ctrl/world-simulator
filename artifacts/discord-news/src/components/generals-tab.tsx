@@ -7,8 +7,6 @@ import {
   useRecruitGeneral,
   useDismissGeneral,
   useUpgradeGeneral,
-  useAssignGeneral,
-  useUnassignGeneral,
   getListGeneralsQueryKey,
 } from "@workspace/api-client-react";
 import type { General } from "@workspace/api-client-react";
@@ -109,8 +107,8 @@ export function GeneralsTab() {
   });
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [assignPick, setAssignPick] = useState<Record<number, string>>({});
   const [confirmDismiss, setConfirmDismiss] = useState<number | null>(null);
+  const [confirmUpgrade, setConfirmUpgrade] = useState<number | null>(null);
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: getListGeneralsQueryKey() });
@@ -168,14 +166,14 @@ export function GeneralsTab() {
         invalidate();
         if (res.success) {
           toast({
-            title: `${res.general.name} 晉升成功！`,
+            title: `${res.general.name} 晉升成功！（花費 金 ${fmt(res.spent.money)}／生產力 ${fmt(res.spent.production)}）`,
             description: res.general.upgradeNarrative ?? undefined,
           });
         } else {
           toast({
             variant: "destructive",
             title: "升階失敗",
-            description: `成功率 ${res.successPct}% 未中；花費不退還。`,
+            description: `成功率 ${res.successPct}% 未中；已扣 金 ${fmt(res.spent.money)}／生產力 ${fmt(res.spent.production)}，不退還。`,
           });
         }
       },
@@ -183,33 +181,11 @@ export function GeneralsTab() {
     },
   });
 
-  const assignMutation = useAssignGeneral({
-    mutation: {
-      onSuccess: (res) => {
-        invalidate();
-        toast({ title: `${res.general.name} 已坐鎮軍團。` });
-      },
-      onError: onErr("指派失敗"),
-    },
-  });
-
-  const unassignMutation = useUnassignGeneral({
-    mutation: {
-      onSuccess: (res) => {
-        invalidate();
-        toast({ title: `${res.general.name} 已解除指揮，回到帳下。` });
-      },
-      onError: onErr("解除指派失敗"),
-    },
-  });
-
   const busy =
     drawMutation.isPending ||
     recruitMutation.isPending ||
     dismissMutation.isPending ||
-    upgradeMutation.isPending ||
-    assignMutation.isPending ||
-    unassignMutation.isPending;
+    upgradeMutation.isPending;
 
   const generals = data?.generals ?? [];
   const quota = data?.quota;
@@ -339,81 +315,34 @@ export function GeneralsTab() {
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             {recruited.map((g) => {
-              const freeOptions = options.filter(
-                (o) => o.assignedGeneralId == null,
-              );
-              const pick = assignPick[g.id] ?? "";
+              const seat = options.find((o) => o.assignedGeneralId === g.id);
+              const quote = data?.costs?.upgrade?.[String(g.grade)];
               return (
                 <GeneralCard key={g.id} general={g}>
                   <div className="flex flex-wrap items-center gap-2">
                     {g.assignedLegionId != null ? (
-                      <>
-                        <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-xs font-bold text-emerald-200">
-                          坐鎮軍團 #{g.assignedLegionId}
-                        </span>
-                        <Button
-                          data-testid={`button-general-unassign-${g.id}`}
-                          size="sm"
-                          variant="ghost"
-                          disabled={busy}
-                          onClick={() => unassignMutation.mutate({ id: g.id })}
-                        >
-                          解除指揮
-                        </Button>
-                      </>
+                      <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-xs font-bold text-emerald-200">
+                        {seat
+                          ? `坐鎮：戰役 #${seat.campaignId} · ${seat.slot} 軍團`
+                          : `坐鎮軍團 #${g.assignedLegionId}`}
+                      </span>
                     ) : (
-                      <>
-                        <Select
-                          value={pick || undefined}
-                          onValueChange={(v) =>
-                            setAssignPick((s) => ({ ...s, [g.id]: v }))
-                          }
-                        >
-                          <SelectTrigger className="h-8 w-44 text-xs" data-testid={`select-general-assign-${g.id}`}>
-                            <SelectValue placeholder="選擇軍團" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {freeOptions.length === 0 ? (
-                              <div className="px-2 py-1.5 text-xs text-white/50">
-                                沒有可坐鎮的軍團（無戰役或已滿）
-                              </div>
-                            ) : (
-                              freeOptions.map((o) => (
-                                <SelectItem key={o.legionId} value={String(o.legionId)}>
-                                  戰役 #{o.campaignId} · {o.slot} 軍團
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </>
+                      <span className="rounded bg-white/10 px-2 py-0.5 text-xs text-white/55">
+                        待命（到「指揮部」的戰役頁指派軍團）
+                      </span>
                     )}
-                    <Button
-                      data-testid={`button-general-assign-${g.id}`}
-                      size="sm"
-                      variant="outline"
-                      disabled={busy || !pick || g.assignedLegionId != null}
-                      onClick={() => {
-                        const legionId = Number(pick);
-                        const opt = options.find((o) => o.legionId === legionId);
-                        if (!opt) return;
-                        assignMutation.mutate({
-                          id: g.id,
-                          data: { campaignId: opt.campaignId, slot: opt.slot },
-                        });
-                        setAssignPick((s) => ({ ...s, [g.id]: "" }));
-                      }}
-                    >
-                      指派
-                    </Button>
                     <Button
                       data-testid={`button-general-upgrade-${g.id}`}
                       size="sm"
                       disabled={busy || g.grade >= 5}
-                      onClick={() => upgradeMutation.mutate({ id: g.id })}
+                      onClick={() => setConfirmUpgrade(g.id)}
                       className="bg-amber-700 text-white hover:bg-amber-600"
                     >
-                      升階（成功率遞減）
+                      {g.grade >= 5
+                        ? "已達最高階"
+                        : quote
+                          ? `升階 金 ${fmt(quote.money)}／產 ${fmt(quote.production)}（成功率 ${quote.successPct}%）`
+                          : "升階（成功率遞減）"}
                     </Button>
                     <Button
                       data-testid={`button-general-dismiss-${g.id}`}
@@ -424,6 +353,25 @@ export function GeneralsTab() {
                     >
                       遣返
                     </Button>
+                    {confirmUpgrade === g.id && quote && (
+                      <span className="flex basis-full flex-wrap items-center gap-2 text-xs text-amber-200/90">
+                        升階將扣 金 {fmt(quote.money)}／生產力 {fmt(quote.production)}，
+                        成功率 {quote.successPct}%，失敗仍照扣。
+                        <Button
+                          size="sm"
+                          className="bg-amber-700 text-white hover:bg-amber-600"
+                          onClick={() => {
+                            setConfirmUpgrade(null);
+                            upgradeMutation.mutate({ id: g.id });
+                          }}
+                        >
+                          確定升階
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setConfirmUpgrade(null)}>
+                          取消
+                        </Button>
+                      </span>
+                    )}
                     {confirmDismiss === g.id && (
                       <span className="flex items-center gap-2 text-xs text-white/60">
                         確定？

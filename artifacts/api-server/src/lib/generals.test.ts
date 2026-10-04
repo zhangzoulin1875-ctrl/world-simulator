@@ -34,17 +34,16 @@ test("drawCost：5% 無條件進位、下限 1", () => {
   assert.deepEqual(drawCost(101, 103), { money: 6, production: 6 });
 });
 
-/** 升階成本：抽取成本 × 2.5^(grade−1)。 */
-test("upgradeCost：指數成長", () => {
-  const base = drawCost(1000, 2000); // {50, 100}
-  // grade 1 → ×2.5^0
-  assert.deepEqual(upgradeCost(1000, 2000, 1), base);
-  // grade 2 → ×2.5^1（125 → 250）
-  assert.deepEqual(upgradeCost(1000, 2000, 2), { money: 125, production: 250 });
-  // grade 5 → ×2.5^4 ≈ 39.06（1954 / 3907）
-  const g5 = upgradeCost(1000, 2000, 5);
-  assert.equal(g5.money, 1954);
-  assert.equal(g5.production, 3907);
+/** 升階成本：國庫/可用生產力的 10% × 2^(grade−1)，上限 90%。 */
+test("upgradeCost：按比例、逐階翻倍", () => {
+  assert.deepEqual(upgradeCost(1000, 2000, 1), { money: 100, production: 200 });
+  assert.deepEqual(upgradeCost(1000, 2000, 2), { money: 200, production: 400 });
+  assert.deepEqual(upgradeCost(1000, 2000, 3), { money: 400, production: 800 });
+  assert.deepEqual(upgradeCost(1000, 2000, 4), { money: 800, production: 1600 });
+  // 封頂 90%
+  assert.deepEqual(upgradeCost(1000, 2000, 5), { money: 900, production: 1800 });
+  // 0 資源也要付 1（防呆）
+  assert.deepEqual(upgradeCost(0, 0, 1), { money: 1, production: 1 });
 });
 
 /** 升階成功率：80% × 0.6^(grade−1)，整數化、下限 5%。 */
