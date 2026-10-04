@@ -11,6 +11,7 @@ export * from "./parliament";
 export * from "./cabinet";
 export * from "./autopilot";
 export * from "./mercenary";
+export * from "./focus";
 export * from "./war";
 export * from "./economy";
 export * from "./socialTech";
