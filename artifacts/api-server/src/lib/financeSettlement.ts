@@ -20,6 +20,8 @@ import {
   takePregenResult,
 } from "./aiPregenCache";
 import { buildNationGeoCultureContext } from "./nationGeoCulture";
+import { loadActivePolicySummaries } from "./politicsActivePolicies";
+import { buildNationContext } from "./nationContext";
 import { notifyFiscalPolicyJudged } from "./gameNotify";
 import {
   applyModifierSource,
@@ -106,9 +108,16 @@ export async function settleNation(
 
   let judgement;
   try {
+    // 國情快照（2026-10）：戰爭／饑荒／現行制度貼合判定；預產雜湊與
+    // 現場判定共用同一份資料，兩端一致。
+    const activePolicies = await loadActivePolicySummaries(nation.id);
+    const context = await buildNationContext(nation, eraSlug, { activePolicies });
     // v3 閒時預產：先以輸入雜湊比對背景預產快取，命中就直接用（不打 AI、
     // 取用即消耗）；未命中（沒預產過／玩家改過想法／輸入已變）照舊現場判定。
-    const { hash } = await buildFiscalJudgeInput(nation, pending);
+    const { hash } = await buildFiscalJudgeInput(nation, pending, {
+      context,
+      activePolicies,
+    });
     judgement =
       (await takePregenResult<FiscalPolicyJudgement>(
         PREGEN_KIND_FISCAL,
@@ -122,6 +131,7 @@ export async function settleNation(
         taxEfficiencyPct,
         idea: pending.idea,
         geoContext,
+        context,
       }));
   } catch (err) {
     // AI 失敗：保留想法，下回合重試；順便讓預產 worker 待命重試。

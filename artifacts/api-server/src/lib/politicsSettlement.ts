@@ -78,6 +78,7 @@ import {
   type PolicyJudgement,
 } from "./politicsAi";
 import { loadActivePolicySummaries } from "./politicsActivePolicies";
+import { buildNationContext } from "./nationContext";
 import {
   PREGEN_KIND_POLITICS,
   buildPoliticsJudgeInput,
@@ -413,12 +414,13 @@ async function settleNation(
   // ── 3c. 政體變更接受度累積／消退（達 100 後由玩家主動改制，Task #127） ──
   await settleAcceptance(freshNation, settings);
 
-  // 現行制度摘要（2026-10 政策連續性）：事件／政變敘事共用，避免重複查詢。
+  // 現行制度摘要＋國情快照（2026-10）：事件／政變敘事共用，避免重複查詢。
   const activePolicySummaries = entries.map((e) => ({
     title: e.title,
     entryType: e.entryType,
     remainingTurns: e.remainingTurns,
   }));
+  const nationContext = await buildNationContext(freshNation, eraSlug);
 
   // ── 4. 隨機事件（僅有主國家，控制 AI 成本） ──
   if (freshNation.discordUserId !== null) {
@@ -433,6 +435,7 @@ async function settleNation(
         summary,
         geoContext,
         activePolicySummaries,
+        nationContext,
       );
     }
   }
@@ -460,6 +463,7 @@ async function settleNation(
         entryType: e.entryType,
         remainingTurns: e.remainingTurns,
       })),
+      nationContext,
     );
     summary.coups += 1;
   }
@@ -687,17 +691,17 @@ export async function judgeIdea(
   const direction = legacyDirection ?? GENERAL_DIRECTION;
   let judgement;
   try {
-    // 現行制度脈絡（2026-10 政策連續性）：讓「基於既有制度延伸」的想法
-    // 被視為合理演進。預產雜湊與現場判定共用同一份清單，兩端一致。
+    // 現行制度＋國情快照（2026-10 政策連續性／國家現況）：讓「基於既有
+    // 制度延伸」「戰時安撫民心」等想法貼合該國實況判定。預產雜湊與現場
+    // 判定共用同一份資料，兩端一致。
     const activePolicies = await loadActivePolicySummaries(nation.id);
+    const context = await buildNationContext(nation, eraSlug);
     // v3 閒時預產：先以輸入雜湊比對背景預產快取，命中就直接用（不打 AI、
     // 取用即消耗）；未命中（沒預產過／玩家改過想法／輸入已變）照舊現場判定。
-    const { hash } = await buildPoliticsJudgeInput(
-      nation,
-      idea,
-      settings,
+    const { hash } = await buildPoliticsJudgeInput(nation, idea, settings, {
       activePolicies,
-    );
+      context,
+    });
     judgement =
       (await takePregenResult<PolicyJudgement>(
         PREGEN_KIND_POLITICS,
@@ -710,6 +714,7 @@ export async function judgeIdea(
         eraSlug,
         idea: idea.idea,
         activePolicies,
+        context,
         politicalNote: nation.politicalNote,
         geoContext,
         settings,
@@ -876,6 +881,8 @@ export async function applyRandomEvent(
   geoContext: string = "",
   /** 呼叫端（settleNation）已載入時直接傳入；省略時本函式自行查詢。 */
   activePolicies?: readonly ActivePolicySummary[],
+  /** 國情快照；省略時本函式自行載入。 */
+  context?: string,
 ): Promise<void> {
   const good =
     Math.random() * 100 < goodEventProbabilityPct(state.stability, settings);
@@ -891,6 +898,7 @@ export async function applyRandomEvent(
       eraSlug,
       good,
       activePolicies: policies,
+      context: context ?? (await buildNationContext(nation, eraSlug)),
       politicalNote: nation.politicalNote,
       geoContext,
       settings,
@@ -938,6 +946,8 @@ export async function applyCoup(
   geoContext: string = "",
   /** 呼叫端（settleNation）已載入時直接傳入；省略時本函式自行查詢。 */
   activePolicies?: readonly ActivePolicySummary[],
+  /** 國情快照；省略時本函式自行載入。 */
+  context?: string,
 ): Promise<void> {
   // 政變被動改變政體：從政變常見政體中挑一個（排除現制）。
   const currentSlug = governmentSlugByLabel(nation.government);
@@ -959,6 +969,7 @@ export async function applyCoup(
       politicalNote: nation.politicalNote,
       geoContext,
       activePolicies: policies,
+      context: context ?? (await buildNationContext(nation, eraSlug)),
     });
     title = narrative.title;
     description = narrative.description;
@@ -1210,9 +1221,10 @@ export async function judgeGovernmentDecisionForNation(
 ): Promise<boolean> {
   let judgement;
   try {
-    // 現行制度脈絡（2026-10 政策連續性）：決策以既有制度為基礎延伸時
-    // 屬合理演進，不因「當前年代沒有該制度」被誤判。
+    // 現行制度＋國情快照：決策以既有制度為基礎延伸時屬合理演進；
+    // 戰時／饑荒中的決策貼合局勢判定。
     const activePolicies = await loadActivePolicySummaries(nation.id);
+    const context = await buildNationContext(nation, eraSlug);
     judgement = await judgeGovernmentDecision({
       government: nation.government,
       eraSlug,
@@ -1220,6 +1232,7 @@ export async function judgeGovernmentDecisionForNation(
       politicalNote: nation.politicalNote,
       decision: pending.decision,
       activePolicies,
+      context,
       geoContext,
     });
   } catch (err) {

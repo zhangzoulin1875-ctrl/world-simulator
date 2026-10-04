@@ -189,6 +189,7 @@ async function tick(): Promise<void> {
                 taxEfficiencyPct: input["taxEfficiencyPct"] as number,
                 idea: input["idea"] as string,
                 geoContext: input["geoContext"] as string | undefined,
+                context: input["context"] as string | undefined,
               }),
           };
         },
@@ -224,6 +225,7 @@ async function tick(): Promise<void> {
                 geoContext: input["geoContext"] as string | undefined,
                 activePolicies: input["activePolicies"] as
                   | Parameters<typeof judgePolicyIdea>[0]["activePolicies"],
+                context: input["context"] as string | undefined,
                 settings: politicsSettings ?? undefined,
               }),
           };

@@ -35,6 +35,8 @@ import {
   willOverstepAuthorization,
 } from "./interiorPolicy";
 import { computeNationFoodReport } from "../../foodData";
+import { buildNationContext } from "../../nationContext";
+import { loadActivePolicySummaries } from "../../politicsActivePolicies";
 import {
   FOOD_POLICY_OUTPUT_BONUS_PCT,
   FOOD_POLICY_RATION_SAVING_PCT,
@@ -634,6 +636,21 @@ export async function runDomain(ctx: RunDomainContext): Promise<void> {
     );
   const pendingKeys = new Set(pending.map((p) => p.actionKey));
 
+  // 國情快照（2026-10）：讓大臣知道戰爭狀態與現行制度（國力／糧食
+  // 它已有自己的報告行）。載入失敗只省略該行，不擋規劃。
+  const buildInteriorContext = async (): Promise<string | null> => {
+    try {
+      const activePolicies = await loadActivePolicySummaries(nation.id);
+      return await buildNationContext(nation, era, {
+        activePolicies,
+        minimal: true,
+      });
+    } catch (err) {
+      logger.error({ err, nationId: nation.id }, "interior context load failed");
+      return null;
+    }
+  };
+
   const input: InteriorPlanInput = {
     nationName: nation.name,
     eraLabel: eraLabel(era),
@@ -652,6 +669,7 @@ export async function runDomain(ctx: RunDomainContext): Promise<void> {
     demolishOptions: options.demolishOptions,
     wallOptions: options.wallOptions,
     food,
+    context: await buildInteriorContext(),
   };
 
   let plan;

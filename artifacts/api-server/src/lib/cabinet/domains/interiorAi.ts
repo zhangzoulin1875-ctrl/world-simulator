@@ -78,6 +78,8 @@ export interface InteriorPlanInput {
   wallOptions: WallOption[];
   /** 糧食報告摘要（null = 本回合不考慮糧食政策）。 */
   food: FoodBrief | null;
+  /** 國情快照（minimal：戰爭狀態＋現行制度）；null = 載入失敗時省略。 */
+  context?: string | null;
 }
 
 export interface InteriorPlan {
@@ -184,6 +186,7 @@ export async function planInteriorActions(
           )
           .join("、")}`
       : "可升級城牆：（無）",
+    ...(input.context ? [`國家現況：${input.context}`] : []),
     input.food
       ? `糧食報告：產出 ${Math.round(input.food.production).toLocaleString("en-US")}／消耗 ${Math.round(input.food.consumption).toLocaleString("en-US")}／結餘 ${Math.round(input.food.balance).toLocaleString("en-US")}${input.food.famine ? "（⚠️ 饑荒中）" : ""}。政策現況：全民動員=${input.food.mobilization ? "開啟" : "關閉"}（產量 +${input.food.outputBonusPct}%）、配給制=${input.food.rationing ? "開啟" : "關閉"}（消耗 −${input.food.rationSavingPct}%）；每項開啟中的政策每回合人民滿意度 −${input.food.satisfactionCostPerTurn}。`
       : "糧食報告：（本回合不考慮糧食政策，foodPolicy 請填 null）",

@@ -12,6 +12,7 @@ import { buildNationGeoCultureContext } from "./nationGeoCulture";
 import { getPoliticsSettings } from "./politicsSettings";
 import { isPoliticsDirection } from "./politics";
 import { loadActivePolicySummaries } from "./politicsActivePolicies";
+import { buildNationContext } from "./nationContext";
 import type { ActivePolicySummary } from "./politicsAi";
 
 /**
@@ -35,9 +36,21 @@ export { hashPregenInput };
 export async function buildFiscalJudgeInput(
   nation: PlayerNation,
   pending: Pick<FinancePendingIdea, "idea">,
+  /** 結算端已備妥的國情快照／現行制度清單；未提供時本函式自行載入。 */
+  preloaded?: {
+    context?: string;
+    activePolicies?: readonly ActivePolicySummary[];
+  },
 ): Promise<{ input: Record<string, unknown>; hash: string }> {
   const eraSlug = await getCurrentEraSlug();
   const geoContext = await buildNationGeoCultureContext(nation.id);
+  // 國情快照與現行制度都進雜湊：預產與結算之間局勢變動 → 雜湊不符 →
+  // 快取自動失效，改為現場判定（與 idea 變動同一防護）。
+  const activePolicies =
+    preloaded?.activePolicies ?? (await loadActivePolicySummaries(nation.id));
+  const context =
+    preloaded?.context ??
+    (await buildNationContext(nation, eraSlug, { activePolicies }));
   const input = {
     kind: PREGEN_KIND_FISCAL,
     government: nation.government,
@@ -45,6 +58,7 @@ export async function buildFiscalJudgeInput(
     currentTaxRatePct: nation.taxRatePct,
     taxEfficiencyPct: effectiveTaxEfficiencyPct(eraSlug, nation.taxEfficiencyBonus),
     idea: pending.idea,
+    context,
     geoContext,
   };
   return { input, hash: hashPregenInput(input) };
@@ -55,15 +69,20 @@ export async function buildPoliticsJudgeInput(
   nation: PlayerNation,
   pending: Pick<PoliticsPendingIdea, "idea" | "direction">,
   preloadedSettings?: Awaited<ReturnType<typeof getPoliticsSettings>>,
-  preloadedActivePolicies?: readonly ActivePolicySummary[],
+  preloaded?: {
+    activePolicies?: readonly ActivePolicySummary[];
+    context?: string;
+  },
 ): Promise<{ input: Record<string, unknown>; hash: string }> {
   const eraSlug = await getCurrentEraSlug();
   const geoContext = await buildNationGeoCultureContext(nation.id);
   const settings = preloadedSettings ?? (await getPoliticsSettings());
-  // 現行制度清單也進雜湊：玩家在預產與結算之間廢除／新增制度 → 雜湊不
-  // 符 → 快取自動失效，改為現場判定（與 idea/政治註記同樣的防護）。
+  // 現行制度清單與國情快照都進雜湊：預產與結算之間制度／局勢變動 →
+  // 雜湊不符 → 快取自動失效，改為現場判定（與 idea/政治註記同樣的防護）。
   const activePolicies =
-    preloadedActivePolicies ?? (await loadActivePolicySummaries(nation.id));
+    preloaded?.activePolicies ?? (await loadActivePolicySummaries(nation.id));
+  // 政治判定點自帶「現行制度」行（politicsAi 渲染），快照不含制度行。
+  const context = preloaded?.context ?? (await buildNationContext(nation, eraSlug));
   const legacyDirection = isPoliticsDirection(pending.direction)
     ? pending.direction
     : null;
@@ -77,6 +96,7 @@ export async function buildPoliticsJudgeInput(
     idea: pending.idea,
     politicalNote: nation.politicalNote ?? null,
     activePolicies,
+    context,
     geoContext,
     settings,
   };

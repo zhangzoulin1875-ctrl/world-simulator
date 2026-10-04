@@ -376,6 +376,8 @@ export async function judgePolicyIdea(params: {
   idea: string;
   /** 現行（active）制度清單：新想法以其為基礎延伸屬合理演進，不算穿越時代。 */
   activePolicies?: readonly ActivePolicySummary[] | null;
+  /** 國情快照（見 nationContext.ts）：戰爭、國力、糧食、真實建築清單。 */
+  context?: string | null;
   politicalNote?: string | null;
   /** 國家地理人文背景脈絡（見 nationGeoCulture）；提供時讓判定貼合當地文化。 */
   geoContext?: string;
@@ -407,6 +409,8 @@ export async function judgePolicyIdea(params: {
     "6. 內政政策不能直接增加或扣除國庫金錢：成功與失敗的描述都不要提及「獲得／損失多少金錢」，經濟面的影響只能透過 production（生產）等 modifiers 間接呈現。",
     "7. success 與 failure 兩者都必須是完整物件、永遠不要填 null：即使想法明顯不可行（fitScore 很低或被標 abuseReason），也要寫出「假如推行成功」的完整 success；即使想法必然成功，也要寫出完整 failure。採用哪一種由伺服器擲骰決定。",
     "8. 若提供「現行制度」清單：清單中的制度是該國已推行生效的既成事實，即使時代較早也一樣成立。新想法若以清單中的制度為基礎延伸（深化、擴大、銜接、改革），屬於該國的合理制度演進：fitScore 應提高、success 描述應承接既有制度的脈絡，絕不能以「當前年代沒有該制度」為由判定失敗。時代矛盾檢查只針對「清單中不存在、且玩家也沒說是新建」的制度。",
+    "9. 若提供「國家現況」段落：判定必須貼合現況——交戰中時，安撫民心、戒嚴、戰時動員、陣亡撫恤等戰時政策契合局勢（fitScore 提高）；承平時期卻空談戰時措施（無戰爭卻推「戰時經濟」）降低合理性。饑荒中時，救荒、配給、以工代賑等契合局勢。",
+    "10. 設施真實性：世界實際可建造的建築僅有現況清單所列。清單外設施（如電影院、博物館、澡堂）屬「敘事性建設」：依時代合理性與國力判定成敗；成功的效果以抽象數值（滿意度／穩定度等）呈現，不會產生真實存在於地圖、可升級、可互動的建築物——描述不要暗示玩家之後能對該設施下指令或看到它出現在建築清單中。",
   ].join("\n");
 
   const noteLine = params.politicalNote
@@ -420,7 +424,8 @@ export async function judgePolicyIdea(params: {
   const activeLine = formatActivePoliciesLine(params.activePolicies);
   const active =
     activeLine === "" ? "" : `\n${activeLine}\n（新想法可基於上述既有制度延伸；承接其脈絡時 fitScore 提高。）`;
-  const user = `國家政體：${government}\n當前時代：${era.label}${noteLine}${geoLine}${dirLine}${active}\n玩家的政策想法：${params.idea}\n\n僅回覆 JSON 物件。`;
+  const ctxLine = params.context ? `\n${params.context}` : "";
+  const user = `國家政體：${government}\n當前時代：${era.label}${noteLine}${geoLine}${dirLine}${active}${ctxLine}\n玩家的政策想法：${params.idea}\n\n僅回覆 JSON 物件。`;
 
   const raw = await callBulkModel(system, user);
   try {
@@ -439,6 +444,8 @@ export async function generateRandomEvent(params: {
   good: boolean;
   /** 現行（active）制度清單：事件可與既有制度互動、引用其名稱。 */
   activePolicies?: readonly ActivePolicySummary[] | null;
+  /** 國情快照（見 nationContext.ts）：戰爭、國力、糧食、真實建築清單。 */
+  context?: string | null;
   politicalNote?: string | null;
   /** 國家地理人文背景脈絡（見 nationGeoCulture）；提供時讓事件貼合當地文化。 */
   geoContext?: string;
@@ -462,6 +469,7 @@ export async function generateRandomEvent(params: {
     "2. 好事件 modifiers 以正面為主，壞事件以負面為主；效果會隨回合淡化。事件主題以「事件方向」為主，但效果可跨多個滿意度與國家數值（例：宗教異象同時影響宗教滿意度與穩定度、商界醜聞同時影響法律與文化滿意度）。",
     "3. 所有文字繁體中文（zh-TW）。",
     "4. 若提供「現行制度」清單：事件可以與這些既有制度互動——例如該制度引發的受益／反彈、執行中的風波、圍繞制度的社會事件等，描述可自然引用制度名稱，讓事件貼合該國實況。",
+    "5. 若提供「國家現況」段落：事件貼合現況——戰事波及後方、饑荒引發的動盪、財政困難等；承平時期就不要憑空寫出戰亂或饑荒。",
   ].join("\n");
 
   const noteLine = params.politicalNote
@@ -470,7 +478,8 @@ export async function generateRandomEvent(params: {
   const geoLine = params.geoContext ? `\n${params.geoContext}` : "";
   const activeLine = formatActivePoliciesLine(params.activePolicies);
   const active = activeLine === "" ? "" : `\n${activeLine}`;
-  const user = `國家政體：${government}\n當前時代：${era.label}${noteLine}${geoLine}${active}\n事件方向（主題提示）：${dirLabel}\n事件類型：${tone}\n\n僅回覆 JSON 物件。`;
+  const ctxLine = params.context ? `\n${params.context}` : "";
+  const user = `國家政體：${government}\n當前時代：${era.label}${noteLine}${geoLine}${active}${ctxLine}\n事件方向（主題提示）：${dirLabel}\n事件類型：${tone}\n\n僅回覆 JSON 物件。`;
 
   const raw = await callBulkModel(system, user);
   try {
@@ -492,6 +501,8 @@ export async function generateCoupNarrative(params: {
   geoContext?: string;
   /** 現行（active）制度清單：政變敘事可提及對既有制度的衝擊。 */
   activePolicies?: readonly ActivePolicySummary[] | null;
+  /** 國情快照（見 nationContext.ts）：戰爭、國力、糧食、真實建築清單。 */
+  context?: string | null;
 }): Promise<{ title: string; description: string }> {
   const era = ERAS[getEraIndex(params.eraSlug)]!;
   const government = params.government ?? "未知政體";
@@ -501,6 +512,7 @@ export async function generateCoupNarrative(params: {
     `JSON 欄位：{"title": "…（繁體中文，≤60字）", "description": "…（繁體中文，≤400字）"}`,
     "描述需符合政體與時代風格（誰發動、如何奪權、社會動盪的景象、政體如何更替），語氣嚴肅。所有文字繁體中文（zh-TW）。",
     "若提供「現行制度」清單：敘事可自然提及政變對這些既有制度的衝擊（哪些制度被廢止、被誰利用或遭清算），讓政變貼合該國實況。",
+    "若提供「國家現況」段落：敘事貼合現況（戰敗引發的兵變、饑荒激化的民變、財政崩潰等）。",
   ].join("\n");
 
   const noteLine = params.politicalNote
@@ -512,7 +524,8 @@ export async function generateCoupNarrative(params: {
   const geoLine = params.geoContext ? `\n${params.geoContext}` : "";
   const activeLine = formatActivePoliciesLine(params.activePolicies);
   const active = activeLine === "" ? "" : `\n${activeLine}`;
-  const user = `國家名稱：${params.nationName ?? "未命名國家"}\n原國家政體：${government}${newGovLine}\n當前時代：${era.label}${noteLine}${geoLine}${active}\n\n僅回覆 JSON 物件。`;
+  const ctxLine = params.context ? `\n${params.context}` : "";
+  const user = `國家名稱：${params.nationName ?? "未命名國家"}\n原國家政體：${government}${newGovLine}\n當前時代：${era.label}${noteLine}${geoLine}${active}${ctxLine}\n\n僅回覆 JSON 物件。`;
 
   const raw = await callBulkModel(system, user);
   try {
@@ -690,6 +703,8 @@ export async function judgeGovernmentDecision(params: {
   decision: string;
   /** 現行（active）制度清單：決策以其為基礎延伸屬合理演進，不算穿越時代。 */
   activePolicies?: readonly ActivePolicySummary[] | null;
+  /** 國情快照（見 nationContext.ts）：戰爭、國力、糧食、真實建築清單。 */
+  context?: string | null;
   /** 國家地理人文背景脈絡（見 nationGeoCulture）；提供時讓判定貼合當地文化。 */
   geoContext?: string;
 }): Promise<GovernmentDecisionJudgement> {
@@ -706,6 +721,8 @@ export async function judgeGovernmentDecision(params: {
     "4. 所有文字繁體中文（zh-TW）。",
     "5. success 與 failure 兩者都必須是完整物件、永遠不要填 null：即使決策明顯不可行，也要寫出「假如順利推行」的完整 success；即使決策必然成功，也要寫出完整 failure。採用哪一種由伺服器擲骰決定。",
     "6. 若提供「現行制度」清單：清單中的制度是該國已推行生效的既成事實。決策若以清單中的制度為基礎延伸，屬於合理演進：fitScore 應提高，絕不能以「當前年代沒有該制度」為由判低分。",
+    "7. 若提供「國家現況」段落：判定貼合現況——交戰中時，戰時決策（動員、戒嚴、撫恤）契合局勢；承平時期空談戰時措施降低合理性。饑荒中時，救荒決策契合局勢。",
+    "8. 設施真實性：世界實際可建造的建築僅有現況清單所列；清單外設施是敘事性建設，成功也只是敘事＋抽象數值效果，不產生真實建築物。",
   ].join("\n");
 
   const noteLine = params.politicalNote
@@ -714,7 +731,8 @@ export async function judgeGovernmentDecision(params: {
   const geoLine = params.geoContext ? `\n${params.geoContext}` : "";
   const activeLine = formatActivePoliciesLine(params.activePolicies);
   const active = activeLine === "" ? "" : `\n${activeLine}`;
-  const user = `國家政體：${government}\n當前時代：${era.label}\n政治支持度：${Math.round(params.politicalSupport)}/100${noteLine}${geoLine}${active}\n政府決策內容：${params.decision}\n\n僅回覆 JSON 物件。`;
+  const ctxLine = params.context ? `\n${params.context}` : "";
+  const user = `國家政體：${government}\n當前時代：${era.label}\n政治支持度：${Math.round(params.politicalSupport)}/100${noteLine}${geoLine}${active}${ctxLine}\n政府決策內容：${params.decision}\n\n僅回覆 JSON 物件。`;
 
   const raw = await callBulkModel(system, user);
   try {
