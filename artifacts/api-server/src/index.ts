@@ -28,6 +28,7 @@ import {
   startRelationEventPruneLoop,
 } from "./lib/diplomacy";
 import { runPoliticsMigrations } from "./lib/politicsMigrations";
+import { runParliamentMigrations } from "./lib/parliamentMigrations";
 import { runCabinetMigrations } from "./lib/cabinetMigrations";
 import { runAutopilotMigrations } from "./lib/autopilotMigrations";
 import { runWarMigrations } from "./lib/warMigrations";
@@ -147,6 +148,8 @@ async function runStartupMigrations(): Promise<void> {
   // 武將系統三表（generals／general_pool／general_draws；FK 依賴 player_nations
   // 與 war_campaign_legions，放遷移鏈尾端）。缺少時抽卡路由 500。
   await runGeneralsMigrations();
+  // 選舉與議會：議會狀態／政黨／歷史三表（FK 依賴 player_nations，放鏈尾）。
+  await runParliamentMigrations();
   // Task #604 — 清理存量違規國名（超過 25 字或含空白/標點）。
   await runNationNameSanitizeMigration();
 }

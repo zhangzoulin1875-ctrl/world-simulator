@@ -91,6 +91,7 @@ export const AI_FEATURES = {
     label: "NPC 主動提案（已停用）",
     defaultMaxTokens: 4096,
   },
+  "parliament.report": { label: "議會:國情報告評分", defaultMaxTokens: 400 },
   "diagnostics.ping": { label: "系統：AI 連線測試", defaultMaxTokens: 200 },
 } as const satisfies Record<string, AiFeatureDef>;
 

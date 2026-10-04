@@ -39,6 +39,7 @@ import {
   runPoliticsSettlement,
   type PoliticsSettlementSummary,
 } from "./politicsSettlement";
+import { runParliamentSettlement } from "./parliament/service";
 import {
   runFinanceSettlement,
   type FinanceSettlementSummary,
@@ -389,6 +390,13 @@ export interface TurnUpdateSummary {
     ok: boolean;
     error?: string;
     summary?: PoliticsSettlementSummary;
+  };
+  parliament?: {
+    ok: boolean;
+    error?: string;
+    nations?: number;
+    revolts?: number;
+    failed?: number;
   };
   customTreaties?: {
     ok: boolean;
@@ -1220,6 +1228,18 @@ async function doRunTurn(
       error: err instanceof Error ? err.message : String(err),
     };
     logger.error({ err }, "turn engine: politics settlement failed");
+  }
+
+  // 選舉與議會:政治結算之後跑。獨立 try/catch,失敗只記 log,絕不中斷回合。
+  try {
+    const parliament = await runParliamentSettlement();
+    summary.parliament = { ok: true, ...parliament };
+  } catch (err) {
+    summary.parliament = {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+    logger.error({ err }, "turn engine: parliament settlement failed");
   }
 
   // Task #333 — 超事件系統：每回合自動生成／推進全球重大事件，套用跨國數值影響、

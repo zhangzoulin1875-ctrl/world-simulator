@@ -16,7 +16,8 @@ export type TerritoryChangeType =
   | "admin_edit"
   | "admin_nation_replace"
   | "overfull_repair"
-  | "world_sim";
+  | "world_sim"
+  | "revolution";
 
 /** 變更類型 → zh-TW 顯示名稱（後端 API 直接輸出，前端無需重複維護）。 */
 export const TERRITORY_CHANGE_TYPE_LABELS: Record<TerritoryChangeType, string> =
@@ -28,6 +29,7 @@ export const TERRITORY_CHANGE_TYPE_LABELS: Record<TerritoryChangeType, string> =
     admin_nation_replace: "國家管理領土替換",
     overfull_repair: "超額自動修復",
     world_sim: "世界模擬",
+    revolution: "議會革命分裂",
   };
 
 export interface TerritoryChangeEntry {

@@ -8,6 +8,7 @@ import { GovernmentPanel } from "./government-panel";
 import { AdvisorSlotsPanel } from "./advisor-slots-panel";
 import { PolicyPanel } from "./policy-panel";
 import { MilitaryPanel } from "./military-panel";
+import { ParliamentPanel } from "@/components/parliament/parliament-panel";
 import { PoliticsHistoryTimeline } from "./politics-history-timeline";
 
 export function PoliticsScreen({
@@ -72,6 +73,7 @@ export function PoliticsScreen({
         )}
 
         {/* Task #402 — 軍方面板 */}
+        <ParliamentPanel />
         <MilitaryPanel overview={overview} />
 
         <PolicyPanel overview={overview} />
