@@ -71,4 +71,19 @@ export async function runParliamentMigrationsInner(
   await executor.execute(sql`ALTER TABLE parliament_state ADD COLUMN IF NOT EXISTS prev_tax_rate integer`);
   await executor.execute(sql`ALTER TABLE parliament_state ADD COLUMN IF NOT EXISTS prev_army_pop text`);
   await executor.execute(sql`ALTER TABLE parliament_state ADD COLUMN IF NOT EXISTS prev_policy_count integer`);
+  await executor.execute(sql`
+    CREATE TABLE IF NOT EXISTS military_demands (
+      id serial PRIMARY KEY,
+      nation_id uuid NOT NULL REFERENCES player_nations(id) ON DELETE CASCADE,
+      region_id integer NOT NULL,
+      region_name text NOT NULL,
+      target_nation_id uuid,
+      target_nation_name text,
+      status text NOT NULL DEFAULT 'pending',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      resolved_at timestamptz
+    )
+  `);
+  await executor.execute(sql`CREATE INDEX IF NOT EXISTS military_demands_nation_idx ON military_demands (nation_id, created_at)`);
+  await executor.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS military_demands_one_pending_uidx ON military_demands (nation_id) WHERE status = 'pending'`);
 }

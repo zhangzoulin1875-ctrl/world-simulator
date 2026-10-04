@@ -24,3 +24,4 @@ export * from "./resources";
 export * from "./territoryHistory";
 export * from "./gameBalance";
 export * from "./aiPregen";
+export * from "./militaryDemands";

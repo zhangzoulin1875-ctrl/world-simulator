@@ -222,6 +222,8 @@ export async function declareWarByNpc(params: {
   declarerName: string | null;
   target: { id: string; name: string | null; discordUserId: string | null };
   now?: Date;
+  /** 軍方越權開戰:略過「關係必須為負」這一項檢查,其餘條約/同盟/冷卻檢查照舊 */
+  ignoreRelation?: boolean;
 }): Promise<DeclareWarResult> {
   const now = params.now ?? new Date();
   const myId = params.declarerNationId;
@@ -264,7 +266,7 @@ export async function declareWarByNpc(params: {
   ]);
 
   const score = relation?.score ?? 0;
-  if (score >= 0) return { declared: false, reason: "relation_non_negative" };
+  if (score >= 0 && !params.ignoreRelation) return { declared: false, reason: "relation_non_negative" };
 
   const treatyViews: TreatyEffectView[] = activeTreaties;
   if (findWarBlockingTreatyType(treatyViews, myId, targetId, now) !== null) {

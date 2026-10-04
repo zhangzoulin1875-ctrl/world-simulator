@@ -125,7 +125,9 @@ export async function settleNationParliament(
 }
 
 /** 革命落地：割 40% 控制度給新建的 NPC 分裂政權並宣戰；沒有土地則改政體。 */
-export async function applyRevolution(nation: Nation, tick: number): Promise<void> {
+export async function applyRevolution(
+  nation: Nation, tick: number, cause: "parliament" | "military" = "parliament",
+): Promise<void> {
   await db.transaction(async (tx) => {
     const controls = await tx.select({ regionId: regionControlsTable.regionId, percent: regionControlsTable.percent, name: mapRegionsTable.name })
       .from(regionControlsTable)
@@ -135,13 +137,13 @@ export async function applyRevolution(nation: Nation, tick: number): Promise<voi
     if (plan.mode === "regime_change" || plan.transfers.length === 0) {
       await tx.update(playerNationsTable)
         .set({ government: governmentLabel(DEFAULT_GOVERNMENT_SLUG) }).where(eq(playerNationsTable.id, nation.id));
-      await tx.insert(parliamentLogTable).values({ nationId: nation.id, tick, kind: "revolution", summary: "革命推翻舊政權,政體被迫更替。", satDelta: 0 });
+      await tx.insert(parliamentLogTable).values({ nationId: nation.id, tick, kind: "revolution", summary: cause === "military" ? "軍方叛變奪權,政體被迫更替。" : "革命推翻舊政權,政體被迫更替。", satDelta: 0 });
       return;
     }
     const nameOf = new Map(controls.map((c) => [c.regionId, c.name]));
     const first = plan.transfers[0]!;
     const [rebel] = await tx.insert(playerNationsTable).values({
-      name: `${nameOf.get(first.regionId) ?? "叛亂"}獨立政權`.slice(0, 25).replace(/[\s\p{P}]/gu, ""),
+      name: `${nameOf.get(first.regionId) ?? "叛亂"}${cause === "military" ? "軍閥政權" : "獨立政權"}`.slice(0, 25).replace(/[\s\p{P}]/gu, ""),
       government: governmentLabel(DEFAULT_GOVERNMENT_SLUG), isNpc: true,
     }).returning();
     if (!rebel) throw new Error("建立分裂政權失敗");
@@ -163,7 +165,7 @@ export async function applyRevolution(nation: Nation, tick: number): Promise<voi
     const { low, high } = canonicalPair(rebel.id, nation.id);
     await tx.insert(diplomacyRelationsTable).values({ nationAId: low, nationBId: high, score: -100 }).onConflictDoNothing();
     await tx.insert(diplomacyWarsTable).values({ nationAId: low, nationBId: high, declaredByNationId: rebel.id }).onConflictDoNothing();
-    await tx.insert(parliamentLogTable).values({ nationId: nation.id, tick, kind: "revolution", summary: `革命爆發:「${rebel.name}」奪取 ${changes.length / 2} 處領地並向你宣戰。`, satDelta: 0 });
+    await tx.insert(parliamentLogTable).values({ nationId: nation.id, tick, kind: "revolution", summary: `${cause === "military" ? "軍閥叛變" : "革命爆發"}:「${rebel.name}」奪取 ${changes.length / 2} 處領地並向你宣戰。`, satDelta: 0 });
   });
 }
 

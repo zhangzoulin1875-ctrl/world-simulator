@@ -30,6 +30,7 @@ import {
   OVERREACH_SATISFACTION_PENALTY,
   OVERREACH_UNREST_INCREASE,
 } from "./militaryPolitics";
+import { settleNationMilitaryDemand } from "./militaryDemand/service";
 import { buildNationGeoCultureContext } from "./nationGeoCulture";
 import {
   POLITICS_DIRECTIONS,
@@ -491,6 +492,23 @@ async function settleNation(
         { err, nationId: nation.id },
         "politics settlement: military step failed",
       );
+    }
+  }
+
+  // ── 5c. 軍方進攻要求 / 越權開戰 / 政變分流(民主國家軍方永遠無要求) ──
+  // 5b 本回合已政變時跳過,避免同回合雙重政變。
+  if (freshNation.discordUserId !== null && !freshNation.isNpc && !coupFiredThisTurn) {
+    try {
+      const [latest] = await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, freshNation.id)).limit(1);
+      if (latest) {
+        await settleNationMilitaryDemand(latest, militaryAggregates ?? new Map(), async () => {
+          await applyCoup(latest, settings, eraSlug, digest, summary, geoContext);
+          summary.coups += 1;
+          await recordHistory(latest.id, "military_coup", "軍方政變", "軍方對政府徹底失望,發動政變奪權。");
+        });
+      }
+    } catch (err) {
+      logger.error({ err, nationId: nation.id }, "politics settlement: military demand step failed");
     }
   }
 
