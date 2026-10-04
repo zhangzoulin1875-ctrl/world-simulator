@@ -19,6 +19,7 @@ export type HelpKey =
   | "military:hq"
   | "military:orders"
   | "military:generals"
+  | "military:contracts"
   | "politics"
   | "technology:military"
   | "technology:social"
@@ -160,6 +161,21 @@ export const HELP_CONTENT: Record<HelpKey, HelpSection> = {
       "升階前留意成功率提示：品級越高越難成功，謹慎投入。",
     ],
     terms: ["武將", "品級", "軍團", "生產力"],
+  },
+  "military:contracts": {
+    title: "軍事合約",
+    subtitle: "解除武裝,改向傭兵公司租用軍隊",
+    meaning: [
+      "解除武裝會立刻解散全部常備軍與訓練佇列,並 100% 退還人口、生產力與原料。",
+      "之後可向五間傭兵公司之一簽約,以每回合租金取代常備軍的維護費;國力愈小,相對補償愈多。",
+      "傭兵不會陣亡,只有士氣會變化;派遣進戰役時佔用一個軍團欄位,並另收戰役出動費。",
+    ],
+    howto: [
+      "有進行中的戰役時無法解除武裝;簽約期間不能招募新部隊,要重新建軍必須先解約。",
+      "一次只能簽一間公司,解約後可立刻換家。資金不足以支付租金時,合約會自動終止。",
+      "派遣時選擇進行中的戰役與空的軍團欄位,系統依你在戰役中的立場決定進攻或防守。",
+    ],
+    terms: ["解除武裝", "租金", "出動費", "士氣"],
   },
   politics: {
     title: "政治介面",

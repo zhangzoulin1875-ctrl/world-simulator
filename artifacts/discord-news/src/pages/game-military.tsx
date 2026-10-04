@@ -43,8 +43,9 @@ import { HelpButton } from "@/components/help-button";
 import { WarHqTab } from "@/components/war-hq-tab";
 import { WarOrdersTab } from "@/components/war-orders-tab";
 import { GeneralsTab } from "@/components/generals-tab";
+import { MercenaryTab, ContractNotice } from "@/components/mercenary-tab";
 
-type TabKey = "build" | "hq" | "orders" | "generals";
+type TabKey = "build" | "hq" | "orders" | "generals" | "contracts";
 
 export default function GameMilitary() {
   return (
@@ -70,6 +71,7 @@ function MilitaryScreen({
     { key: "hq", label: "指揮部" },
     { key: "orders", label: "軍事指令" },
     { key: "generals", label: "武將" },
+    { key: "contracts", label: "軍事合約" },
   ];
 
   return (
@@ -132,10 +134,11 @@ function MilitaryScreen({
           ))}
         </div>
 
-        {tab === "build" && <BuildTab overview={overview} />}
+        {tab === "build" && <BuildTab overview={overview} onOpenContracts={() => setTab("contracts")} />}
         {tab === "hq" && <WarHqTab />}
         {tab === "orders" && <WarOrdersTab />}
         {tab === "generals" && <GeneralsTab />}
+        {tab === "contracts" && <MercenaryTab />}
       </div>
     </div>
   );
@@ -143,7 +146,13 @@ function MilitaryScreen({
 
 // ── 建造軍隊 ──────────────────────────────────────────────────
 
-function BuildTab({ overview }: { overview: MilitaryOverview }) {
+function BuildTab({
+  overview,
+  onOpenContracts,
+}: {
+  overview: MilitaryOverview;
+  onOpenContracts: () => void;
+}) {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
 
   const armyByTemplate = useMemo(() => {
@@ -171,6 +180,7 @@ function BuildTab({ overview }: { overview: MilitaryOverview }) {
 
   return (
     <div className="space-y-6">
+      <ContractNotice onOpen={onOpenContracts} />
       <TrainingQueuePanel templates={overview.templates} />
       {/* category chips */}
       <div className="flex flex-wrap gap-2">
