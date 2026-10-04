@@ -8,6 +8,8 @@ import { logger } from "../logger";
 import { canonicalPair, findWarBlockingTreatyType, type TreatyEffectView } from "../diplomacy";
 import { nationsInSameAlliance } from "../alliances";
 import { declareWarByNpc, hasRecentEndedWar } from "../treatyPropose";
+import { initiateCampaign } from "../warEngine/initiate";
+import { WarActionError } from "../warEngine/shared";
 import { computeNationMilitaryAggregates } from "../militarySnapshots";
 import { tierOfNation } from "../parliament/service";
 import { applyRevolution } from "../parliament/service";
@@ -107,16 +109,43 @@ export async function collectCandidates(nation: Nation, myArmy: number, armies: 
   return out;
 }
 
-/** 對目標宣戰(當作一般戰爭)。無主地沒有對象可宣戰,視為失敗。 */
-async function startWar(nation: Nation, cand: TargetCandidate): Promise<boolean> {
-  if (cand.ownerNationId === null) return false;
-  const [target] = await db.select({ id: playerNationsTable.id, name: playerNationsTable.name, discordUserId: playerNationsTable.discordUserId })
-    .from(playerNationsTable).where(eq(playerNationsTable.id, cand.ownerNationId)).limit(1);
-  if (!target) return false;
-  const res = await declareWarByNpc({
-    declarerNationId: nation.id, declarerName: nation.name, target, ignoreRelation: true,
-  });
-  return res.declared;
+/**
+ * 對目標地區發動進攻:走正式戰役流程 initiateCampaign。
+ *  - 他國領土:defenderNationId 指定為該國(條約/冷卻/同盟由戰役系統把關)
+ *  - 無主地:defenderNationId=null → 戰役系統自動成立 NPC 守軍對抗
+ * 出發地取「與目標相鄰的我方地區」(優先控制比例最高者)。
+ */
+async function launchAttack(nation: Nation, cand: TargetCandidate): Promise<{ ok: boolean; reason?: string }> {
+  const mine = await db.select({ regionId: regionControlsTable.regionId, percent: regionControlsTable.percent })
+    .from(regionControlsTable).where(eq(regionControlsTable.nationId, nation.id));
+  if (mine.length === 0) return { ok: false, reason: "no_region" };
+  const adj = await db.select({ id: mapRegionAdjacenciesTable.regionId }).from(mapRegionAdjacenciesTable)
+    .where(and(eq(mapRegionAdjacenciesTable.adjacentRegionId, cand.regionId),
+      inArray(mapRegionAdjacenciesTable.regionId, mine.map((m) => m.regionId))));
+  const adjIds = new Set(adj.map((a) => a.id));
+  const origin = mine.filter((m) => adjIds.has(m.regionId)).sort((x, y) => y.percent - x.percent)[0];
+  if (!origin) return { ok: false, reason: "no_origin" };
+  // 他國領土:戰役系統要求雙方已交戰 → 先走外交宣戰(條約/同盟/冷卻在此把關);已在交戰中直接繼續
+  if (cand.ownerNationId !== null) {
+    const [target] = await db.select({ id: playerNationsTable.id, name: playerNationsTable.name, discordUserId: playerNationsTable.discordUserId })
+      .from(playerNationsTable).where(eq(playerNationsTable.id, cand.ownerNationId)).limit(1);
+    if (!target) return { ok: false, reason: "target_missing" };
+    const war = await declareWarByNpc({ declarerNationId: nation.id, declarerName: nation.name, target, ignoreRelation: true });
+    if (!war.declared && war.reason !== "already_at_war") return { ok: false, reason: war.reason ?? "declare_failed" };
+  }
+  try {
+    await initiateCampaign({
+      attackerNationId: nation.id,
+      attackerRegionId: origin.regionId,
+      defenderRegionId: cand.regionId,
+      defenderNationId: cand.ownerNationId, // null = 無主地,自動生成 NPC 守軍
+      initiatedByNpc: true,
+    });
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof WarActionError) return { ok: false, reason: err.message };
+    throw err;
+  }
 }
 
 export interface MilitaryTurnResult {
@@ -163,12 +192,8 @@ export async function settleNationMilitaryDemand(
 
   if (action.kind === "auto_war") {
     if (pending) await db.update(militaryDemandsTable).set({ status: "expired", resolvedAt: new Date() }).where(eq(militaryDemandsTable.id, pending.id));
-    if (target.ownerNationId === null) {
-      // 無主地沒有可宣戰的對象:只記錄要求並通知,不扣分不開戰
-      return { action: "none", detail: "unowned_target_auto" };
-    }
-    const ok = await startWar(nation, target);
-    if (!ok) return { action: "none", detail: "war_blocked" };
+    const atk = await launchAttack(nation, target);
+    if (!atk.ok) return { action: "none", detail: atk.reason ?? "attack_blocked" };
     await db.insert(militaryDemandsTable).values({
       nationId: nation.id, regionId: target.regionId, regionName: target.regionName,
       targetNationId: target.ownerNationId, status: "auto_war", resolvedAt: new Date(),
@@ -217,15 +242,15 @@ export async function respondToDemand(
     return { ok: true, warStarted: false, newSatisfaction: next };
   }
 
-  if (d.targetNationId === null) return { ok: true, warStarted: false };
-  const [target] = await db.select({ id: playerNationsTable.id, name: playerNationsTable.name, discordUserId: playerNationsTable.discordUserId })
-    .from(playerNationsTable).where(eq(playerNationsTable.id, d.targetNationId)).limit(1);
-  if (!target) return { ok: true, warStarted: false };
-  const res = await declareWarByNpc({ declarerNationId: nation.id, declarerName: nation.name, target, ignoreRelation: true });
-  if (!res.declared) {
-    // 開戰被擋(條約/同盟/冷卻):還原為 expired,不扣分
+  // 同意:走正式戰役流程(他國領土或無主地皆可;無主地會自動生成 NPC 守軍)
+  const atk = await launchAttack(nation, {
+    regionId: d.regionId, regionName: d.regionName, ownerNationId: d.targetNationId,
+    relationScore: 0, ownerArmy: 0, isAlly: false, warBlocked: false, recentWar: false,
+  });
+  if (!atk.ok) {
+    // 開戰被擋(條約/同盟/冷卻/不再相鄰):還原為 expired,不扣分
     await db.update(militaryDemandsTable).set({ status: "expired" }).where(eq(militaryDemandsTable.id, d.id));
-    return { ok: false, error: "目前無法對該國開戰(條約、同盟或冷卻中)" };
+    return { ok: false, error: `目前無法發動進攻:${atk.reason ?? "條件不符"}` };
   }
   return { ok: true, warStarted: true };
 }
