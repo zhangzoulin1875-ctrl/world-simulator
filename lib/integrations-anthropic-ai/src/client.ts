@@ -192,6 +192,7 @@ function drainQueue(): void {
     if (
       isPrimaryStuck() &&
       fallbackProvider !== null &&
+      !isFallbackCoolingDown() &&
       fallbackLane.tryAcquire()
     ) {
       queue.shift();
@@ -413,6 +414,23 @@ async function createMessage(params: AnthropicCreateParams): Promise<AnthropicMe
  * onResponse：收到 HTTP 回應（headers）的瞬間回呼一次——主線道用來
  * 解除「卡死看門狗」。
  */
+/**
+ * 是否對該模型關閉推理（thinking）。預設只對 nemotron 系列關；環境變數
+ * AI_DISABLE_THINKING = "0"/"false" 可整個停用、"1"/"true" 對所有模型啟用。
+ */
+export function shouldDisableThinking(model: string): boolean {
+  const env = (process.env.AI_DISABLE_THINKING ?? "").trim().toLowerCase();
+  if (env === "0" || env === "false") return false;
+  if (env === "1" || env === "true") return true;
+  return /nemotron/i.test(model);
+}
+
+/** 供應商明確拒絕 chat_template_kwargs 後，本程序內不再附帶。 */
+let thinkingFlagRejected = false;
+export function __resetThinkingFlagForTest(): void {
+  thinkingFlagRejected = false;
+}
+
 export async function postChatCompletion(
   url: string,
   apiKey: string,
@@ -434,6 +452,13 @@ export async function postChatCompletion(
     messages,
   };
   if (params.temperature !== undefined) body.temperature = params.temperature;
+  // Nemotron 3 系列是推理模型：預設先輸出一長串推理再給答案，平均一次 30+ 秒，
+  // 且推理會吃掉 max_tokens 預算（答案被截斷或逾時）。遊戲的 AI 呼叫都是結構化
+  // JSON／短敘事，不需要推理，關掉可大幅降低延遲與逾時。
+  // 旗標見模型卡（enable_thinking 可經 chat template 開關）。
+  if (shouldDisableThinking(model) && !thinkingFlagRejected) {
+    body.chat_template_kwargs = { enable_thinking: false };
+  }
 
   let res: Response;
   try {
@@ -456,6 +481,16 @@ export async function postChatCompletion(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    // 供應商不認得 chat_template_kwargs（400/422 且訊息點名該欄位）→ 記住並不帶旗標
+    // 重打一次，避免我們對參數格式的假設讓整個 AI 功能掛掉。
+    if (
+      (res.status === 400 || res.status === 422) &&
+      body.chat_template_kwargs !== undefined &&
+      /chat_template_kwargs|enable_thinking|extra.*(forbidden|not permitted)|unknown.*(field|param)/i.test(text)
+    ) {
+      thinkingFlagRejected = true;
+      return postChatCompletion(url, apiKey, params, model, onResponse);
+    }
     // 訊息內含 HTTP 狀態碼（如 "429"），供 isRateLimitError() 識別。
     throw new Error(`AI provider error ${res.status}: ${text.slice(0, 500)}`);
   }
@@ -535,6 +570,40 @@ async function loadFallbackConfig(tier: AiModelTierLite): Promise<AiFallbackConf
 }
 
 /** 備援一次呼叫（含速率名額佔用與統計）。 */
+/**
+ * 備援每日配額用盡的冷卻：Gemini 免費版每日請求數很低（例如 20 次），用完後
+ * 回 429 並附「retry in 18h41m」。此時再打只是白白浪費一次呼叫並把主因蓋住，
+ * 所以記下冷卻到期時間，期間直接略過備援、如實回報主供應商的錯誤。
+ */
+let fallbackCooldownUntil = 0;
+const FALLBACK_QUOTA_COOLDOWN_MAX_MS = 6 * 60 * 60 * 1000;
+
+/** 從 429 訊息判斷是否為「每日配額用盡」，回傳建議冷卻毫秒數；否則 null。 */
+export function parseDailyQuotaCooldownMs(message: string): number | null {
+  if (!/\b429\b/.test(message)) return null;
+  const daily =
+    /PerDay|per\s*day|RESOURCE_EXHAUSTED|exceeded your current quota/i.test(message);
+  if (!daily) return null;
+  const m = /retry in\s+(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?/i.exec(message);
+  let ms = 0;
+  if (m) {
+    ms =
+      (Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0)) *
+      1000;
+  }
+  if (!Number.isFinite(ms) || ms <= 0) ms = 30 * 60 * 1000;
+  return Math.min(ms, FALLBACK_QUOTA_COOLDOWN_MAX_MS);
+}
+
+/** 測試用：目前備援是否在配額冷卻中。 */
+export function isFallbackCoolingDown(now = Date.now()): boolean {
+  return now < fallbackCooldownUntil;
+}
+
+export function __resetFallbackCooldownForTest(): void {
+  fallbackCooldownUntil = 0;
+}
+
 async function sendFallbackCall(
   params: AnthropicCreateParams,
   config: AiFallbackConfig,
@@ -557,6 +626,8 @@ async function sendFallbackCall(
   } catch (err) {
     fallbackStats.failures += 1;
     fallbackStats.lastError = String((err as Error).message).slice(0, 300);
+    const cool = parseDailyQuotaCooldownMs(String((err as Error).message));
+    if (cool !== null) fallbackCooldownUntil = Date.now() + cool;
     throw err;
   }
 }
@@ -569,11 +640,16 @@ async function sendFallbackRetry(
   const tier: AiModelTierLite = params.tier ?? "quality";
   const config = await loadFallbackConfig(tier);
   if (config === null) throw primaryError;
+  // 備援今日配額已用盡 → 不再浪費呼叫，直接如實回報主供應商的錯誤。
+  if (isFallbackCoolingDown()) throw primaryError;
   try {
     return await sendFallbackCall(params, config);
   } catch (err) {
+    // 主因放最前面且先截短，避免 UI 只截到備援那段而看不到真正原因。
+    const primaryShort = primaryError.message.slice(0, 160);
+    const fallbackShort = (err as Error).message.slice(0, 160);
     throw new Error(
-      `primary failed: ${primaryError.message} | fallback also failed: ${(err as Error).message}`,
+      `AI 服務暫時無法使用。主供應商失敗：${primaryShort} ｜ 備援也失敗：${fallbackShort}`,
     );
   }
 }

@@ -173,7 +173,7 @@ test("主供應商失敗 → 自動改用備援；無備援設定時原錯誤上
   assert.equal(fallbackBody.model, "fb-bulk");
 });
 
-test("備援也失敗 → 錯誤同時含主因與備援因；無 key 時不嘗試備援", async () => {
+test("備援也失敗 → 錯誤同時含主因（在前）與備援因；無 key 時不嘗試備援", async () => {
   // 備援也失敗
   let n = 0;
   globalThis.fetch = (async () => {
@@ -182,7 +182,7 @@ test("備援也失敗 → 錯誤同時含主因與備援因；無 key 時不嘗�
   }) as typeof fetch;
   await assert.rejects(
     anthropic.messages.create({ ...paramsWith("t3"), tier: "quality" }),
-    (err: Error) => err.message.includes("primary failed") && err.message.includes("fallback also failed"),
+    (err: Error) => err.message.includes("主供應商失敗") && err.message.includes("備援也失敗"),
   );
   assert.equal(getAiFallbackStats().failures > 0, true);
 
@@ -267,4 +267,113 @@ test("主線道卡死：下一個任務直接走備援；卡死任務逾時後�
   assert.equal(m1.content[0]?.text, "fb-hang");
   assert.equal(getAiQueueStats().active, 0);
   clearTimeout(keepAlive);
+});
+
+test("parseDailyQuotaCooldownMs：辨識 Gemini 每日配額 429 並解析 retry in", async () => {
+  const { parseDailyQuotaCooldownMs } = await import("./client");
+  const msg =
+    'AI provider error 429: [{ "error": { "code": 429, "message": "You exceeded your current quota ... Please retry in 18h41m20.25s.", "status": "RESOURCE_EXHAUSTED" } }]';
+  const ms = parseDailyQuotaCooldownMs(msg);
+  assert.ok(ms !== null && ms > 0);
+  // 上限 6 小時，避免一次誤判就把備援關一整天。
+  assert.equal(ms, 6 * 60 * 60 * 1000);
+  // 短冷卻照解析值。
+  assert.equal(
+    parseDailyQuotaCooldownMs("AI provider error 429: quota RESOURCE_EXHAUSTED retry in 90s"),
+    90_000,
+  );
+  // 非 429 不冷卻。
+  assert.equal(parseDailyQuotaCooldownMs("AI provider error 503: nope"), null);
+});
+
+test("備援配額用盡 → 冷卻期間不再呼叫備援，直接回報主供應商錯誤", async () => {
+  const { isFallbackCoolingDown, __resetFallbackCooldownForTest } = await import("./client");
+  __resetFallbackCooldownForTest();
+  registerAiFallbackProvider(async () => ({
+    baseUrl: "https://fallback.example/v1",
+    apiKey: "fb-key",
+    qualityModel: "fb-q",
+    bulkModel: "fb-b",
+  }));
+  const urls: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    urls.push(url);
+    if (url.startsWith("https://fallback.example")) {
+      return new Response(
+        '{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"exceeded your current quota. Please retry in 2h"}}',
+        { status: 429 },
+      );
+    }
+    return new Response("primary down", { status: 500 });
+  }) as typeof fetch;
+
+  // 第一次：主失敗 → 備援 429（配額）→ 進入冷卻。
+  await assert.rejects(anthropic.messages.create({ ...paramsWith("c1"), tier: "quality" }));
+  assert.equal(isFallbackCoolingDown(), true);
+  const fallbackCallsAfterFirst = urls.filter((u) => u.startsWith("https://fallback.example")).length;
+
+  // 第二次：冷卻中 → 不碰備援，錯誤是主供應商原樣。
+  await assert.rejects(
+    anthropic.messages.create({ ...paramsWith("c2"), tier: "quality" }),
+    (err: Error) => err.message.startsWith("AI provider error 500"),
+  );
+  assert.equal(
+    urls.filter((u) => u.startsWith("https://fallback.example")).length,
+    fallbackCallsAfterFirst,
+  );
+  __resetFallbackCooldownForTest();
+});
+
+test("Nemotron 推理模型：請求帶 enable_thinking:false；其他模型不帶", async () => {
+  const { shouldDisableThinking, __resetThinkingFlagForTest } = await import("./client");
+  __resetThinkingFlagForTest();
+  assert.equal(shouldDisableThinking("nvidia/nemotron-3-ultra-550b-a55b"), true);
+  assert.equal(shouldDisableThinking("google/diffusiongemma-26b-a4b-it"), false);
+
+  const bodies: Array<Record<string, unknown>> = [];
+  globalThis.fetch = (async (_u: RequestInfo | URL, init?: RequestInit) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: {} }),
+      { status: 200 },
+    );
+  }) as typeof fetch;
+  await anthropic.messages.create({
+    ...paramsWith("th1"),
+    model: "nvidia/nemotron-3-ultra-550b-a55b",
+  });
+  await anthropic.messages.create({
+    ...paramsWith("th2"),
+    model: "google/diffusiongemma-26b-a4b-it",
+  });
+  assert.deepEqual(bodies[0]!.chat_template_kwargs, { enable_thinking: false });
+  assert.equal("chat_template_kwargs" in bodies[1]!, false);
+});
+
+test("供應商拒絕 chat_template_kwargs → 不帶旗標自動重試並記住", async () => {
+  const { __resetThinkingFlagForTest } = await import("./client");
+  __resetThinkingFlagForTest();
+  const bodies: Array<Record<string, unknown>> = [];
+  globalThis.fetch = (async (_u: RequestInfo | URL, init?: RequestInit) => {
+    const b = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    bodies.push(b);
+    if (b.chat_template_kwargs !== undefined) {
+      return new Response('{"detail":"Extra inputs are not permitted: chat_template_kwargs"}', { status: 422 });
+    }
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: "fine" }, finish_reason: "stop" }], usage: {} }),
+      { status: 200 },
+    );
+  }) as typeof fetch;
+  const msg = await anthropic.messages.create({
+    ...paramsWith("th3"),
+    model: "nvidia/nemotron-3-ultra-550b-a55b",
+  });
+  assert.equal((msg.content[0] as { text: string }).text, "fine");
+  assert.equal(bodies.length, 2);
+  // 之後的請求不再帶旗標。
+  await anthropic.messages.create({ ...paramsWith("th4"), model: "nvidia/nemotron-3-ultra-550b-a55b" });
+  assert.equal("chat_template_kwargs" in bodies[2]!, false);
+  __resetThinkingFlagForTest();
 });
