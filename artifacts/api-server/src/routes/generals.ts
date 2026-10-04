@@ -17,7 +17,12 @@ import {
   computeAvailableProduction,
 } from "../lib/economy";
 import { loadCurrentTurnRecruitSpend } from "../lib/recruitSpend";
-import { categoryLabel, isMilitaryCategory } from "../lib/military";
+import {
+  categoryLabel,
+  isMilitaryCategory,
+  MILITARY_CATEGORIES,
+  type MilitaryCategory,
+} from "../lib/military";
 import { logger } from "../lib/logger";
 import {
   GENERAL_CAP_RECRUITED,
@@ -28,8 +33,8 @@ import {
   generalCombatMods,
 } from "../lib/generals";
 import {
-  GeneralAiError,
-  generateGeneralSync,
+  buildFallbackGeneralCard,
+  generateGeneralCard,
   loadDominantCultureProfile,
   takeGeneralFromPool,
 } from "../lib/generalAi";
@@ -192,7 +197,9 @@ router.get("/military/generals", async (req, res) => {
       quota: {
         cap: GENERAL_CAP_RECRUITED,
         recruited,
-        candidates: rows.filter((r) => r.status === "candidate").length,
+        candidates: rows.filter(
+          (r) => r.status === "candidate" || r.status === "generating",
+        ).length,
         drawnThisTurn: drawn,
       },
       costs: {
@@ -207,9 +214,94 @@ router.get("/military/generals", async (req, res) => {
   }
 });
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * 背景生成（池空時用）：先把 placeholder 列（status=generating）回應給前端，
+ * HTTP 請求不等待 AI；之後在背景重試幾輪，完成後把同一列改成候選卡。
+ * 玩家切換頁面／分頁不會中斷——生成狀態完全在伺服器，下次輪詢就看到結果。
+ * 全部重試仍失敗時落地保底卡（非 AI），確保已付出的抽取成本一定換到武將、
+ * 不會卡在「生成中」。WHERE status='generating' 防止與遣返競態（玩家若已
+ * 遣返這張候選，背景結果到達時會是 0 筆更新，直接放棄）。
+ */
+function startBackgroundGeneralGeneration(params: {
+  generalId: number;
+  eraSlug: string;
+  category: MilitaryCategory;
+  cultureProfile: string;
+}): void {
+  const { generalId, eraSlug, category, cultureProfile } = params;
+  void (async () => {
+    const retryDelaysMs = [0, 5_000, 15_000, 45_000];
+    for (let i = 0; i < retryDelaysMs.length; i++) {
+      if (retryDelaysMs[i]! > 0) await sleep(retryDelaysMs[i]!);
+      try {
+        const card = await generateGeneralCard({
+          eraSlug,
+          category,
+          cultureProfile,
+          attempts: 2,
+        });
+        const updated = await db
+          .update(generalsTable)
+          .set({
+            name: card.name,
+            title: card.title,
+            background: card.background,
+            skills: card.skills,
+            status: "candidate",
+          })
+          .where(
+            sql`${eq(generalsTable.id, generalId)} AND ${eq(
+              generalsTable.status,
+              "generating",
+            )}`,
+          )
+          .returning();
+        if (updated.length === 0) {
+          logger.info(
+            { generalId },
+            "background general generation landed but candidate already left 'generating' (dismissed?) — discarded",
+          );
+        }
+        return;
+      } catch (err) {
+        logger.warn(
+          { err, generalId, attempt: i + 1 },
+          "background general generation attempt failed",
+        );
+      }
+    }
+    // 全部重試仍失敗 → 保底卡（非 AI）。
+    try {
+      const card = buildFallbackGeneralCard({ eraSlug, category, cultureProfile });
+      await db
+        .update(generalsTable)
+        .set({
+          name: card.name,
+          title: card.title,
+          background: card.background,
+          skills: card.skills,
+          status: "candidate",
+        })
+        .where(
+          sql`${eq(generalsTable.id, generalId)} AND ${eq(
+            generalsTable.status,
+            "generating",
+          )}`,
+        );
+    } catch (err) {
+      logger.error({ err, generalId }, "background general fallback failed");
+    }
+  })();
+}
+
 /**
  * POST /military/generals/draw — 抽取（5% 國庫 + 5% 可用生產力，一回合一張）。
- * 優先發預產池（零延遲）；池空時同步生成（玩家優先權佇列）。
+ * 優先發預產池（零延遲，直接拿到候選卡）；池空時立即回一張「生成中」候選卡，
+ * AI 敘事在背景生成（不卡 HTTP 請求、不怕玩家切頁），完成後原地更新成候選卡。
  */
 router.post("/military/generals/draw", aiRateLimit, async (req, res) => {
   const auth = await requirePlayer(req, res);
@@ -226,7 +318,7 @@ router.post("/military/generals/draw", aiRateLimit, async (req, res) => {
 
     // 交易：條件式扣款取列鎖（同國序列化）→ 鎖內複查配額 → 插入流量列 →
     // 生產力複查。任一步失敗整筆回滾（退款且不佔配額）。
-    const tx = await db.transaction(async (t) => {
+    await db.transaction(async (t) => {
       const updated = await t
         .update(playerNationsTable)
         .set({ money: sql`${playerNationsTable.money} - ${snapshot.money}` })
@@ -254,15 +346,12 @@ router.post("/military/generals/draw", aiRateLimit, async (req, res) => {
       if (dup) {
         throw new HttpError(409, "本回合已經抽取過武將了");
       }
-      const [inserted] = await t
-        .insert(generalDrawsTable)
-        .values({
-          ownerNationId: nation.id,
-          kind: "draw",
-          moneySpent: snapshot.money,
-          productionSpent: snapshot.production,
-        })
-        .returning();
+      await t.insert(generalDrawsTable).values({
+        ownerNationId: nation.id,
+        kind: "draw",
+        moneySpent: snapshot.money,
+        productionSpent: snapshot.production,
+      });
       // 生產力精確複查（取得列鎖後重讀當回合流量；含剛插入的列）。
       const { statsEra } = await getEraSlugs();
       const stats = await computeAdjustedNationStats(nation, statsEra);
@@ -278,44 +367,42 @@ router.post("/military/generals/draw", aiRateLimit, async (req, res) => {
           `生產力不足（需 ${snapshot.production.toLocaleString("en-US")}）`,
         );
       }
-      return inserted!;
     });
 
-    // 發牌：池優先，池空同步生成。
-    let card =
-      (await takeGeneralFromPool({ eraSlug: currentEra, cultureProfile })) ??
-      null;
+    // 發牌：池優先（零延遲，直接是候選卡）；池空則發「生成中」卡，背景補敘事。
+    const card = await takeGeneralFromPool({ eraSlug: currentEra, cultureProfile });
     if (card) notePregenWork(); // 池卡被抽走 → 喚醒預產 worker 補位
-    if (!card) {
-      try {
-        card = await generateGeneralSync({ eraSlug: currentEra, cultureProfile });
-      } catch (err) {
-        // 同步生成失敗 → 全額退款（刪除 draw 列 + 退錢），不佔用本回合配額。
-        await db
-          .delete(generalDrawsTable)
-          .where(eq(generalDrawsTable.id, tx.id));
-        await db
-          .update(playerNationsTable)
-          .set({ money: sql`${playerNationsTable.money} + ${snapshot.money}` })
-          .where(eq(playerNationsTable.id, nation.id));
-        throw err;
-      }
-    }
+
+    const category =
+      card?.category ??
+      (MILITARY_CATEGORIES[
+        Math.floor(Math.random() * MILITARY_CATEGORIES.length)
+      ]! as string);
 
     const [created] = await db
       .insert(generalsTable)
       .values({
         ownerNationId: nation.id,
-        name: card.name,
-        title: card.title,
-        background: card.background,
-        category: card.category,
+        name: card?.name ?? "（生成中…）",
+        title: card?.title ?? "",
+        background: card?.background ?? "",
+        category,
         grade: 1,
-        status: "candidate",
-        skills: card.skills,
+        status: card ? "candidate" : "generating",
+        skills: card?.skills ?? [],
         eraSlug: currentEra,
       })
       .returning();
+
+    if (!card) {
+      startBackgroundGeneralGeneration({
+        generalId: created!.id,
+        eraSlug: currentEra,
+        category: category as MilitaryCategory,
+        cultureProfile,
+      });
+    }
+
     res.json({
       general: serializeGeneral(created!),
       spent: { money: snapshot.money, production: snapshot.production },
@@ -323,10 +410,6 @@ router.post("/military/generals/draw", aiRateLimit, async (req, res) => {
   } catch (err) {
     if (err instanceof HttpError) {
       res.status(err.status).json({ error: err.message });
-      return;
-    }
-    if (err instanceof GeneralAiError) {
-      res.status(503).json({ error: err.message });
       return;
     }
     logger.error({ err }, "POST /military/generals/draw failed");

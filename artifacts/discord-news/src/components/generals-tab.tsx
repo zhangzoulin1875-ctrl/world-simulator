@@ -98,7 +98,14 @@ const fmt = (n: number) => n.toLocaleString("en-US");
 /** 武將分頁：抽取 / 招募 / 遣返 / 升階 / 指派。 */
 export function GeneralsTab() {
   const { data, isLoading } = useListGenerals({
-    query: { queryKey: getListGeneralsQueryKey(), refetchInterval: 60_000 },
+    query: {
+      queryKey: getListGeneralsQueryKey(),
+      // 有「生成中」候選時加快輪詢（背景 AI 完成後盡快讓玩家看到結果）。
+      refetchInterval: (query) =>
+        query.state.data?.generals.some((g) => g.status === "generating")
+          ? 4_000
+          : 60_000,
+    },
   });
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -115,12 +122,21 @@ export function GeneralsTab() {
     mutation: {
       onSuccess: (res) => {
         invalidate();
-        toast({
-          title: `招賢納士：${res.general.name}（${res.general.title}）前來投效！`,
-          description: `花費 金 ${fmt(res.spent.money)} ／ 生產力 ${fmt(
-            res.spent.production,
-          )}。候選中，請選擇招募或遣返。`,
-        });
+        if (res.general.status === "generating") {
+          toast({
+            title: "招賢納士：武將正在幕後生成中！",
+            description: `花費 金 ${fmt(res.spent.money)} ／ 生產力 ${fmt(
+              res.spent.production,
+            )}。生成期間可以離開此頁，完成後會直接出現在候選區。`,
+          });
+        } else {
+          toast({
+            title: `招賢納士：${res.general.name}（${res.general.title}）前來投效！`,
+            description: `花費 金 ${fmt(res.spent.money)} ／ 生產力 ${fmt(
+              res.spent.production,
+            )}。候選中，請選擇招募或遣返。`,
+          });
+        }
       },
       onError: onErr("抽取失敗"),
     },
@@ -201,7 +217,7 @@ export function GeneralsTab() {
   const options = data?.assignmentOptions ?? [];
 
   const candidates = useMemo(
-    () => generals.filter((g) => g.status === "candidate"),
+    () => generals.filter((g) => g.status === "candidate" || g.status === "generating"),
     [generals],
   );
   const recruited = useMemo(
@@ -269,7 +285,8 @@ export function GeneralsTab() {
                   <Button
                     data-testid={`button-general-recruit-${g.id}`}
                     size="sm"
-                    disabled={busy}
+                    disabled={busy || g.status === "generating"}
+                    title={g.status === "generating" ? "武將仍在生成中" : undefined}
                     onClick={() => recruitMutation.mutate({ id: g.id })}
                     className="gap-1 bg-emerald-700 text-white hover:bg-emerald-600"
                   >
@@ -465,24 +482,38 @@ function GeneralCard({
             <CombatMods general={general} />
           </div>
         </div>
-        <span
-          className={`rounded px-2 py-0.5 text-xs font-bold ${
-            general.status === "candidate"
-              ? "bg-amber-500/20 text-amber-200"
-              : "bg-emerald-500/20 text-emerald-200"
-          }`}
-        >
-          {general.status === "candidate" ? "候選" : "在營"}
-        </span>
+        {general.status === "generating" ? (
+          <span className="inline-flex items-center gap-1 rounded bg-sky-500/20 px-2 py-0.5 text-xs font-bold text-sky-200">
+            <Loader2 className="h-3 w-3 animate-spin" /> 生成中
+          </span>
+        ) : (
+          <span
+            className={`rounded px-2 py-0.5 text-xs font-bold ${
+              general.status === "candidate"
+                ? "bg-amber-500/20 text-amber-200"
+                : "bg-emerald-500/20 text-emerald-200"
+            }`}
+          >
+            {general.status === "candidate" ? "候選" : "在營"}
+          </span>
+        )}
       </div>
 
-      <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-white/60">
-        {general.background}
-      </p>
+      {general.status === "generating" ? (
+        <p className="mt-2 text-xs leading-relaxed text-white/50">
+          這名武將正在幕後生成中，離開此頁也不會中斷；稍待片刻就會出現在這裡。
+        </p>
+      ) : (
+        <>
+          <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-white/60">
+            {general.background}
+          </p>
 
-      <div className="mt-2">
-        <SkillList general={general} />
-      </div>
+          <div className="mt-2">
+            <SkillList general={general} />
+          </div>
+        </>
+      )}
 
       {general.upgradeNarrative && (
         <p className="mt-2 rounded border border-white/10 bg-white/5 p-2 text-xs italic leading-relaxed text-white/60">

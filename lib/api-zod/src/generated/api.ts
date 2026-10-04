@@ -1833,8 +1833,10 @@ export const ListGeneralsResponse = zod.object({
       categoryLabel: zod.string().describe("分類顯示名（時代感知）"),
       grade: zod.number().describe("品級 1–5"),
       status: zod
-        .enum(["candidate", "recruited", "dismissed"])
-        .describe("candidate=候選 recruited=在營 dismissed=已遣返"),
+        .enum(["generating", "candidate", "recruited", "dismissed"])
+        .describe(
+          "generating=AI 背景生成中（池空時的暫時狀態，name\/title\/background 為佔位值， 可在背景持續到下回合、玩家切頁不受影響） candidate=候選 recruited=在營 dismissed=已遣返",
+        ),
       skills: zod
         .array(
           zod.object({
@@ -1906,8 +1908,10 @@ export const DrawGeneralResponse = zod.object({
     categoryLabel: zod.string().describe("分類顯示名（時代感知）"),
     grade: zod.number().describe("品級 1–5"),
     status: zod
-      .enum(["candidate", "recruited", "dismissed"])
-      .describe("candidate=候選 recruited=在營 dismissed=已遣返"),
+      .enum(["generating", "candidate", "recruited", "dismissed"])
+      .describe(
+        "generating=AI 背景生成中（池空時的暫時狀態，name\/title\/background 為佔位值， 可在背景持續到下回合、玩家切頁不受影響） candidate=候選 recruited=在營 dismissed=已遣返",
+      ),
     skills: zod
       .array(
         zod.object({
@@ -1964,8 +1968,10 @@ export const RecruitGeneralResponse = zod.object({
     categoryLabel: zod.string().describe("分類顯示名（時代感知）"),
     grade: zod.number().describe("品級 1–5"),
     status: zod
-      .enum(["candidate", "recruited", "dismissed"])
-      .describe("candidate=候選 recruited=在營 dismissed=已遣返"),
+      .enum(["generating", "candidate", "recruited", "dismissed"])
+      .describe(
+        "generating=AI 背景生成中（池空時的暫時狀態，name\/title\/background 為佔位值， 可在背景持續到下回合、玩家切頁不受影響） candidate=候選 recruited=在營 dismissed=已遣返",
+      ),
     skills: zod
       .array(
         zod.object({
@@ -2016,8 +2022,10 @@ export const DismissGeneralResponse = zod.object({
     categoryLabel: zod.string().describe("分類顯示名（時代感知）"),
     grade: zod.number().describe("品級 1–5"),
     status: zod
-      .enum(["candidate", "recruited", "dismissed"])
-      .describe("candidate=候選 recruited=在營 dismissed=已遣返"),
+      .enum(["generating", "candidate", "recruited", "dismissed"])
+      .describe(
+        "generating=AI 背景生成中（池空時的暫時狀態，name\/title\/background 為佔位值， 可在背景持續到下回合、玩家切頁不受影響） candidate=候選 recruited=在營 dismissed=已遣返",
+      ),
     skills: zod
       .array(
         zod.object({
@@ -2068,8 +2076,10 @@ export const UpgradeGeneralResponse = zod.object({
     categoryLabel: zod.string().describe("分類顯示名（時代感知）"),
     grade: zod.number().describe("品級 1–5"),
     status: zod
-      .enum(["candidate", "recruited", "dismissed"])
-      .describe("candidate=候選 recruited=在營 dismissed=已遣返"),
+      .enum(["generating", "candidate", "recruited", "dismissed"])
+      .describe(
+        "generating=AI 背景生成中（池空時的暫時狀態，name\/title\/background 為佔位值， 可在背景持續到下回合、玩家切頁不受影響） candidate=候選 recruited=在營 dismissed=已遣返",
+      ),
     skills: zod
       .array(
         zod.object({
@@ -2133,8 +2143,10 @@ export const AssignGeneralResponse = zod.object({
     categoryLabel: zod.string().describe("分類顯示名（時代感知）"),
     grade: zod.number().describe("品級 1–5"),
     status: zod
-      .enum(["candidate", "recruited", "dismissed"])
-      .describe("candidate=候選 recruited=在營 dismissed=已遣返"),
+      .enum(["generating", "candidate", "recruited", "dismissed"])
+      .describe(
+        "generating=AI 背景生成中（池空時的暫時狀態，name\/title\/background 為佔位值， 可在背景持續到下回合、玩家切頁不受影響） candidate=候選 recruited=在營 dismissed=已遣返",
+      ),
     skills: zod
       .array(
         zod.object({
@@ -2185,8 +2197,10 @@ export const UnassignGeneralResponse = zod.object({
     categoryLabel: zod.string().describe("分類顯示名（時代感知）"),
     grade: zod.number().describe("品級 1–5"),
     status: zod
-      .enum(["candidate", "recruited", "dismissed"])
-      .describe("candidate=候選 recruited=在營 dismissed=已遣返"),
+      .enum(["generating", "candidate", "recruited", "dismissed"])
+      .describe(
+        "generating=AI 背景生成中（池空時的暫時狀態，name\/title\/background 為佔位值， 可在背景持續到下回合、玩家切頁不受影響） candidate=候選 recruited=在營 dismissed=已遣返",
+      ),
     skills: zod
       .array(
         zod.object({

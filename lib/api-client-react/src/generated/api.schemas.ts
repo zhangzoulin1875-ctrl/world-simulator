@@ -625,11 +625,12 @@ export const GeneralCategory = {
 } as const;
 
 /**
- * candidate=候選 recruited=在營 dismissed=已遣返
+ * generating=AI 背景生成中（池空時的暫時狀態，name/title/background 為佔位值， 可在背景持續到下回合、玩家切頁不受影響） candidate=候選 recruited=在營 dismissed=已遣返
  */
 export type GeneralStatus = (typeof GeneralStatus)[keyof typeof GeneralStatus];
 
 export const GeneralStatus = {
+  generating: "generating",
   candidate: "candidate",
   recruited: "recruited",
   dismissed: "dismissed",
@@ -682,7 +683,7 @@ export interface General {
   categoryLabel: string;
   /** 品級 1–5 */
   grade: number;
-  /** candidate=候選 recruited=在營 dismissed=已遣返 */
+  /** generating=AI 背景生成中（池空時的暫時狀態，name/title/background 為佔位值， 可在背景持續到下回合、玩家切頁不受影響） candidate=候選 recruited=在營 dismissed=已遣返 */
   status: GeneralStatus;
   /** 技能列表（品級不足者為未解鎖） */
   skills: GeneralSkill[];

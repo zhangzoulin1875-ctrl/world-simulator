@@ -4024,8 +4024,11 @@ components:
         grade: { type: integer, description: 品級 1–5 }
         status:
           type: string
-          enum: [candidate, recruited, dismissed]
-          description: candidate=候選 recruited=在營 dismissed=已遣返
+          enum: [generating, candidate, recruited, dismissed]
+          description: >-
+            generating=AI 背景生成中（池空時的暫時狀態，name/title/background 為佔位值，
+            可在背景持續到下回合、玩家切頁不受影響） candidate=候選 recruited=在營
+            dismissed=已遣返
         skills:
           type: array
           description: 技能列表（品級不足者為未解鎖）

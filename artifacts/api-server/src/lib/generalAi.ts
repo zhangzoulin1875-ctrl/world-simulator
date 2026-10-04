@@ -70,7 +70,7 @@ const generalNarrativeSchema = z.object({
 });
 
 /** 把 AI 敘事 + 伺服器技能規格組成 GeneralSkill[]。 */
-function assembleSkills(narrative: GeneralNarrative): GeneralSkill[] {
+export function assembleSkills(narrative: GeneralNarrative): GeneralSkill[] {
   return GENERAL_SKILL_SPECS.map((spec, i) => ({
     name: narrative.skillNames[i] ?? `戰法 ${i + 1}`,
     description: narrative.skillDescriptions[i] ?? "",
@@ -162,6 +162,108 @@ export async function generateGeneralNarrative(params: {
     skillNames: parsed.skills.map((s) => s.name),
     skillDescriptions: parsed.skills.map((s) => s.description),
     historical: parsed.historical,
+  };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * 帶重試的敘事生成：AI 偶發回傳格式不正確時自動重試（指數退避），
+ * 避免單次偶發錯誤就讓玩家看到「生成失敗」。全部嘗試仍失敗才向上拋出。
+ */
+export async function generateGeneralNarrativeWithRetry(
+  params: { eraSlug: string; category: MilitaryCategory; cultureProfile: string },
+  attempts = 3,
+): Promise<GeneralNarrative> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await generateGeneralNarrative(params);
+    } catch (err) {
+      lastErr = err;
+      logger.warn(
+        { err, attempt: i + 1, attempts },
+        "generateGeneralNarrative 重試",
+      );
+      if (i < attempts - 1) await sleep(400 * (i + 1));
+    }
+  }
+  throw lastErr instanceof Error
+    ? lastErr
+    : new GeneralAiError("AI 武將生成結果格式不正確，請再試一次");
+}
+
+/**
+ * 生成一張完整武將卡（敘事 + 組裝技能）；分類由呼叫端固定傳入
+ * （抽取時已擲骰決定分類，背景重試不應讓分類跳動）。
+ */
+export async function generateGeneralCard(params: {
+  eraSlug: string;
+  category: MilitaryCategory;
+  cultureProfile: string;
+  attempts?: number;
+}): Promise<{
+  name: string;
+  title: string;
+  background: string;
+  category: string;
+  skills: GeneralSkill[];
+  historical: boolean;
+}> {
+  const narrative = await generateGeneralNarrativeWithRetry(
+    params,
+    params.attempts ?? 3,
+  );
+  return {
+    name: narrative.name,
+    title: narrative.title,
+    background: narrative.background,
+    category: params.category,
+    skills: assembleSkills(narrative),
+    historical: narrative.historical,
+  };
+}
+
+/**
+ * 保底卡（非 AI）：背景生成多次重試仍全部失敗時的最後防線，確保玩家
+ * 已付出的抽取成本一定能換到一張可用的候選武將，不會卡在「生成中」。
+ */
+export function buildFallbackGeneralCard(params: {
+  eraSlug: string;
+  category: MilitaryCategory;
+  cultureProfile: string;
+}): {
+  name: string;
+  title: string;
+  background: string;
+  category: string;
+  skills: GeneralSkill[];
+  historical: boolean;
+} {
+  const era = ERAS[getEraIndex(params.eraSlug)]!;
+  const culture = cultureLabel(params.cultureProfile);
+  const catLabel = CATEGORY_LABEL[params.category];
+  const narrative: GeneralNarrative = {
+    name: `${culture}${catLabel}宿將`,
+    title: `${era.label}軍中老將`,
+    background: `出身${culture}，於${era.label}從軍多年，擅長統率${catLabel}作戰，用兵穩健、臨陣不亂。`,
+    skillNames: ["持重佈陣", "堅守陣線", "臨陣應變"],
+    skillDescriptions: [
+      "開戰前仔細佈置陣型，提升部隊進攻時的協同效率。",
+      "面對敵軍衝鋒時穩住防線，減少己方損失。",
+      "戰局不利時迅速調整部署，攻守皆能發揮水準。",
+    ],
+    historical: false,
+  };
+  return {
+    name: narrative.name,
+    title: narrative.title,
+    background: narrative.background,
+    category: params.category,
+    skills: assembleSkills(narrative),
+    historical: false,
   };
 }
 
@@ -272,19 +374,11 @@ export async function generateGeneralSync(params: {
 }> {
   const category =
     MILITARY_CATEGORIES[Math.floor(Math.random() * MILITARY_CATEGORIES.length)]!;
-  const narrative = await generateGeneralNarrative({
+  return generateGeneralCard({
     eraSlug: params.eraSlug,
     category,
     cultureProfile: params.cultureProfile,
   });
-  return {
-    name: narrative.name,
-    title: narrative.title,
-    background: narrative.background,
-    category,
-    skills: assembleSkills(narrative),
-    historical: narrative.historical,
-  };
 }
 
 /**
@@ -309,11 +403,10 @@ export async function topUpGeneralPool(params: {
 
   const category =
     MILITARY_CATEGORIES[Math.floor(Math.random() * MILITARY_CATEGORIES.length)]!;
-  const narrative = await generateGeneralNarrative({
-    eraSlug: params.eraSlug,
-    category,
-    cultureProfile: params.cultureProfile,
-  });
+  const narrative = await generateGeneralNarrativeWithRetry(
+    { eraSlug: params.eraSlug, category, cultureProfile: params.cultureProfile },
+    2,
+  );
   await db.insert(generalPoolTable).values({
     name: narrative.name,
     title: narrative.title,
