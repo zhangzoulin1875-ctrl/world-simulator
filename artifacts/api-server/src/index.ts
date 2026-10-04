@@ -29,6 +29,7 @@ import {
 } from "./lib/diplomacy";
 import { runPoliticsMigrations } from "./lib/politicsMigrations";
 import { runCabinetMigrations } from "./lib/cabinetMigrations";
+import { runAutopilotMigrations } from "./lib/autopilotMigrations";
 import { runWarMigrations } from "./lib/warMigrations";
 import {
   runEconomyMigrations,
@@ -114,6 +115,7 @@ async function runStartupMigrations(): Promise<void> {
   await runResourceMigrations();
   await runPoliticsMigrations();
   await runCabinetMigrations();
+  await runAutopilotMigrations();
   await runWarMigrations();
   await runEconomyMigrations();
   // Task #479 — 一次性歸零負值 production_bonus（舊生產力維護費死亡螺旋

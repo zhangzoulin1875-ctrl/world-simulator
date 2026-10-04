@@ -126,7 +126,7 @@ async function loadEventNations(
  * - regional：僅掌控受影響地區之一的國家（無 silent global fallback）。
  * - targeted：僅事件指定的國家。
  */
-function nationAffected(
+export function nationAffected(
   event: Pick<SuperEvent, "scope">,
   ctx: {
     eventRegionIds: number[];

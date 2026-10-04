@@ -83,6 +83,7 @@ export const AI_FEATURES = {
   },
   "cabinet.diplomacy": { label: "內閣：外交代理", defaultMaxTokens: 2048 },
   "cabinet.interior": { label: "內閣：內政代理", defaultMaxTokens: 800 },
+  "autopilot.extras": { label: "AI 託管：政策／決策／事件應對", defaultMaxTokens: 900 },
   "game_news.turn_news": { label: "回合新聞", defaultMaxTokens: 2048 },
   "world_sim.proposal": { label: "世界模擬提案", defaultMaxTokens: 8192 },
   "advisor.tips": { label: "顧問小提示", defaultMaxTokens: 2000 },

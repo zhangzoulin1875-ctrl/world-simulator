@@ -89,6 +89,7 @@ import {
   type VassalTributeSummary,
 } from "./vassalTribute";
 import { renewCabinetForEraChange, runCabinetTurn } from "./cabinet";
+import { runAutopilotTurn } from "./autopilot";
 import { runSuperEventSettlement } from "./superEventSettlement";
 import { invalidateGlobalAveragePopulationCache } from "./researchCost";
 
@@ -1161,6 +1162,15 @@ async function doRunTurn(
       .where(sql`${diplomacyAiChatQuotasTable.turnDate} <> ${newGameDate}`);
   } catch (err) {
     logger.error({ err }, "turn engine: ai chat quota prune failed");
+  }
+
+  // AI 全權託管：對託管中的國家代打（內政／軍事／政治／事件）。放在財政與
+  // 政治結算之前，讓託管當回合提交的財政政策、政策想法、政府決策能當回合判定。
+  // 獨立 try/catch，失敗只記 log，不阻斷回合。
+  try {
+    await runAutopilotTurn(statsEra);
+  } catch (err) {
+    logger.error({ err }, "turn engine: autopilot turn failed");
   }
 
   // 財政結算（AI 判定財政政策）。在內政結算之前跑；失敗不影響其他結算。

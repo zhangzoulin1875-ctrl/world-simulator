@@ -6,6 +6,7 @@ import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { csrfGuard } from "./middlewares/csrf";
+import { autopilotLock } from "./middlewares/autopilotLock";
 import { logger } from "./lib/logger";
 import { noteGameActivity } from "./lib/schedulerWake";
 
@@ -44,6 +45,8 @@ app.use(cookieParser());
 app.use(csrfGuard);
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+// AI 全權託管：託管中的玩家寫入一律 423（僅放行解除託管／登出／通知已讀）。
+app.use(autopilotLock);
 
 // 省電喚醒快取：任何 API 請求都代表遊戲有活動（Neon 本來就會被喚醒），
 // 順手標記排程快取重讀——玩家改了回合時段/宣戰/締約等設定後，背景

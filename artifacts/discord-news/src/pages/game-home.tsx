@@ -1,3 +1,6 @@
+import { Bot } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AutopilotPanel } from "@/components/autopilot-panel";
 import React from "react";
 import { Link, useLocation } from "wouter";
 import {
@@ -242,6 +245,7 @@ function GameScreen({
   refreshing?: boolean;
 }) {
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [autopilotOpen, setAutopilotOpen] = React.useState(false);
   const [breakdownStat, setBreakdownStat] =
     React.useState<BreakdownStatKey | null>(null);
   const [, navigate] = useLocation();
@@ -575,6 +579,15 @@ function GameScreen({
 
           {/* bottom-right: music player + game clock + settings */}
           <div className="ml-auto flex min-w-0 shrink items-center gap-2 md:gap-3">
+            <button
+              onClick={() => setAutopilotOpen(true)}
+              className="flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-black/50 px-3 py-2 text-xs font-semibold text-amber-300 transition hover:bg-amber-500/20"
+              title="AI 託管"
+              data-testid="button-autopilot"
+            >
+              <Bot className="h-4 w-4 text-amber-400" />
+              <span className="hidden sm:inline">AI 託管</span>
+            </button>
             <GameMusicPlayer />
             <GameClock />
             <button
@@ -588,6 +601,15 @@ function GameScreen({
           </div>
         </footer>
       </div>
+
+      <Dialog open={autopilotOpen} onOpenChange={setAutopilotOpen}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="sr-only">AI 全權託管</DialogTitle>
+          </DialogHeader>
+          <AutopilotPanel />
+        </DialogContent>
+      </Dialog>
 
       <GameSettingsDialog
         open={settingsOpen}

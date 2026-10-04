@@ -3,7 +3,6 @@ import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   PersistQueryClientProvider,
-  type PersistedClient,
 } from "@tanstack/react-query-persist-client";
 import { getGetCurrentUserQueryKey } from "@workspace/api-client-react";
 import { useCurrentUser } from "@/lib/current-user";
@@ -24,6 +23,7 @@ import { GameMusicProvider } from "@/components/game-music-context";
 import { EncyclopediaProvider } from "@/components/encyclopedia-context";
 import { DiscordAuthListener } from "@/components/discord-auth";
 import { GameMusicFloatingPlayer } from "@/components/game-music-player";
+import { AutopilotGate } from "@/components/autopilot-gate";
 import { useIsAdmin } from "@/lib/admin-token";
 import { useToast } from "@/hooks/use-toast";
 import GameAppearance from "@/pages/game-appearance";
@@ -64,18 +64,18 @@ function Router() {
   return (
     <Switch>
       {/* Full-screen game home — deliberately outside the news Layout. */}
-      <Route path="/game" component={GameHome} />
-      <Route path="/game/military/war/:id" component={GameWarRoom} />
-      <Route path="/game/military/tech" component={GameTech} />
-      <Route path="/game/military" component={GameMilitary} />
-      <Route path="/game/technology" component={GameTechnology} />
-      <Route path="/game/diplomacy" component={GameDiplomacy} />
-      <Route path="/game/politics" component={GamePolitics} />
-      <Route path="/game/cabinet" component={GameCabinet} />
-      <Route path="/game/economy" component={GameEconomy} />
-      <Route path="/game/super-events" component={GameSuperEvents} />
-      <Route path="/game/map" component={GameMap} />
-      <Route path="/game/news" component={GameNews} />
+      <Route path="/game">{() => <AutopilotGate><GameHome /></AutopilotGate>}</Route>
+      <Route path="/game/military/war/:id">{() => <AutopilotGate><GameWarRoom /></AutopilotGate>}</Route>
+      <Route path="/game/military/tech">{() => <AutopilotGate><GameTech /></AutopilotGate>}</Route>
+      <Route path="/game/military">{() => <AutopilotGate><GameMilitary /></AutopilotGate>}</Route>
+      <Route path="/game/technology">{() => <AutopilotGate><GameTechnology /></AutopilotGate>}</Route>
+      <Route path="/game/diplomacy">{() => <AutopilotGate><GameDiplomacy /></AutopilotGate>}</Route>
+      <Route path="/game/politics">{() => <AutopilotGate><GamePolitics /></AutopilotGate>}</Route>
+      <Route path="/game/cabinet">{() => <AutopilotGate><GameCabinet /></AutopilotGate>}</Route>
+      <Route path="/game/economy">{() => <AutopilotGate><GameEconomy /></AutopilotGate>}</Route>
+      <Route path="/game/super-events">{() => <AutopilotGate><GameSuperEvents /></AutopilotGate>}</Route>
+      <Route path="/game/map">{() => <AutopilotGate><GameMap /></AutopilotGate>}</Route>
+      <Route path="/game/news">{() => <AutopilotGate><GameNews /></AutopilotGate>}</Route>
       <Route path="/">{() => <Redirect to="/game" />}</Route>
       <Route>{() => <SiteRoutes />}</Route>
     </Switch>

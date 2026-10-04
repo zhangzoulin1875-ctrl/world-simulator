@@ -1,4 +1,4 @@
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryCache, MutationCache } from "@tanstack/react-query";
 import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
 
 /**
@@ -26,7 +26,29 @@ const USER_MARKER_KEY = "discord-news.query-cache.user";
 /** 快取最長保存時間：24 小時。超過即視為過期，還原時丟棄。 */
 export const PERSIST_MAX_AGE = 1000 * 60 * 60 * 24;
 
-export const queryClient = new QueryClient({
+export const queryClient: QueryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error: any) => {
+      if (
+        error?.status === 423 ||
+        error?.code === "AUTOPILOT_LOCKED" ||
+        (typeof error?.message === "string" && error.message.includes("AUTOPILOT_LOCKED"))
+      ) {
+        queryClient.invalidateQueries({ queryKey: ["autopilot"] });
+      }
+    },
+  }),
+  mutationCache: new MutationCache({
+    onError: (error: any) => {
+      if (
+        error?.status === 423 ||
+        error?.code === "AUTOPILOT_LOCKED" ||
+        (typeof error?.message === "string" && error.message.includes("AUTOPILOT_LOCKED"))
+      ) {
+        queryClient.invalidateQueries({ queryKey: ["autopilot"] });
+      }
+    },
+  }),
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
