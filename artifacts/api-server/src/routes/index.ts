@@ -33,6 +33,7 @@ import gameBalanceRouter from "./gameBalance";
 import aiUsageRouter from "./aiUsage";
 import aiQueueRouter from "./aiQueue";
 import militaryAdminRouter from "./militaryAdmin";
+import dbMigrateAdminRouter from "./dbMigrateAdmin";
 
 const router: IRouter = Router();
 
@@ -70,5 +71,6 @@ router.use(gameBalanceRouter);
 router.use(aiUsageRouter);
 router.use(aiQueueRouter);
 router.use(militaryAdminRouter);
+router.use(dbMigrateAdminRouter);
 
 export default router;

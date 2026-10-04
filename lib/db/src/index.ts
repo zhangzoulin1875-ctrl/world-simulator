@@ -28,4 +28,6 @@ pool.on("error", (err) => {
 });
 export const db = drizzle(pool, { schema });
 
+/** 供跨庫搬家等工具重用同一個 pg 驅動版本(避免 api-server 另加依賴) */
+export { pg };
 export * from "./schema";
