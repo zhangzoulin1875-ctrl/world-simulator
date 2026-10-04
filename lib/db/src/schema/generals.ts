@@ -4,6 +4,7 @@ import {
   text,
   uuid,
   integer,
+  bigint,
   serial,
   timestamp,
   index,
@@ -152,8 +153,12 @@ export const generalDrawsTable = pgTable(
     /** draw = 抽取（一回合一張，quota 判定用）；upgrade = 升階。 */
     kind: text("kind").notNull().default("draw"),
     /** 消耗（記錄用，實際扣款在交易內完成）。 */
-    moneySpent: integer("money_spent").notNull().default(0),
-    productionSpent: integer("production_spent").notNull().default(0),
+    // 必須與 player_nations.money / production_spent 同為 bigint：國家金錢可達
+    // 兆級，抽取費 = 國庫 5%，integer（上限 ~21 億）會讓富國抽取／升階整筆 500。
+    moneySpent: bigint("money_spent", { mode: "number" }).notNull().default(0),
+    productionSpent: bigint("production_spent", { mode: "number" })
+      .notNull()
+      .default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -80,10 +80,28 @@ async function runGeneralsMigrationsInner(): Promise<void> {
       id serial PRIMARY KEY,
       owner_nation_id uuid NOT NULL REFERENCES player_nations(id) ON DELETE CASCADE,
       kind text NOT NULL DEFAULT 'draw',
-      money_spent integer NOT NULL DEFAULT 0,
-      production_spent integer NOT NULL DEFAULT 0,
+      money_spent bigint NOT NULL DEFAULT 0,
+      production_spent bigint NOT NULL DEFAULT 0,
       created_at timestamptz NOT NULL DEFAULT now()
     )
+  `);
+  // 既有資料庫（表建成 integer）就地升級為 bigint：integer→bigint 不丟資料、
+  // 冪等（已是 bigint 時為 no-op 轉型）。只在仍是 integer 時才 ALTER，避免每次
+  // 開機都拿表鎖重寫。
+  await db.execute(sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'general_draws'
+          AND column_name IN ('money_spent', 'production_spent')
+          AND data_type = 'integer'
+      ) THEN
+        ALTER TABLE general_draws
+          ALTER COLUMN money_spent TYPE bigint,
+          ALTER COLUMN production_spent TYPE bigint;
+      END IF;
+    END $$;
   `);
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS general_draws_owner_idx
