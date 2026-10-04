@@ -1,4 +1,4 @@
-import { pg } from "@workspace/db";
+import { pg, stripSslModeParam } from "@workspace/db";
 
 type Client = InstanceType<typeof pg.Client>;
 
@@ -106,7 +106,7 @@ export async function copyAllData(
 ): Promise<CopyReport> {
   const t0 = Date.now();
   const log = opts.log ?? (() => {});
-  const mk = (u: string) => new pg.Client({ connectionString: u, ...(opts.ssl ? { ssl: { rejectUnauthorized: false } } : {}), connectionTimeoutMillis: 20_000 });
+  const mk = (u: string) => new pg.Client({ connectionString: opts.ssl ? stripSslModeParam(u) : u, ...(opts.ssl ? { ssl: { rejectUnauthorized: false } } : {}), connectionTimeoutMillis: 20_000 });
   const src = mk(srcUrl), dst = mk(dstUrl);
   await src.connect(); await dst.connect();
   const results: CopyTableResult[] = [];
