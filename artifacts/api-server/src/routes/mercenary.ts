@@ -3,6 +3,7 @@ import { requirePlayer } from "./war/shared";
 import {
   MercenaryError,
   getMercenaryState,
+  listDeployments,
   hasActiveCampaign,
   quoteCompanies,
   disarmNation,
@@ -41,6 +42,7 @@ router.get(
   "/mercenary/overview",
   wrap(async (nationId) => {
     const state = await getMercenaryState(nationId);
+    const deployments = await listDeployments(nationId);
     const quotes = await quoteCompanies(nationId);
     const active = state?.companyId ? getMercenaryCompany(state.companyId) : null;
     const activeQuote = active ? quotes.find((q) => q.company.id === active.id) ?? null : null;
@@ -54,13 +56,15 @@ router.get(
             signedAt: state!.signedAt,
             rentPerTurn: activeQuote?.rent ?? 0,
             deployFeePerTurn: activeQuote?.deployFee ?? 0,
-            deployed: state!.deployedCampaignId
-              ? {
-                  campaignId: state!.deployedCampaignId,
-                  slot: state!.deployedSlot,
-                  mode: state!.deployedMode,
-                }
-              : null,
+            deployments: deployments.map((d) => ({
+              campaignId: d.campaignId,
+              slot: d.slot,
+              mode: d.mode,
+            })),
+            /** 本回合預估總費用 = 租金 + 出動費 × 派遣場次。 */
+            totalPerTurn:
+              (activeQuote?.rent ?? 0) +
+              (activeQuote?.deployFee ?? 0) * deployments.length,
           }
         : null,
       lastTerminationNote: state?.lastTerminationNote ?? null,
@@ -124,14 +128,23 @@ router.post(
       slot: String(b["slot"] ?? ""),
       mode: b["mode"] as "defend" | "attack",
     });
-    return { deployedCampaignId: s.deployedCampaignId, slot: s.deployedSlot, mode: s.deployedMode };
+    return { campaignId: s.campaignId, slot: s.slot, mode: s.mode };
   }),
 );
 
 router.post(
   "/mercenary/recall",
-  wrap(async (nationId) => {
-    await recallMercenaries(nationId);
+  wrap(async (nationId, req) => {
+    const raw = (req.body as Record<string, unknown> | undefined)?.["campaignId"];
+    let campaignId: number | undefined;
+    if (raw !== undefined && raw !== null) {
+      campaignId = Number(raw);
+      if (!Number.isInteger(campaignId) || campaignId <= 0) {
+        throw new MercenaryError(400, "campaignId 不正確");
+      }
+    }
+    const recalled = await recallMercenaries(nationId, campaignId);
+    return { recalled };
   }),
 );
 

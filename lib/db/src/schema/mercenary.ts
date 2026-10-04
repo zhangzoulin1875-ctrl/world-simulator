@@ -7,6 +7,7 @@ import {
   integer,
   bigint,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { playerNationsTable } from "./playerNations";
 import { warCampaignsTable } from "./war";
@@ -69,3 +70,37 @@ export const mercenaryStatesTable = pgTable(
 );
 
 export type MercenaryState = typeof mercenaryStatesTable.$inferSelect;
+
+/**
+ * 傭兵派遣紀錄:一筆 = 傭兵團派進某一場戰役的某個軍團欄位。
+ * 一個傭兵團可同時派進多場戰役(每場投入完整兵力),出動費依場次累加。
+ * 同一戰役只能派一次;戰役被刪除時整筆跟著刪除(ON DELETE CASCADE)。
+ */
+export const mercenaryDeploymentsTable = pgTable(
+  "mercenary_deployments",
+  {
+    id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+    nationId: uuid("nation_id")
+      .notNull()
+      .references(() => playerNationsTable.id, { onDelete: "cascade" }),
+    campaignId: integer("campaign_id")
+      .notNull()
+      .references(() => warCampaignsTable.id, { onDelete: "cascade" }),
+    /** 佔用的軍團欄位 A | B | C。 */
+    slot: text("slot").notNull(),
+    /** defend | attack */
+    mode: text("mode").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    nationCampaignUq: uniqueIndex("mercenary_deployments_nation_campaign_uq").on(
+      t.nationId,
+      t.campaignId,
+    ),
+    campaignIdx: index("mercenary_deployments_campaign_idx").on(t.campaignId),
+  }),
+);
+
+export type MercenaryDeployment = typeof mercenaryDeploymentsTable.$inferSelect;

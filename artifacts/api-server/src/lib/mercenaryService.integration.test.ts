@@ -17,6 +17,7 @@ const {
   militaryUnitTemplatesTable, mapRegionsTable, diplomacyWarsTable,
   warCampaignsTable, warCampaignParticipantsTable, warCampaignLegionsTable,
   mercenaryStatesTable,
+  mercenaryDeploymentsTable,
 } = await import("@workspace/db");
 const migs = [
   ["gameMigrations", "runGameMigrations"],
@@ -100,6 +101,25 @@ async function mkCampaign(attacker: string, defender: string): Promise<number> {
   campaignIds.push(c!.id);
   return c!.id;
 }
+
+/** 再開一場「不結束舊戰役」的戰役:attacker 對 defender,用於多戰線測試。 */
+async function mkExtraCampaign(attacker: string, defender: string): Promise<number> {
+  const [w] = await db.insert(diplomacyWarsTable)
+    .values({
+      nationAId: attacker < defender ? attacker : defender,
+      nationBId: attacker < defender ? defender : attacker,
+      declaredByNationId: attacker,
+    })
+    .returning({ id: diplomacyWarsTable.id });
+  warIds.push(w!.id);
+  const [c] = await db.insert(warCampaignsTable).values({
+    warId: w!.id, attackerNationId: attacker, defenderNationId: defender,
+    attackerRegionId: regionIds[0]!, defenderRegionId: regionIds[1]!,
+    nextResolveAt: new Date(Date.now() + 3_600_000),
+  } as never).returning({ id: warCampaignsTable.id });
+  campaignIds.push(c!.id);
+  return c!.id;
+}
 async function nationRow(id: string) {
   const [r] = await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, id));
   return r!;
@@ -110,6 +130,7 @@ async function reset(nationId: string, userId: string) {
     sql`${warCampaignsTable.attackerNationId} = ${nationId} OR ${warCampaignsTable.defenderNationId} = ${nationId}`,
   );
   await db.delete(warCampaignLegionsTable).where(eq(warCampaignLegionsTable.nationId, nationId));
+  await db.delete(mercenaryDeploymentsTable).where(eq(mercenaryDeploymentsTable.nationId, nationId));
   await db.delete(mercenaryStatesTable).where(eq(mercenaryStatesTable.nationId, nationId));
   await db.delete(playerArmiesTable).where(eq(playerArmiesTable.discordUserId, userId));
   await db.delete(recruitQueueTable).where(eq(recruitQueueTable.nationId, nationId));
@@ -250,13 +271,13 @@ test("派遣:需合約;防守方只能 defend、進攻方只能 attack;欄位不
   await assert.rejects(() => svc.deployMercenaries({ nationId: nB, campaignId: cid, slot: "A", mode: "attack" }), /只有進攻方/);
   await assert.rejects(() => svc.deployMercenaries({ nationId: nB, campaignId: cid, slot: "Z", mode: "defend" }), /A、B 或 C/);
   const s = await svc.deployMercenaries({ nationId: nB, campaignId: cid, slot: "A", mode: "defend" });
-  assert.equal(s.deployedCampaignId, cid);
+  assert.equal(s.campaignId, cid);
   const legs = await db.select().from(warCampaignLegionsTable).where(eq(warCampaignLegionsTable.campaignId, cid));
   assert.equal(legs.filter((l) => l.nationId === nB && l.slot === "A").length, 1);
-  await assert.rejects(() => svc.deployMercenaries({ nationId: nB, campaignId: cid, slot: "B", mode: "defend" }), /已派遣中/);
+  await assert.rejects(() => svc.deployMercenaries({ nationId: nB, campaignId: cid, slot: "B", mode: "defend" }), /已派進這場戰役/);
   await svc.recallMercenaries(nB);
   assert.equal((await db.select().from(warCampaignLegionsTable).where(eq(warCampaignLegionsTable.campaignId, cid))).filter((l) => l.nationId === nB).length, 0);
-  assert.equal((await svc.getMercenaryState(nB))?.deployedCampaignId, null);
+  assert.equal((await svc.listDeployments(nB)).length, 0);
   await assert.rejects(() => svc.recallMercenaries(nB), /沒有派遣中/);
 });
 
@@ -269,7 +290,7 @@ test("解約會一併召回派遣中的僱傭兵", async () => {
   assert.equal((await db.select().from(warCampaignLegionsTable).where(eq(warCampaignLegionsTable.campaignId, cid))).filter((l) => l.nationId === nB).length, 1);
   await svc.terminateContract(nB);
   assert.equal((await db.select().from(warCampaignLegionsTable).where(eq(warCampaignLegionsTable.campaignId, cid))).filter((l) => l.nationId === nB).length, 0);
-  assert.equal((await svc.getMercenaryState(nB))?.deployedCampaignId, null);
+  assert.equal((await svc.listDeployments(nB)).length, 0);
   assert.equal((await svc.getMercenaryState(nB))?.companyId, null);
 });
 
@@ -315,7 +336,7 @@ test("回合租金:付不起 → 自動解約、留下備註、不收租、召�
   assert.equal(r.rentCharged, 0);
   const st = await svc.getMercenaryState(nB);
   assert.equal(st?.companyId, null);
-  assert.equal(st?.deployedCampaignId, null);
+  assert.equal((await svc.listDeployments(nB)).length, 0);
   assert.match(st?.lastTerminationNote ?? "", /資金不足/);
   assert.equal((await db.select().from(warCampaignLegionsTable).where(eq(warCampaignLegionsTable.campaignId, cid))).filter((l) => l.nationId === nB).length, 0);
 });
@@ -334,6 +355,110 @@ test("回合租金:派遣中額外收戰役出動費,分開累計", async () => 
   const st = await svc.getMercenaryState(nB);
   assert.equal(st?.totalRentPaid, q.rent * 2);
   assert.equal(st?.totalDeployPaid, q.deployFee);
+});
+
+test("多戰線:同一傭兵團可同時派進兩場不同戰役,各自佔欄位", async () => {
+  await reset(nA, userA); await reset(nB, userB);
+  await svc.disarmNation(nB);
+  await svc.signContract(nB, "obsidian");
+  const c1 = await mkCampaign(nA, nB);
+  const c2 = await mkExtraCampaign(nNpc, nB);
+  await svc.deployMercenaries({ nationId: nB, campaignId: c1, slot: "A", mode: "defend" });
+  await svc.deployMercenaries({ nationId: nB, campaignId: c2, slot: "A", mode: "defend" });
+  const ds = await svc.listDeployments(nB);
+  assert.equal(ds.length, 2);
+  assert.deepEqual(ds.map((d) => d.campaignId).sort(), [c1, c2].sort());
+  // 同一場戰役不能重複派
+  await assert.rejects(() => svc.deployMercenaries({ nationId: nB, campaignId: c1, slot: "B", mode: "defend" }), /已派進這場戰役/);
+  // 兩場戰役各自載得到完整兵力的虛擬單位
+  const m1 = await svc.loadMercenaryUnitsForCampaign(c1);
+  const m2 = await svc.loadMercenaryUnitsForCampaign(c2);
+  assert.equal(m1.size, 1);
+  assert.equal(m2.size, 1);
+  assert.equal(m1.get(nB + ":A")!.quantity, m2.get(nB + ":A")!.quantity);
+});
+
+test("多戰線:出動費按參戰場次累加,租金只收一次", async () => {
+  await reset(nA, userA); await reset(nB, userB);
+  await svc.disarmNation(nB);
+  await svc.signContract(nB, "iron_shield");
+  const q = (await svc.quoteCompany(nB, "iron_shield"))!;
+  const c1 = await mkCampaign(nA, nB);
+  const c2 = await mkExtraCampaign(nNpc, nB);
+  const r0 = await svc.settleMercenaryRent({ nationId: nB, availableFunds: 1e12, otherUpkeep: 0 });
+  assert.equal(r0.rentCharged, q.rent, "0 場:只收租金");
+  await svc.deployMercenaries({ nationId: nB, campaignId: c1, slot: "A", mode: "defend" });
+  const r1 = await svc.settleMercenaryRent({ nationId: nB, availableFunds: 1e12, otherUpkeep: 0 });
+  assert.equal(r1.rentCharged, q.rent + q.deployFee, "1 場:租金 + 1 份出動費");
+  await svc.deployMercenaries({ nationId: nB, campaignId: c2, slot: "A", mode: "defend" });
+  const r2 = await svc.settleMercenaryRent({ nationId: nB, availableFunds: 1e12, otherUpkeep: 0 });
+  assert.equal(r2.rentCharged, q.rent + q.deployFee * 2, "2 場:租金 + 2 份出動費");
+  const st = await svc.getMercenaryState(nB);
+  assert.equal(st?.totalRentPaid, q.rent * 3);
+  assert.equal(st?.totalDeployPaid, q.deployFee * 3, "0+1+2 = 3 份出動費");
+});
+
+test("多戰線:可只召回其中一場,其餘繼續派遣", async () => {
+  await reset(nA, userA); await reset(nB, userB);
+  await svc.disarmNation(nB);
+  await svc.signContract(nB, "obsidian");
+  const c1 = await mkCampaign(nA, nB);
+  const c2 = await mkExtraCampaign(nNpc, nB);
+  await svc.deployMercenaries({ nationId: nB, campaignId: c1, slot: "A", mode: "defend" });
+  await svc.deployMercenaries({ nationId: nB, campaignId: c2, slot: "C", mode: "defend" });
+  assert.equal(await svc.recallMercenaries(nB, c1), 1);
+  const left = await svc.listDeployments(nB);
+  assert.deepEqual(left.map((d) => d.campaignId), [c2]);
+  const legs1 = await db.select().from(warCampaignLegionsTable).where(eq(warCampaignLegionsTable.campaignId, c1));
+  const legs2 = await db.select().from(warCampaignLegionsTable).where(eq(warCampaignLegionsTable.campaignId, c2));
+  assert.equal(legs1.filter((l) => l.nationId === nB).length, 0);
+  assert.equal(legs2.filter((l) => l.nationId === nB && l.slot === "C").length, 1);
+  await assert.rejects(() => svc.recallMercenaries(nB, c1), /沒有派遣中/);
+});
+
+test("多戰線:不指定場次 = 全部召回;解約也會撤出所有戰場", async () => {
+  await reset(nA, userA); await reset(nB, userB);
+  await svc.disarmNation(nB);
+  await svc.signContract(nB, "obsidian");
+  const c1 = await mkCampaign(nA, nB);
+  const c2 = await mkExtraCampaign(nNpc, nB);
+  await svc.deployMercenaries({ nationId: nB, campaignId: c1, slot: "A", mode: "defend" });
+  await svc.deployMercenaries({ nationId: nB, campaignId: c2, slot: "A", mode: "defend" });
+  assert.equal(await svc.recallMercenaries(nB), 2);
+  assert.equal((await svc.listDeployments(nB)).length, 0);
+  await svc.deployMercenaries({ nationId: nB, campaignId: c1, slot: "A", mode: "defend" });
+  await svc.deployMercenaries({ nationId: nB, campaignId: c2, slot: "B", mode: "defend" });
+  await svc.terminateContract(nB);
+  assert.equal((await svc.listDeployments(nB)).length, 0);
+  for (const cid of [c1, c2]) {
+    const legs = await db.select().from(warCampaignLegionsTable).where(eq(warCampaignLegionsTable.campaignId, cid));
+    assert.equal(legs.filter((l) => l.nationId === nB).length, 0);
+  }
+});
+
+test("多戰線:付不起時自動解約,所有場次一併撤出", async () => {
+  await reset(nA, userA); await reset(nB, userB);
+  await svc.disarmNation(nB);
+  await svc.signContract(nB, "obsidian");
+  const c1 = await mkCampaign(nA, nB);
+  const c2 = await mkExtraCampaign(nNpc, nB);
+  await svc.deployMercenaries({ nationId: nB, campaignId: c1, slot: "A", mode: "defend" });
+  await svc.deployMercenaries({ nationId: nB, campaignId: c2, slot: "A", mode: "defend" });
+  const q = (await svc.quoteCompany(nB, "obsidian"))!;
+  // 只夠付 1 場的費用,2 場就付不起
+  const r = await svc.settleMercenaryRent({ nationId: nB, availableFunds: q.rent + q.deployFee, otherUpkeep: 0 });
+  assert.equal(r.terminated, true);
+  assert.equal((await svc.listDeployments(nB)).length, 0);
+});
+
+test("多戰線:戰役被刪除時,派遣紀錄跟著刪除,不會卡住", async () => {
+  await reset(nA, userA); await reset(nB, userB);
+  await svc.disarmNation(nB);
+  await svc.signContract(nB, "obsidian");
+  const c1 = await mkCampaign(nA, nB);
+  await svc.deployMercenaries({ nationId: nB, campaignId: c1, slot: "A", mode: "defend" });
+  await db.delete(warCampaignsTable).where(eq(warCampaignsTable.id, c1));
+  assert.equal((await svc.listDeployments(nB)).length, 0);
 });
 
 test("回合租金:沒有合約的國家回 0、不報錯", async () => {

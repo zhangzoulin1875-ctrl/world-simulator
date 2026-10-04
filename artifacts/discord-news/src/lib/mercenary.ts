@@ -24,7 +24,10 @@ export interface MercenaryOverview {
     signedAt: string | null;
     rentPerTurn: number;
     deployFeePerTurn: number;
-    deployed: { campaignId: number; slot: string | null; mode: string | null } | null;
+    /** 目前派遣中的所有戰場(可同時多場)。 */
+    deployments: { campaignId: number; slot: string; mode: "defend" | "attack" }[];
+    /** 本回合預估總費用 = 租金 + 出動費 × 場次。 */
+    totalPerTurn: number;
   } | null;
   lastTerminationNote: string | null;
   totals: { rentPaid: number; deployPaid: number };
@@ -94,6 +97,10 @@ export function useMercenaryActions() {
       mutationFn: (v: { campaignId: number; slot: string; mode: "defend" | "attack" }) => post("deploy", v),
       ...opts,
     }),
-    recall: useMutation({ mutationFn: () => post("recall"), ...opts }),
+    /** campaignId 省略 = 全部召回。 */
+    recall: useMutation({
+      mutationFn: (campaignId?: number) => post("recall", campaignId === undefined ? undefined : { campaignId }),
+      ...opts,
+    }),
   };
 }

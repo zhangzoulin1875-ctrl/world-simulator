@@ -9,8 +9,10 @@ import {
   warCampaignLegionUnitsTable,
   playerWoundedUnitsTable,
   mercenaryStatesTable,
+  mercenaryDeploymentsTable,
   recruitQueueTable,
   type MercenaryState,
+  type MercenaryDeployment,
 } from "@workspace/db";
 import {
   MERCENARY_COMPANIES,
@@ -373,15 +375,12 @@ export async function terminateContract(
       if (note === null) throw new MercenaryError(409, "目前沒有生效中的合約");
       return;
     }
-    await removeMercenaryLegion(nationId, state, tx);
+    await removeMercenaryDeployments(nationId, tx);
     await tx
       .update(mercenaryStatesTable)
       .set({
         companyId: null,
         signedAt: null,
-        deployedCampaignId: null,
-        deployedSlot: null,
-        deployedMode: null,
         lastTerminationNote: note,
         updatedAt: new Date(),
       })
@@ -425,9 +424,9 @@ export async function settleMercenaryRent(params: {
     await terminateContract(params.nationId, "合約公司已不存在,自動解約");
     return { rentCharged: 0, terminated: true, companyName: null };
   }
-  // 派遣中的回合,除了租金還要付戰役出動費;兩者一起過「付不付得起」這道關。
-  const deployed = !!state.deployedCampaignId;
-  const perTurn = quote.rent + (deployed ? quote.deployFee : 0);
+  // 派遣中每參戰一場戰役,就加收一次戰役出動費(租金只收一次)。
+  const deployments = await listDeployments(params.nationId);
+  const perTurn = quote.rent + quote.deployFee * deployments.length;
   const decision = decideRentCharge({
     rent: perTurn,
     availableFunds: params.availableFunds,
@@ -455,22 +454,47 @@ export async function settleMercenaryRent(params: {
 
 /* ───────────── 派遣 / 召回 ───────────── */
 
-/** 僱傭兵軍團在資料庫裡的標記:軍團單位的 template_id 為 null 不可行,改用 nation 自己的軍團列 + 專屬旗標表。 */
-async function removeMercenaryLegion(
+/**
+ * 移除傭兵在戰役中的虛擬軍團(軍團列)與派遣紀錄。
+ * campaignId 省略 = 全部場次(解約、被迫終止時使用)。
+ */
+async function removeMercenaryDeployments(
   nationId: string,
-  state: MercenaryState,
   tx: Executor,
-): Promise<void> {
-  if (!state.deployedCampaignId || !state.deployedSlot) return;
-  await tx
-    .delete(warCampaignLegionsTable)
-    .where(
-      and(
-        eq(warCampaignLegionsTable.campaignId, state.deployedCampaignId),
-        eq(warCampaignLegionsTable.nationId, nationId),
-        eq(warCampaignLegionsTable.slot, state.deployedSlot),
-      ),
-    );
+  campaignId?: number,
+): Promise<number> {
+  const where = campaignId
+    ? and(
+        eq(mercenaryDeploymentsTable.nationId, nationId),
+        eq(mercenaryDeploymentsTable.campaignId, campaignId),
+      )
+    : eq(mercenaryDeploymentsTable.nationId, nationId);
+  const rows = await tx.select().from(mercenaryDeploymentsTable).where(where);
+  for (const d of rows) {
+    await tx
+      .delete(warCampaignLegionsTable)
+      .where(
+        and(
+          eq(warCampaignLegionsTable.campaignId, d.campaignId),
+          eq(warCampaignLegionsTable.nationId, nationId),
+          eq(warCampaignLegionsTable.slot, d.slot),
+        ),
+      );
+  }
+  if (rows.length > 0) await tx.delete(mercenaryDeploymentsTable).where(where);
+  return rows.length;
+}
+
+/** 目前派遣中的場次(依派遣時間排序)。 */
+export async function listDeployments(
+  nationId: string,
+  ex: Executor = db,
+): Promise<MercenaryDeployment[]> {
+  return ex
+    .select()
+    .from(mercenaryDeploymentsTable)
+    .where(eq(mercenaryDeploymentsTable.nationId, nationId))
+    .orderBy(mercenaryDeploymentsTable.id);
 }
 
 export interface DeployInput {
@@ -485,7 +509,7 @@ export interface DeployInput {
  * 僱傭兵以「沒有單位列的虛擬軍團」存在(war_campaign_legions 有列、war_campaign_legion_units 沒列),
  * 戰力在結算載入時由 mercenaryBattle 併入(階段 3)。
  */
-export async function deployMercenaries(input: DeployInput): Promise<MercenaryState> {
+export async function deployMercenaries(input: DeployInput): Promise<MercenaryDeployment> {
   const { nationId, campaignId, slot, mode } = input;
   if (!LEGION_SLOTS.includes(slot as LegionSlotId)) {
     throw new MercenaryError(400, "軍團欄位必須是 A、B 或 C");
@@ -504,9 +528,18 @@ export async function deployMercenaries(input: DeployInput): Promise<MercenarySt
     if (nation.isNpc) throw new MercenaryError(403, "NPC 國家不開放僱傭兵");
     const state = await getMercenaryState(nationId, tx);
     if (!state?.companyId) throw new MercenaryError(409, "尚未簽訂軍事合約");
-    if (state.deployedCampaignId) {
-      throw new MercenaryError(409, "僱傭兵已派遣中,請先召回");
-    }
+    // 可同時派進多場戰役;同一場戰役只能派一次(DB 也有唯一索引保證)。
+    const [already] = await tx
+      .select({ id: mercenaryDeploymentsTable.id })
+      .from(mercenaryDeploymentsTable)
+      .where(
+        and(
+          eq(mercenaryDeploymentsTable.nationId, nationId),
+          eq(mercenaryDeploymentsTable.campaignId, campaignId),
+        ),
+      )
+      .limit(1);
+    if (already) throw new MercenaryError(409, "傭兵已派進這場戰役");
 
     const [campaign] = await tx
       .select()
@@ -566,40 +599,29 @@ export async function deployMercenaries(input: DeployInput): Promise<MercenarySt
     });
 
     const [row] = await tx
-      .update(mercenaryStatesTable)
-      .set({
-        deployedCampaignId: campaignId,
-        deployedSlot: slot,
-        deployedMode: mode,
-        updatedAt: new Date(),
-      })
-      .where(eq(mercenaryStatesTable.nationId, nationId))
+      .insert(mercenaryDeploymentsTable)
+      .values({ nationId, campaignId, slot, mode })
       .returning();
     return row!;
   });
 }
 
-export async function recallMercenaries(nationId: string): Promise<void> {
-  await db.transaction(async (tx) => {
+/**
+ * 召回傭兵。指定 campaignId = 只撤出那一場;省略 = 全部場次撤出。
+ */
+export async function recallMercenaries(
+  nationId: string,
+  campaignId?: number,
+): Promise<number> {
+  return db.transaction(async (tx) => {
     await tx
       .select({ id: playerNationsTable.id })
       .from(playerNationsTable)
       .where(eq(playerNationsTable.id, nationId))
       .for("update");
-    const state = await getMercenaryState(nationId, tx);
-    if (!state?.deployedCampaignId) {
-      throw new MercenaryError(409, "僱傭兵目前沒有派遣中");
-    }
-    await removeMercenaryLegion(nationId, state, tx);
-    await tx
-      .update(mercenaryStatesTable)
-      .set({
-        deployedCampaignId: null,
-        deployedSlot: null,
-        deployedMode: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(mercenaryStatesTable.nationId, nationId));
+    const n = await removeMercenaryDeployments(nationId, tx, campaignId);
+    if (n === 0) throw new MercenaryError(409, "傭兵目前沒有派遣中");
+    return n;
   });
 }
 
@@ -632,16 +654,24 @@ export async function loadMercenaryUnitsForCampaign(
   campaignId: number,
 ): Promise<Map<string, MercenaryLegionUnit>> {
   const rows = await db
-    .select()
-    .from(mercenaryStatesTable)
-    .where(eq(mercenaryStatesTable.deployedCampaignId, campaignId));
+    .select({
+      nationId: mercenaryDeploymentsTable.nationId,
+      slot: mercenaryDeploymentsTable.slot,
+      companyId: mercenaryStatesTable.companyId,
+    })
+    .from(mercenaryDeploymentsTable)
+    .innerJoin(
+      mercenaryStatesTable,
+      eq(mercenaryStatesTable.nationId, mercenaryDeploymentsTable.nationId),
+    )
+    .where(eq(mercenaryDeploymentsTable.campaignId, campaignId));
   const out = new Map<string, MercenaryLegionUnit>();
   for (const st of rows) {
-    if (!st.companyId || !st.deployedSlot) continue;
+    if (!st.companyId) continue;
     const quotes = await quoteCompanies(st.nationId);
     const q = quotes.find((x) => x.company.id === st.companyId);
     if (!q) continue;
-    out.set(`${st.nationId}:${st.deployedSlot}`, {
+    out.set(`${st.nationId}:${st.slot}`, {
       unitRowId: MERCENARY_UNIT_ROW_ID,
       templateId: 0,
       name: q.company.name,

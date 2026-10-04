@@ -214,8 +214,12 @@ function ActiveContract({ overview }: { overview: MercenaryOverview }) {
         <dl className="mb-4 grid grid-cols-2 gap-x-4 gap-y-1 text-sm md:grid-cols-4">
           <dt className="text-white/55">每回合租金</dt>
           <dd className="font-bold text-amber-200">{fmt(c.rentPerTurn)}</dd>
-          <dt className="text-white/55">派遣中加收</dt>
+          <dt className="text-white/55">每場出動費</dt>
           <dd className="font-bold">{fmt(c.deployFeePerTurn)}</dd>
+          <dt className="text-white/55">派遣場次</dt>
+          <dd className="font-bold" data-testid="text-deploy-count">{c.deployments.length}</dd>
+          <dt className="text-white/55">本回合預估總費用</dt>
+          <dd className="font-bold text-amber-200" data-testid="text-total-per-turn">{fmt(c.totalPerTurn)}</dd>
           {company && (
             <>
               <dt className="text-white/55">兵力</dt>
@@ -226,23 +230,23 @@ function ActiveContract({ overview }: { overview: MercenaryOverview }) {
           <dd className="font-bold">{fmt(overview.totals.rentPaid + overview.totals.deployPaid)}</dd>
         </dl>
         <p className="mb-4 text-xs text-white/55">
-          租金併入每回合維護費;若付完其他維護費後資金不足,合約會自動終止。簽約期間不能招募新部隊。
+          租金併入每回合維護費;派遣中每參戰一場,就加收一次出動費(租金只收一次)。若付完其他維護費後資金不足,合約會自動終止、所有戰場一併撤出。簽約期間不能招募新部隊。
         </p>
         <div className="flex flex-wrap gap-2">
-          {c.deployed && (
+          {c.deployments.length > 1 && (
             <button
               className={btnGhost}
               disabled={recall.isPending}
-              data-testid="button-recall"
+              data-testid="button-recall-all"
               onClick={() =>
                 recall.mutate(undefined, {
-                  onSuccess: () => toast({ title: "已召回傭兵" }),
+                  onSuccess: () => toast({ title: "已召回全部戰場的傭兵" }),
                   onError: (e) => toast({ title: "無法召回", description: errMsg(e), variant: "destructive" }),
                 })
               }
             >
               {recall.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              召回
+              全部召回
             </button>
           )}
           <button
@@ -271,99 +275,145 @@ const SLOTS = ["A", "B", "C"] as const;
 
 function DeployPanel({ overview }: { overview: MercenaryOverview }) {
   const { toast } = useToast();
-  const { deploy } = useMercenaryActions();
+  const { deploy, recall } = useMercenaryActions();
   const { data } = useListWarCampaigns({
     query: { queryKey: getListWarCampaignsQueryKey(), refetchInterval: 60_000 },
   });
   const [campaignId, setCampaignId] = useState<number | null>(null);
   const [slot, setSlot] = useState<(typeof SLOTS)[number]>("A");
 
-  const deployed = overview.contract?.deployed ?? null;
-  const active = (data?.campaigns ?? []).filter((x) => x.status === "active");
-  const selected = active.find((x) => x.id === campaignId) ?? null;
+  const contract = overview.contract!;
+  const deployments = contract.deployments;
+  const deployedIds = new Set(deployments.map((d) => d.campaignId));
+  const allActive = (data?.campaigns ?? []).filter((x) => x.status === "active");
+  const byId = new Map(allActive.map((x) => [x.id, x]));
+  // 已派進去的戰役不再出現在選單(同一場戰役只能派一次)
+  const candidates = allActive.filter((x) => !deployedIds.has(x.id));
+  const selected = candidates.find((x) => x.id === campaignId) ?? null;
   const mode = selected?.role === "attacker" ? "attack" : "defend";
 
-  if (deployed) {
-    return (
-      <div className={panel} data-testid="panel-deployed">
-        <div className="flex items-center gap-2">
-          {deployed.mode === "attack" ? (
-            <Swords className="h-5 w-5 text-red-300" />
-          ) : (
-            <Shield className="h-5 w-5 text-sky-300" />
-          )}
-          <h2 className="font-serif text-lg font-bold">派遣中</h2>
-        </div>
-        <p className="mt-2 text-sm text-white/75">
-          已以{deployed.mode === "attack" ? "進攻" : "防守"}姿態派駐戰役 #{deployed.campaignId} 的 {deployed.slot} 欄位。
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div className={panel} data-testid="panel-deploy">
-      <div className="mb-3 flex items-center gap-2">
-        <Swords className="h-5 w-5 text-amber-300" />
-        <h2 className="font-serif text-lg font-bold">派遣傭兵</h2>
-      </div>
-      {active.length === 0 ? (
-        <p className="text-sm text-white/55">目前沒有進行中的戰役可以派遣。</p>
-      ) : (
-        <div className="flex flex-col gap-3">
-          <select
-            className="rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white"
-            value={campaignId ?? ""}
-            onChange={(e) => setCampaignId(e.target.value ? Number(e.target.value) : null)}
-            data-testid="select-deploy-campaign"
-          >
-            <option value="">選擇戰役…</option>
-            {active.map((x) => (
-              <option key={x.id} value={x.id}>
-                #{x.id} 對 {x.opponentName}({x.role === "attacker" ? "進攻" : "防守"}:{x.attackerRegionName} → {x.defenderRegionName})
-              </option>
-            ))}
-          </select>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-white/60">佔用欄位</span>
-            {SLOTS.map((s) => (
-              <button
-                key={s}
-                className={`${btn} ${slot === s ? "border-amber-300/60 bg-amber-500/25 text-amber-100" : "border-white/20 bg-black/40 text-white/70"}`}
-                onClick={() => setSlot(s)}
-                data-testid={`button-slot-${s}`}
-              >
-                {s}
-              </button>
-            ))}
+    <>
+      {deployments.length > 0 && (
+        <div className={panel} data-testid="panel-deployed">
+          <div className="mb-3 flex items-center gap-2">
+            <Swords className="h-5 w-5 text-amber-300" />
+            <h2 className="font-serif text-lg font-bold">派遣中({deployments.length} 場)</h2>
           </div>
-          <p className="text-xs text-white/50">
-            {selected
-              ? `將以「${mode === "attack" ? "進攻" : "防守"}」姿態派駐(依你在這場戰役的立場決定)。`
-              : "選擇戰役後會自動決定進攻或防守。"}
-            傭兵佔用一個軍團欄位,該欄位需為空。
-          </p>
-          <button
-            className={btnPrimary}
-            disabled={!selected || deploy.isPending}
-            data-testid="button-deploy"
-            onClick={() =>
-              selected &&
-              deploy.mutate(
-                { campaignId: selected.id, slot, mode },
-                {
-                  onSuccess: () => toast({ title: "已派遣傭兵", description: `戰役 #${selected.id} 欄位 ${slot}` }),
-                  onError: (e) => toast({ title: "無法派遣", description: errMsg(e), variant: "destructive" }),
-                },
-              )
-            }
-          >
-            {deploy.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            派遣
-          </button>
+          <ul className="flex flex-col gap-2">
+            {deployments.map((d) => {
+              const camp = byId.get(d.campaignId);
+              return (
+                <li
+                  key={d.campaignId}
+                  className="flex flex-col gap-2 rounded-lg border border-white/10 bg-black/30 p-3 md:flex-row md:items-center md:justify-between"
+                  data-testid={`row-deployment-${d.campaignId}`}
+                >
+                  <div className="flex items-center gap-2 text-sm text-white/85">
+                    {d.mode === "attack" ? (
+                      <Swords className="h-4 w-4 shrink-0 text-red-300" />
+                    ) : (
+                      <Shield className="h-4 w-4 shrink-0 text-sky-300" />
+                    )}
+                    <span>
+                      戰役 #{d.campaignId}
+                      {camp ? ` 對 ${camp.opponentName}` : ""}・{d.mode === "attack" ? "進攻" : "防守"}・{d.slot} 欄位
+                    </span>
+                  </div>
+                  <button
+                    className={btnGhost}
+                    disabled={recall.isPending}
+                    data-testid={`button-recall-${d.campaignId}`}
+                    onClick={() =>
+                      recall.mutate(d.campaignId, {
+                        onSuccess: () => toast({ title: "已召回", description: `戰役 #${d.campaignId}` }),
+                        onError: (e) => toast({ title: "無法召回", description: errMsg(e), variant: "destructive" }),
+                      })
+                    }
+                  >
+                    {recall.isPending && recall.variables === d.campaignId && (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    )}
+                    召回這場
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
-    </div>
+
+      <div className={panel} data-testid="panel-deploy">
+        <div className="mb-3 flex items-center gap-2">
+          <Swords className="h-5 w-5 text-amber-300" />
+          <h2 className="font-serif text-lg font-bold">{deployments.length > 0 ? "增派到其他戰場" : "派遣傭兵"}</h2>
+        </div>
+        <p className="mb-3 text-xs text-white/55">
+          傭兵團可同時投入多場戰役,每場都是完整兵力;每多參戰一場,每回合多付一份出動費({fmt(contract.deployFeePerTurn)})。
+        </p>
+        {candidates.length === 0 ? (
+          <p className="text-sm text-white/55">
+            {allActive.length === 0 ? "目前沒有進行中的戰役可以派遣。" : "所有進行中的戰役都已派遣傭兵。"}
+          </p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            <select
+              className="rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white"
+              value={campaignId ?? ""}
+              onChange={(e) => setCampaignId(e.target.value ? Number(e.target.value) : null)}
+              data-testid="select-deploy-campaign"
+            >
+              <option value="">選擇戰役…</option>
+              {candidates.map((x) => (
+                <option key={x.id} value={x.id}>
+                  #{x.id} 對 {x.opponentName}({x.role === "attacker" ? "進攻" : "防守"}:{x.attackerRegionName} → {x.defenderRegionName})
+                </option>
+              ))}
+            </select>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-white/60">佔用欄位</span>
+              {SLOTS.map((s) => (
+                <button
+                  key={s}
+                  className={`${btn} ${slot === s ? "border-amber-300/60 bg-amber-500/25 text-amber-100" : "border-white/20 bg-black/40 text-white/70"}`}
+                  onClick={() => setSlot(s)}
+                  data-testid={`button-slot-${s}`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-white/50">
+              {selected
+                ? `將以「${mode === "attack" ? "進攻" : "防守"}」姿態派駐(依你在這場戰役的立場決定)。`
+                : "選擇戰役後會自動決定進攻或防守。"}
+              欄位需在該戰役中為空。
+            </p>
+            <button
+              className={btnPrimary}
+              disabled={!selected || deploy.isPending}
+              data-testid="button-deploy"
+              onClick={() =>
+                selected &&
+                deploy.mutate(
+                  { campaignId: selected.id, slot, mode },
+                  {
+                    onSuccess: () => {
+                      setCampaignId(null);
+                      toast({ title: "已派遣傭兵", description: `戰役 #${selected.id} 欄位 ${slot}` });
+                    },
+                    onError: (e) => toast({ title: "無法派遣", description: errMsg(e), variant: "destructive" }),
+                  },
+                )
+              }
+            >
+              {deploy.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              派遣
+            </button>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
