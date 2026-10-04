@@ -11,7 +11,6 @@ import {
 import type { PoliticsOverview } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiErrorMessage } from "@/components/military-shared";
-import { signed } from "./shared";
 import { EntryCard } from "./entry-card";
 
 /** Task #393 — 全國統一政策面板：四方向滿意度總覽＋單一政策想法輸入＋統一條目清單。 */
@@ -68,61 +67,8 @@ export function PolicyPanel({ overview }: { overview: PoliticsOverview }) {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
-      {/* left: satisfactions + idea box */}
+      {/* left: idea box */}
       <div className="space-y-4">
-        <section className="rounded-2xl border border-white/15 bg-black/55 p-4 backdrop-blur">
-          <h2 className="mb-3 font-serif text-sm font-bold text-white/80">
-            各面向滿意度
-          </h2>
-          <div className="space-y-3">
-            {overview.directions.map((d) => (
-              <div key={d.direction} data-testid={`satisfaction-${d.direction}`}>
-                <div className="flex items-baseline justify-between">
-                  <span className="flex items-center gap-1.5 text-xs font-semibold text-white/75">
-                    {!d.enabled && <Lock className="h-3 w-3 text-white/40" />}
-                    {d.satisfactionLabel}
-                  </span>
-                  {d.enabled ? (
-                    <span className="text-sm font-bold tabular-nums">
-                      {d.satisfaction}
-                      <span className="ml-1 text-[10px] font-normal text-white/45">
-                        / 100（基底 {d.baseSatisfaction}）
-                      </span>
-                    </span>
-                  ) : (
-                    <span className="text-[10px] text-white/40">未解鎖</span>
-                  )}
-                </div>
-                {d.enabled && (
-                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-white/10">
-                    <div
-                      className={`h-full rounded-full ${
-                        d.satisfaction >= 60
-                          ? "bg-emerald-400"
-                          : d.satisfaction >= 35
-                            ? "bg-amber-400"
-                            : "bg-red-500"
-                      }`}
-                      style={{ width: `${Math.min(100, Math.max(0, d.satisfaction))}%` }}
-                    />
-                  </div>
-                )}
-                {d.enabled && d.totals.satisfaction !== 0 && (
-                  <span
-                    className={`mt-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                      d.totals.satisfaction > 0
-                        ? "bg-emerald-500/20 text-emerald-300"
-                        : "bg-red-500/20 text-red-300"
-                    }`}
-                  >
-                    加減成 {signed(Math.round(d.totals.satisfaction * 10) / 10)}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-
         <section className="rounded-2xl border border-white/15 bg-black/55 p-4 backdrop-blur">
           <h2 className="mb-2 flex items-center gap-2 font-serif text-sm font-bold text-white/80">
             <ScrollText className="h-4 w-4 text-amber-300" />

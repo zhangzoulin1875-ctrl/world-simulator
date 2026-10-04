@@ -320,10 +320,6 @@ export function buildUnifiedModifierDoc(settings: PoliticsSettings): string {
   const allowed: string[] = [];
   if (settings.allowTargetSatisfaction !== 0) {
     allowed.push(
-      '"satisfactionLaw"',
-      '"satisfactionCulture"',
-      '"satisfactionReligion"',
-      '"satisfactionRights"',
       '"satisfactionMilitary"',
     );
   }
@@ -352,7 +348,7 @@ export function buildUnifiedModifierDoc(settings: PoliticsSettings): string {
     hints.push(`warWeariness ±${settings.warWearinessModifierCapPct}`);
   if (settings.foodGrowthEnabled !== 0)
     hints.push(`foodGrowth ±${settings.foodGrowthModifierCapPct}`);
-  return `"modifiers" 為持續性加減成陣列（最多 4 項）：{"target": ${allowed.join("|")}, "value": 整數}。satisfactionLaw=農民滿意度、satisfactionCulture=工人滿意度、satisfactionReligion=教士滿意度、satisfactionRights=貴族(資本家)滿意度、satisfactionMilitary=軍方滿意度、militaryObedience=軍方服從度（軍隊聽從文官指揮的程度；軍事管制、忠誠宣誓等政策可 +，削減軍權、剋扣軍餉等可 −），與 stability 一樣是百分點偏移；production/tech 是百分比加成，populationGrowth 是每回合人口增長率的百分點加減，warWeariness 是每回合厭戰度的百分點加減（正值降低厭戰）、foodGrowth 是每回合糧食增長率的百分點加減。數值保守（${hints.join("；")}）。不要使用舊式 "satisfaction" 目標。`;
+  return `"modifiers" 為持續性加減成陣列（最多 4 項）：{"target": ${allowed.join("|")}, "value": 整數}。satisfactionMilitary=軍方滿意度、militaryObedience=軍方服從度（軍隊聽從文官指揮的程度；軍事管制、忠誠宣誓等政策可 +，削減軍權、剋扣軍餉等可 −），與 stability 一樣是百分點偏移；production/tech 是百分比加成，populationGrowth 是每回合人口增長率的百分點加減，warWeariness 是每回合厭戰度的百分點加減（正值降低厭戰）、foodGrowth 是每回合糧食增長率的百分點加減。數值保守（${hints.join("；")}）。不要使用舊式 "satisfaction" 目標。`;
 }
 
 const MODIFIER_DOC = `"modifiers" 為持續性加減成陣列（最多 4 項）：{"target": "satisfaction"|"stability"|"production"|"tech"|"populationGrowth"|"warWeariness"|"foodGrowth", "value": 整數}。satisfaction/stability 是百分點偏移（例 +5 = 該方向滿意度 +5%），production/tech 是百分比加成，populationGrowth 是每回合人口增長率的百分點加減（適用於生育、醫療、移民、糧食、戰亂、瘟疫等主題），warWeariness 是每回合厭戰度的百分點加減（正值降低厭戰），foodGrowth 是每回合糧食增長率的百分點加減。數值請保守（satisfaction/stability ±10 以內；production/tech ±5 以內；populationGrowth ±3 以內；warWeariness ±5 以內；foodGrowth ±3 以內）。`;
@@ -361,7 +357,7 @@ const MODIFIER_DOC = `"modifiers" 為持續性加減成陣列（最多 4 項）�
  * Task #393 — 統一（不分方向）政策判定用的加減成說明：滿意度一律用
  * 「指定方向」目標，AI 可自行判斷想法影響哪些滿意度。
  */
-const UNIFIED_MODIFIER_DOC = `"modifiers" 為持續性加減成陣列（最多 4 項）：{"target": "satisfactionLaw"|"satisfactionCulture"|"satisfactionReligion"|"satisfactionRights"|"satisfactionMilitary"|"militaryObedience"|"stability"|"production"|"tech"|"populationGrowth"|"warWeariness"|"foodGrowth", "value": 整數}。satisfactionLaw=農民滿意度、satisfactionCulture=工人滿意度、satisfactionReligion=教士滿意度、satisfactionRights=貴族(資本家)滿意度、satisfactionMilitary=軍方滿意度、militaryObedience=軍方服從度（軍隊聽從文官指揮的程度；軍事管制、忠誠宣誓等政策可 +，削減軍權、剋扣軍餉等可 −），與 stability 一樣是百分點偏移（例 +5 = 該滿意度 +5%）；production/tech 是百分比加成，populationGrowth 是每回合人口增長率的百分點加減，warWeariness 是每回合厭戰度的百分點加減（正值降低厭戰）、foodGrowth 是每回合糧食增長率的百分點加減。數值保守（satisfactionXxx/militaryObedience/stability ±10 以內；production/tech ±5 以內；populationGrowth ±3 以內；warWeariness ±5 以內；foodGrowth ±3 以內）。不要使用舊式 "satisfaction" 目標。`;
+const UNIFIED_MODIFIER_DOC = `"modifiers" 為持續性加減成陣列（最多 4 項）：{"target": "satisfactionMilitary"|"militaryObedience"|"stability"|"production"|"tech"|"populationGrowth"|"warWeariness"|"foodGrowth", "value": 整數}。satisfactionMilitary=軍方滿意度、militaryObedience=軍方服從度（軍隊聽從文官指揮的程度；軍事管制、忠誠宣誓等政策可 +，削減軍權、剋扣軍餉等可 −），與 stability 一樣是百分點偏移（例 +5 = 該滿意度 +5%）；production/tech 是百分比加成，populationGrowth 是每回合人口增長率的百分點加減，warWeariness 是每回合厭戰度的百分點加減（正值降低厭戰）、foodGrowth 是每回合糧食增長率的百分點加減。數值保守（satisfactionXxx/militaryObedience/stability ±10 以內；production/tech ±5 以內；populationGrowth ±3 以內；warWeariness ±5 以內；foodGrowth ±3 以內）。不要使用舊式 "satisfaction" 目標。`;
 
 /**
  * 判定一則政策想法：回傳契合度與成功／失敗兩種結果內容

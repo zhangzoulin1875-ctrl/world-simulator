@@ -271,7 +271,9 @@ test("buildModifierDoc — satisfaction 與 stability 上限不同時各自顯�
 
 test("buildUnifiedModifierDoc — 預設設定包含所有統一目標", () => {
   const doc = buildUnifiedModifierDoc(S);
-  assert.ok(doc.includes('"satisfactionLaw"'));
+  assert.ok(doc.includes('"satisfactionMilitary"'));
+  assert.ok(!doc.includes('"satisfactionLaw"'), '已移除的四項滿意度不再提供給 AI');
+  assert.ok(!doc.includes('"satisfactionRights"'));
   assert.ok(doc.includes('"militaryObedience"'));
   assert.ok(doc.includes('"production"'));
   assert.ok(doc.includes(`satisfactionXxx ±${S.modifierCapSatisfaction}`));
@@ -303,7 +305,8 @@ test("buildUnifiedModifierDoc — 禁用 tech 與 populationGrowth 時不包含�
   });
   assert.ok(!doc.includes('"tech"'));
   assert.ok(!doc.includes('"populationGrowth"'));
-  assert.ok(doc.includes('"satisfactionLaw"'));
+  assert.ok(doc.includes('"satisfactionMilitary"'));
+  assert.ok(!doc.includes('"satisfactionLaw"'));
 });
 
 test("buildUnifiedModifierDoc — 全部禁用時回特殊提示字串", () => {

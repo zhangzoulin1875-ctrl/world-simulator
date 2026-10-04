@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { ArrowLeft, Landmark, Lock } from "lucide-react";
+import { ArrowLeft, Landmark } from "lucide-react";
 import type { PoliticsOverview } from "@workspace/api-client-react";
 import { GameNotifications } from "@/components/game-notifications";
 import { HelpButton } from "@/components/help-button";
@@ -18,8 +18,6 @@ export function PoliticsScreen({
   bg: string;
   overview: PoliticsOverview;
 }) {
-  const lockedDirections = overview.directions.filter((d) => !d.enabled);
-
   return (
     <div
       className="fixed inset-0 z-50 overflow-y-auto bg-cover bg-center text-white"
@@ -58,19 +56,6 @@ export function PoliticsScreen({
         <GovernmentPanel overview={overview} />
 
         <AdvisorSlotsPanel unlocked={overview.social.advisorSlotEnabled} />
-
-        {lockedDirections.length > 0 && (
-          <div
-            className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-[11px] text-white/50"
-            data-testid="hint-locked-directions"
-          >
-            <Lock className="h-3.5 w-3.5 text-white/40" />
-            <span>
-              尚未解鎖的政治面向（研發對應社會科技後開放）：
-              {lockedDirections.map((d) => d.label).join("、")}
-            </span>
-          </div>
-        )}
 
         {/* Task #402 — 軍方面板 */}
         <ParliamentPanel />

@@ -1,6 +1,6 @@
 import { Trash2 } from "lucide-react";
 import type { PoliticsEntry } from "@workspace/api-client-react";
-import { STATUS_LABELS, modifierText } from "./shared";
+import { STATUS_LABELS, modifierText, visibleModifiers } from "./shared";
 
 export function EntryCard({
   entry,
@@ -72,7 +72,7 @@ export function EntryCard({
         )}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {entry.modifiers.map((m, i) => (
+        {visibleModifiers(entry.modifiers).map((m, i) => (
           <span
             key={i}
             className={`rounded px-1.5 py-0.5 text-[11px] font-bold ${

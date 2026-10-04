@@ -25,6 +25,18 @@ export const TARGET_LABELS: Record<string, string> = {
   populationGrowth: "人口增長",
 };
 
+/** 已移除的四項滿意度(農民/工人/教士/貴族)對應的效果目標;舊政策資料可能仍帶著,不再顯示。 */
+export const REMOVED_MODIFIER_TARGETS: ReadonlySet<string> = new Set([
+  "satisfactionLaw",
+  "satisfactionCulture",
+  "satisfactionReligion",
+  "satisfactionRights",
+]);
+
+export function visibleModifiers<T extends { target: string }>(mods: readonly T[]): T[] {
+  return mods.filter((m) => !REMOVED_MODIFIER_TARGETS.has(m.target));
+}
+
 export function modifierText(m: { target: string; value: number }): string {
   const label = TARGET_LABELS[m.target] ?? m.target;
   const isPct =

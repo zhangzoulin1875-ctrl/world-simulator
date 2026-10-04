@@ -131,6 +131,17 @@ export function GameAdvisor({
   const newsQuery = useListGameNews(undefined, {
     query: { queryKey: getListGameNewsQueryKey(), refetchInterval: 180_000 },
   });
+  const parliamentQuery = useQuery({
+    queryKey: ["parliament", "advisor"],
+    queryFn: async (): Promise<{ satisfaction: number; tier: string }> => {
+      const res = await fetch("/api/parliament", { credentials: "include" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as { satisfaction: number; tier: string };
+    },
+    staleTime: 15_000,
+    refetchInterval: 90_000,
+    retry: false,
+  });
   const cabinetQuery = useQuery({
     queryKey: ["cabinet", "overview"],
     queryFn: async (): Promise<CabinetOverviewLite> => {
@@ -218,18 +229,13 @@ export function GameAdvisor({
     }
 
     // 四大階級滿意度：挑最低且低於門檻的一項提醒。
-    const sats = [
-      { key: "law", label: "農民", value: nation.satisfactions.law },
-      { key: "culture", label: "工人", value: nation.satisfactions.culture },
-      { key: "religion", label: "教士", value: nation.satisfactions.religion },
-      { key: "rights", label: "貴族(資本家)", value: nation.satisfactions.rights },
-    ];
-    const lowestSat = sats.reduce((a, b) => (b.value < a.value ? b : a));
-    if (lowestSat.value < 30) {
+    // 議會滿意度(獨裁橡皮圖章不提醒;歸零即強制革命)
+    const parl = parliamentQuery.data;
+    if (parl && parl.tier !== "autocracy" && parl.satisfaction < 30) {
       out.push({
         kind: "warning",
-        dedupeKey: `warn:sat:${lowestSat.key}:${bucket(lowestSat.value)}`,
-        text: `⚠️ ${lowestSat.label}滿意度只剩 ${Math.round(lowestSat.value)}，到政治頁推動對應施政來安撫民心吧。`,
+        dedupeKey: `warn:parliament:${bucket(parl.satisfaction)}`,
+        text: `議會滿意度過低 ${Math.round(parl.satisfaction)},歸零將引發革命`,
         linkPath: "/game/politics",
       });
     }
@@ -263,6 +269,7 @@ export function GameAdvisor({
     notifQuery.data,
     diploQuery.data,
     cabinetQuery.data,
+    parliamentQuery.data,
     newsQuery.data,
   ]);
 
