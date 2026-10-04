@@ -65,7 +65,7 @@ export function DiplomacyScreen({
         queryKey: getListDiplomacyNationsQueryKey(
           search.trim() ? { q: search.trim() } : undefined,
         ),
-        refetchInterval: 15_000,
+        refetchInterval: 30_000,
       },
     },
   );

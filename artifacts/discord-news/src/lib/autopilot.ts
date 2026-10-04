@@ -86,7 +86,7 @@ export function useAutopilot(options?: { enabled?: boolean }) {
   const query = useQuery({
     queryKey: AUTOPILOT_QUERY_KEY,
     queryFn: fetchAutopilot,
-    refetchInterval: 30000,
+    refetchInterval: 60_000,
     retry: false,
     enabled: options?.enabled !== false,
   });

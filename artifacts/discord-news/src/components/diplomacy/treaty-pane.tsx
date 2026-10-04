@@ -91,7 +91,7 @@ export function TreatyPane({
   const { data, isLoading } = useListDiplomacyTreaties({
     query: {
       queryKey: getListDiplomacyTreatiesQueryKey(),
-      refetchInterval: 15_000,
+      refetchInterval: 30_000,
     },
   });
   // Task #90 — NPC 提案記憶：只對 NPC 對象查詢（玩家對玩家後端不套用記憶，也不顯示）。

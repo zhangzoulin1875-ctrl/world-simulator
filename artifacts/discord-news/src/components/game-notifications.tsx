@@ -76,7 +76,7 @@ export function GameNotifications({
   const listQuery = useListPlayerNotifications(undefined, {
     query: {
       queryKey: getListPlayerNotificationsQueryKey(),
-      refetchInterval: 30_000,
+      refetchInterval: 60_000,
     },
   });
 

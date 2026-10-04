@@ -44,14 +44,14 @@ export function AlliancePane() {
   const alliancesQuery = useListAlliances({
     query: {
       queryKey: getListAlliancesQueryKey(),
-      refetchInterval: 15_000,
+      refetchInterval: 30_000,
     },
   });
   const mineQuery = useGetMyAlliance({
     query: {
       queryKey: getGetMyAllianceQueryKey(),
       enabled: authenticated && hasNation,
-      refetchInterval: 15_000,
+      refetchInterval: 30_000,
     },
   });
 

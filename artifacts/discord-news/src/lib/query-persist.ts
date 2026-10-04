@@ -1,4 +1,5 @@
-import { QueryClient, QueryCache, MutationCache } from "@tanstack/react-query";
+import { QueryClient, QueryCache, MutationCache, focusManager } from "@tanstack/react-query";
+import { installIdleFocus } from "./idle-focus";
 import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
 
 /**
@@ -26,6 +27,9 @@ const USER_MARKER_KEY = "discord-news.query-cache.user";
 /** 快取最長保存時間：24 小時。超過即視為過期，還原時丟棄。 */
 export const PERSIST_MAX_AGE = 1000 * 60 * 60 * 24;
 
+// 閒置即停止背景輪詢（省 Neon 用量，見 idle-focus.ts）。
+installIdleFocus();
+
 export const queryClient: QueryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error: any) => {
@@ -52,12 +56,20 @@ export const queryClient: QueryClient = new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
+      // 失焦（含閒置）時不輪詢；明確寫出以免日後被改成預設以外的值。
+      refetchIntervalInBackground: false,
       staleTime: 1000 * 30,
       // 讓非使用中的查詢在記憶體中保留到與 maxAge 相同的時間，
       // 這樣持久化的快照才不會因為 GC 而提早被清空。
       gcTime: PERSIST_MAX_AGE,
     },
   },
+});
+
+// 從閒置/隱藏回到使用中：補抓「正在顯示且已過期」的查詢，
+// 避免玩家回來先看到閒置期間沒更新的舊資料（refetchOnWindowFocus 為全域 false）。
+focusManager.subscribe((focused) => {
+  if (focused) void queryClient.refetchQueries({ type: "active", stale: true });
 });
 
 /** localStorage 版的持久化器；SSR / 無 window 時為 undefined。 */

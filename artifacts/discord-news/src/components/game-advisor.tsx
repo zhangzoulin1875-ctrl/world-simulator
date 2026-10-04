@@ -119,17 +119,17 @@ export function GameAdvisor({
   const notifQuery = useListPlayerNotifications(undefined, {
     query: {
       queryKey: getListPlayerNotificationsQueryKey(),
-      refetchInterval: 30_000,
+      refetchInterval: 90_000,
     },
   });
   const diploQuery = useListDiplomacyNations(undefined, {
     query: {
       queryKey: getListDiplomacyNationsQueryKey(),
-      refetchInterval: 30_000,
+      refetchInterval: 90_000,
     },
   });
   const newsQuery = useListGameNews(undefined, {
-    query: { queryKey: getListGameNewsQueryKey(), refetchInterval: 60_000 },
+    query: { queryKey: getListGameNewsQueryKey(), refetchInterval: 180_000 },
   });
   const cabinetQuery = useQuery({
     queryKey: ["cabinet", "overview"],
@@ -141,7 +141,7 @@ export function GameAdvisor({
       return (await res.json()) as CabinetOverviewLite;
     },
     staleTime: 15_000,
-    refetchInterval: 30_000,
+    refetchInterval: 90_000,
     retry: false,
   });
 

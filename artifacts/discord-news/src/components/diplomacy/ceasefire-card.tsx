@@ -20,7 +20,7 @@ export function CeasefireCard({ nation }: { nation: DiplomacyNation }) {
   const { data } = useListDiplomacyWars({
     query: {
       queryKey: getListDiplomacyWarsQueryKey(),
-      refetchInterval: 15_000,
+      refetchInterval: 30_000,
     },
   });
   // 找出「與選定國家進行中」的戰爭（伺服器只回傳未結束的戰爭）。

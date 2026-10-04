@@ -25,7 +25,7 @@ export function useAiQueueStatus() {
     },
     refetchInterval: (query) => {
       const data = query.state.data as AiQueueStatus | undefined;
-      return data && data.queued > 0 ? 5_000 : 15_000;
+      return data && data.queued > 0 ? 5_000 : 45_000;
     },
     refetchOnWindowFocus: true,
     staleTime: 3_000,
