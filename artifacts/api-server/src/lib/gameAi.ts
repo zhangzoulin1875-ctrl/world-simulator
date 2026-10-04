@@ -56,7 +56,7 @@ export const AI_FEATURES = {
   "finance.settlement": { label: "財政結算", defaultMaxTokens: 1200 },
   "military.unit_design": { label: "兵種設計（玩家）", defaultMaxTokens: 2000 },
   "military.weapon_design": { label: "武器設計（玩家）", defaultMaxTokens: 2000 },
-  "general.gacha": { label: "武將生成（玩家抽取）", defaultMaxTokens: 1200 },
+  "general.gacha": { label: "武將生成（玩家抽取）", defaultMaxTokens: 3000 },
   "military.npc_unit_set": {
     label: "兵種設計（NPC 兵種組）",
     defaultMaxTokens: 3000,

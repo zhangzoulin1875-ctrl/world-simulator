@@ -38,6 +38,7 @@ import { runSuperEventMigrations } from "./lib/superEventMigrations";
 import { runGameBalanceMigrations } from "./lib/gameBalanceMigrations";
 import { runAiUsageMigrations } from "./lib/aiUsageMigrations";
 import { runAiPregenMigrations } from "./lib/aiPregenMigrations";
+import { runGeneralsMigrations } from "./lib/generalsMigrations";
 import { runNationNameSanitizeMigration } from "./lib/nationNameSanitizeMigration";
 import { startRegionControlHealthLoop } from "./lib/regionControlHealth";
 import { startProductionSpentHealthLoop } from "./lib/productionSpentHealth";
@@ -130,6 +131,9 @@ async function runStartupMigrations(): Promise<void> {
   await runAiUsageMigrations();
   // v3 — AI 閒時預產快取表（FK 依賴 player_nations，放遷移鏈尾端）。
   await runAiPregenMigrations();
+  // 武將系統三表（generals／general_pool／general_draws；FK 依賴 player_nations
+  // 與 war_campaign_legions，放遷移鏈尾端）。缺少時抽卡路由 500。
+  await runGeneralsMigrations();
   // Task #604 — 清理存量違規國名（超過 25 字或含空白/標點）。
   await runNationNameSanitizeMigration();
 }
