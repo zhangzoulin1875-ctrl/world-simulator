@@ -19,6 +19,7 @@ import {
   recruitQueueTable,
   type RecruitQueueRow,
 } from "@workspace/db";
+import { RECRUIT_QUEUE_LOCK_NS } from "./locks";
 import {
   advanceQueue,
   canEnqueue,
@@ -132,6 +133,19 @@ export async function advanceNationQueue(
       remaining: r.remaining,
       tpPerUnit: r.tpPerUnit,
     }));
+    // 玩家國家必須有主才能把兵力併入 player_armies。無主（玩家已退出）時整個
+    // 國家本回合不推進、訂單原封保留：必須在扣減 remaining「之前」判斷，否則
+    // 單位會從佇列扣掉卻沒進軍隊，兵力與佔用憑空消失。
+    let ownerId: string | null = null;
+    if (!isNpc) {
+      const [nation] = await tx
+        .select({ discordUserId: playerNationsTable.discordUserId })
+        .from(playerNationsTable)
+        .where(eq(playerNationsTable.id, nationId))
+        .limit(1);
+      ownerId = nation?.discordUserId ?? null;
+      if (!ownerId) return [];
+    }
     const adv = advanceQueue(entries, capacity);
     if (adv.completed.length === 0) return [];
 
@@ -173,16 +187,10 @@ export async function advanceNationQueue(
             },
           });
       } else {
-        const [nation] = await tx
-          .select({ discordUserId: playerNationsTable.discordUserId })
-          .from(playerNationsTable)
-          .where(eq(playerNationsTable.id, nationId))
-          .limit(1);
-        if (!nation?.discordUserId) continue;
         await tx
           .insert(playerArmiesTable)
           .values({
-            discordUserId: nation.discordUserId,
+            discordUserId: ownerId!,
             templateId: c.templateId,
             quantity: units,
             productionReserved: prodMove,
@@ -281,6 +289,10 @@ export async function enqueueNpcOrderInTx(
   input: { nationId: string; templateId: number; quantity: number; tpPerUnit: number },
 ): Promise<void> {
   const tp = Math.max(1, Math.floor(input.tpPerUnit));
+  // 序列化同國入列：否則並發的「合併沒命中 → INSERT」會產生同兵種重複列。
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(${RECRUIT_QUEUE_LOCK_NS}, hashtext(${input.nationId}))`,
+  );
   const merged = await tx.execute(sql`
     UPDATE recruit_queue
     SET total_quantity = total_quantity + ${input.quantity},

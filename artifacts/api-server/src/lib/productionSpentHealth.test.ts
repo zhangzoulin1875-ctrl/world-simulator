@@ -243,6 +243,7 @@ test("repairOverchargedProductionNation：鎖內複核，已被修正的國家�
     productionSpent: GHOST_SPENT,
     armyReserved: ARMY_RESERVED,
     buildingReserved: BUILDING_RESERVED,
+    queueReserved: 0,
     excess: GHOST_SPENT - ARMY_RESERVED - BUILDING_RESERVED,
   };
   const result = await repairOverchargedProductionNation(stale);

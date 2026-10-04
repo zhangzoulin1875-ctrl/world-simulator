@@ -14,12 +14,10 @@ if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL must be set to run the recruit queue tests");
 }
 
-const { eq, like, notExists, sql } = await import("drizzle-orm");
+const { eq, like, sql } = await import("drizzle-orm");
 const {
   db,
   playerNationsTable,
-  regionControlsTable,
-  mapRegionsTable,
   militaryUnitTemplatesTable,
   playerArmiesTable,
   recruitQueueTable,
@@ -238,4 +236,62 @@ test("防超發：訂單只有 60 單位，兩個各有 50 單位產能的並發
   const [army] = await db.select().from(playerArmiesTable).where(eq(playerArmiesTable.discordUserId, userId));
   assert.equal(army!.quantity, 60, "兵力不得超過下單量");
   assert.equal((await listNationQueue(nationId)).length, 0);
+});
+
+test("無主玩家國家（防禦性）：推進不得吞掉單位，訂單原封保留", async () => {
+  // 真實的退出流程會刪兵種範本，訂單由 ON DELETE CASCADE 連帶清掉，這個狀態
+  // 正常到不了；此測試驗證「萬一到了」也只是不推進，而不是扣掉單位卻沒進軍隊。
+  await resetQueue();
+  const [A] = tplIds as [number];
+  await enq(A, 30);
+  await db.execute(sql`ALTER TABLE military_unit_templates DISABLE TRIGGER ALL`);
+  try {
+    await db.execute(sql`ALTER TABLE player_nations DISABLE TRIGGER ALL`);
+    await db.execute(sql`UPDATE player_nations SET discord_user_id = NULL WHERE id = ${nationId}`);
+    const done = await advanceNationQueue(nationId, 1000, false);
+    assert.deepEqual(done, [], "無主時不得完成任何單位");
+    const q = await listNationQueue(nationId);
+    assert.equal(q[0]!.remaining, 30, "remaining 不得被扣減（否則兵力憑空消失）");
+  } finally {
+    await db.execute(sql`UPDATE player_nations SET discord_user_id = ${userId} WHERE id = ${nationId}`);
+    await db.execute(sql`ALTER TABLE player_nations ENABLE TRIGGER ALL`);
+    await db.execute(sql`ALTER TABLE military_unit_templates ENABLE TRIGGER ALL`);
+  }
+  const done2 = await advanceNationQueue(nationId, 1000, false);
+  assert.equal(done2.reduce((a, d) => a + d.units, 0), 30, "恢復有主後可正常完成");
+});
+
+test("生產力健檢不得把佇列中的佔用當成幽靈佔用修掉", async () => {
+  const { findOverchargedProductionNations, repairOverchargedProductionNation } =
+    await import("./productionSpentHealth");
+  await resetQueue();
+  const [A] = tplIds as [number];
+  await db.update(playerNationsTable).set({ productionSpent: 500, populationSpent: 50 }).where(eq(playerNationsTable.id, nationId));
+  await db.transaction((tx) =>
+    enqueueInTx(tx, { nationId, templateId: A, quantity: 50, tpPerUnit: 2, productionReserved: 500, populationReserved: 50 }),
+  );
+  const flagged = (await findOverchargedProductionNations()).find((x) => x.nationId === nationId);
+  assert.equal(flagged, undefined, "佇列佔用已計入 Σreserved，不應被標為超額");
+  // 真正的幽靈佔用（多出的 100）仍要抓得到，且只修多出的部分。
+  await db.update(playerNationsTable).set({ productionSpent: 600 }).where(eq(playerNationsTable.id, nationId));
+  const ghost = (await findOverchargedProductionNations()).find((x) => x.nationId === nationId);
+  assert.equal(ghost?.excess, 100);
+  assert.equal(ghost?.queueReserved, 500);
+  await repairOverchargedProductionNation(ghost!);
+  const [row] = await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, nationId));
+  assert.equal(row!.productionSpent, 500, "修到剛好等於佇列佔用，而不是 0");
+});
+
+test("開機舊資料回填：只有佇列、尚無軍隊的國家不得被歸零", async () => {
+  const { runMilitaryMigrations } = await import("./militaryMigrations");
+  await resetQueue();
+  const [A] = tplIds as [number];
+  await db.update(playerNationsTable).set({ productionSpent: 500, populationSpent: 50 }).where(eq(playerNationsTable.id, nationId));
+  await db.transaction((tx) =>
+    enqueueInTx(tx, { nationId, templateId: A, quantity: 50, tpPerUnit: 2, productionReserved: 500, populationReserved: 50 }),
+  );
+  await runMilitaryMigrations();
+  const [row] = await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, nationId));
+  assert.equal(row!.productionSpent, 500, "重開機後佇列佔用不得被回填歸零");
+  assert.equal(row!.populationSpent, 50);
 });

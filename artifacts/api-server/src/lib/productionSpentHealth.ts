@@ -7,7 +7,12 @@ import { logger } from "./logger";
  * Task #560 — production_spent 幽靈佔用健檢。
  *
  * 不變量：player_nations.production_spent
- *   = Σ(player_armies.production_reserved) + Σ(region_buildings.production_reserved)。
+ *   = Σ(player_armies.production_reserved) + Σ(region_buildings.production_reserved)
+ *     + Σ(recruit_queue.production_reserved)（訓練佇列中尚未完成的訂單）。
+ *
+ * 佇列那一項不能漏：訂單在完成前，佔用放在 recruit_queue 而不在 player_armies，
+ * 漏算會讓健檢把「訓練中的佔用」當成幽靈佔用下修，玩家平白多出可用生產力、
+ * 可以無限囤單繞過生產力上限。
  *
  * 開機時的 reconcileNationProductionSpent 只會「往上補」（spent 太低時補到
  * Σ reserved）；反方向（spent 高於 Σ reserved，例如未來某條釋放路徑漏扣）
@@ -38,7 +43,9 @@ export type OverchargedNation = {
   productionSpent: number;
   armyReserved: number;
   buildingReserved: number;
-  /** 幽靈佔用量 = productionSpent − (armyReserved + buildingReserved) > 0。 */
+  /** 訓練佇列中尚未完成訂單的佔用（完成後才轉入 player_armies）。 */
+  queueReserved: number;
+  /** 幽靈佔用量 = productionSpent − (army + building + queue) > 0。 */
   excess: number;
 };
 
@@ -51,7 +58,7 @@ export async function findOverchargedProductionNations(): Promise<
   OverchargedNation[]
 > {
   const result = await db.execute(sql`
-    SELECT id, name, "discordUserId", spent, army, building
+    SELECT id, name, "discordUserId", spent, army, building, queue
     FROM (
       SELECT n.id,
              n.name,
@@ -60,10 +67,12 @@ export async function findOverchargedProductionNations(): Promise<
              COALESCE((SELECT SUM(a.production_reserved) FROM player_armies a
                        WHERE a.discord_user_id = n.discord_user_id), 0) AS army,
              COALESCE((SELECT SUM(b.production_reserved) FROM region_buildings b
-                       WHERE b.nation_id = n.id), 0) AS building
+                       WHERE b.nation_id = n.id), 0) AS building,
+             COALESCE((SELECT SUM(q.production_reserved) FROM recruit_queue q
+                       WHERE q.nation_id = n.id), 0) AS queue
       FROM player_nations n
     ) t
-    WHERE spent > army + building
+    WHERE spent > army + building + queue
     ORDER BY id
   `);
 
@@ -71,6 +80,7 @@ export async function findOverchargedProductionNations(): Promise<
     const productionSpent = Number(row["spent"]);
     const armyReserved = Number(row["army"]);
     const buildingReserved = Number(row["building"]);
+    const queueReserved = Number(row["queue"]);
     return {
       nationId: String(row["id"]),
       nationName: row["name"] === null ? null : String(row["name"]),
@@ -79,7 +89,8 @@ export async function findOverchargedProductionNations(): Promise<
       productionSpent,
       armyReserved,
       buildingReserved,
-      excess: productionSpent - armyReserved - buildingReserved,
+      queueReserved,
+      excess: productionSpent - armyReserved - buildingReserved - queueReserved,
     };
   });
 }
@@ -119,12 +130,15 @@ export async function repairOverchargedProductionNation(
                       : String(nation.discordUserId)
                   }), 0) AS army,
         COALESCE((SELECT SUM(b.production_reserved) FROM region_buildings b
-                  WHERE b.nation_id = ${flagged.nationId}), 0) AS building
+                  WHERE b.nation_id = ${flagged.nationId}), 0) AS building,
+        COALESCE((SELECT SUM(q.production_reserved) FROM recruit_queue q
+                  WHERE q.nation_id = ${flagged.nationId}), 0) AS queue
     `);
-    const row = sums.rows[0] as { army: unknown; building: unknown };
+    const row = sums.rows[0] as { army: unknown; building: unknown; queue: unknown };
     const armyReserved = Number(row.army);
     const buildingReserved = Number(row.building);
-    const expected = armyReserved + buildingReserved;
+    const queueReserved = Number(row.queue);
+    const expected = armyReserved + buildingReserved + queueReserved;
     if (spent <= expected) return null; // 已被修正／掃描時為暫時狀態
 
     await tx.execute(sql`
@@ -141,6 +155,7 @@ export async function repairOverchargedProductionNation(
       productionSpent: spent,
       armyReserved,
       buildingReserved,
+      queueReserved,
       excess: spent - expected,
       repairedTo: expected,
     };

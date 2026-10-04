@@ -23,3 +23,11 @@ export const REGION_CLAIM_LOCK_NS = 42_030;
  * 不變量仍由 alliance_members.nation_id 唯一索引保證（乾淨 409）；此鎖降低競態窗口。
  */
 export const ALLIANCE_LOCK_NS = 42_031;
+
+/**
+ * 招募佇列入列鎖：`pg_advisory_xact_lock(RECRUIT_QUEUE_LOCK_NS, hashtext(nationId))`。
+ *
+ * NPC 入列是「先合併既有同兵種訂單、沒有才新增」，沒有玩家路徑那層國家列鎖，
+ * 並發時會各自 INSERT 造成同兵種重複列。以此鎖序列化同一國的 NPC 入列。
+ */
+export const RECRUIT_QUEUE_LOCK_NS = 42_032;
