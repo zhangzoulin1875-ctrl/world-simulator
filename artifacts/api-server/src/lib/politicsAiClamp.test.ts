@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clampAiModifiers, clampDuration, buildModifierDoc, buildUnifiedModifierDoc } from "./politicsAi";
+import {
+  ACTIVE_POLICIES_PROMPT_MAX,
+  clampAiModifiers,
+  clampDuration,
+  buildModifierDoc,
+  buildUnifiedModifierDoc,
+  formatActivePoliciesLine,
+} from "./politicsAi";
 import { DEFAULT_POLITICS_SETTINGS } from "./politics";
 
 const S = DEFAULT_POLITICS_SETTINGS;
@@ -313,4 +320,37 @@ test("buildUnifiedModifierDoc — 全部禁用時回特殊提示字串", () => {
   };
   const doc = buildUnifiedModifierDoc(settings);
   assert.ok(doc.includes("留空"));
+});
+
+
+// ── 現行制度脈絡格式化（2026-10 政策連續性） ────────────────────
+
+test("formatActivePoliciesLine — 空清單／未提供 → 空字串", () => {
+  assert.equal(formatActivePoliciesLine(undefined), "");
+  assert.equal(formatActivePoliciesLine(null), "");
+  assert.equal(formatActivePoliciesLine([]), "");
+});
+
+test("formatActivePoliciesLine — 標題＋類型＋剩餘回合", () => {
+  const line = formatActivePoliciesLine([
+    { title: "義務教育", entryType: "policy", remainingTurns: null },
+    { title: "屯田制", entryType: "reform", remainingTurns: 3 },
+    { title: "豐年祭", entryType: "event", remainingTurns: 2 },
+  ]);
+  assert.match(line, /^現行制度（既成事實）：/);
+  assert.ok(line.includes("義務教育（政策）"));
+  assert.ok(line.includes("屯田制（變革，剩 3 回合）"));
+  assert.ok(line.includes("豐年祭（事件，剩 2 回合）"));
+});
+
+test("formatActivePoliciesLine — 超過上限截斷並標註總數", () => {
+  const many = Array.from({ length: ACTIVE_POLICIES_PROMPT_MAX + 5 }, (_, i) => ({
+    title: `制度${i + 1}`,
+    entryType: "policy",
+    remainingTurns: null,
+  }));
+  const line = formatActivePoliciesLine(many);
+  assert.ok(line.includes(`制度${ACTIVE_POLICIES_PROMPT_MAX}`));
+  assert.ok(!line.includes(`制度${ACTIVE_POLICIES_PROMPT_MAX + 1}（`));
+  assert.ok(line.includes("共 17 項"));
 });

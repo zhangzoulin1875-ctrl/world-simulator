@@ -222,6 +222,8 @@ async function tick(): Promise<void> {
                 idea: input["idea"] as string,
                 politicalNote: input["politicalNote"] as string | null | undefined,
                 geoContext: input["geoContext"] as string | undefined,
+                activePolicies: input["activePolicies"] as
+                  | Parameters<typeof judgePolicyIdea>[0]["activePolicies"],
                 settings: politicsSettings ?? undefined,
               }),
           };

@@ -11,6 +11,8 @@ import { effectiveTaxEfficiencyPct } from "./economy";
 import { buildNationGeoCultureContext } from "./nationGeoCulture";
 import { getPoliticsSettings } from "./politicsSettings";
 import { isPoliticsDirection } from "./politics";
+import { loadActivePolicySummaries } from "./politicsActivePolicies";
+import type { ActivePolicySummary } from "./politicsAi";
 
 /**
  * AI 閒時預產（v3）— 快取鍵與存取層。
@@ -53,10 +55,15 @@ export async function buildPoliticsJudgeInput(
   nation: PlayerNation,
   pending: Pick<PoliticsPendingIdea, "idea" | "direction">,
   preloadedSettings?: Awaited<ReturnType<typeof getPoliticsSettings>>,
+  preloadedActivePolicies?: readonly ActivePolicySummary[],
 ): Promise<{ input: Record<string, unknown>; hash: string }> {
   const eraSlug = await getCurrentEraSlug();
   const geoContext = await buildNationGeoCultureContext(nation.id);
   const settings = preloadedSettings ?? (await getPoliticsSettings());
+  // 現行制度清單也進雜湊：玩家在預產與結算之間廢除／新增制度 → 雜湊不
+  // 符 → 快取自動失效，改為現場判定（與 idea/政治註記同樣的防護）。
+  const activePolicies =
+    preloadedActivePolicies ?? (await loadActivePolicySummaries(nation.id));
   const legacyDirection = isPoliticsDirection(pending.direction)
     ? pending.direction
     : null;
@@ -69,6 +76,7 @@ export async function buildPoliticsJudgeInput(
     eraSlug,
     idea: pending.idea,
     politicalNote: nation.politicalNote ?? null,
+    activePolicies,
     geoContext,
     settings,
   };

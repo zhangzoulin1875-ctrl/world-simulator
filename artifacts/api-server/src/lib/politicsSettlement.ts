@@ -74,8 +74,10 @@ import {
   generateRandomEvent,
   judgeGovernmentDecision,
   judgePolicyIdea,
+  type ActivePolicySummary,
   type PolicyJudgement,
 } from "./politicsAi";
+import { loadActivePolicySummaries } from "./politicsActivePolicies";
 import {
   PREGEN_KIND_POLITICS,
   buildPoliticsJudgeInput,
@@ -411,6 +413,13 @@ async function settleNation(
   // ── 3c. 政體變更接受度累積／消退（達 100 後由玩家主動改制，Task #127） ──
   await settleAcceptance(freshNation, settings);
 
+  // 現行制度摘要（2026-10 政策連續性）：事件／政變敘事共用，避免重複查詢。
+  const activePolicySummaries = entries.map((e) => ({
+    title: e.title,
+    entryType: e.entryType,
+    remainingTurns: e.remainingTurns,
+  }));
+
   // ── 4. 隨機事件（僅有主國家，控制 AI 成本） ──
   if (freshNation.discordUserId !== null) {
     if (Math.random() * 100 < settings.eventChancePct) {
@@ -423,6 +432,7 @@ async function settleNation(
         digest,
         summary,
         geoContext,
+        activePolicySummaries,
       );
     }
   }
@@ -437,7 +447,20 @@ async function settleNation(
   );
   const chance = coupChancePct(state.unrest, state.stability, settings);
   if (chance > 0 && Math.random() * 100 < chance) {
-    await applyCoup(freshNation, settings, eraSlug, digest, summary, geoContext);
+    // 政變敘事用「政變當下」的制度清單（entries 剛重載，最即時）。
+    await applyCoup(
+      freshNation,
+      settings,
+      eraSlug,
+      digest,
+      summary,
+      geoContext,
+      entries.map((e) => ({
+        title: e.title,
+        entryType: e.entryType,
+        remainingTurns: e.remainingTurns,
+      })),
+    );
     summary.coups += 1;
   }
   const coupFiredThisTurn = digest.coup !== null;
@@ -664,9 +687,17 @@ export async function judgeIdea(
   const direction = legacyDirection ?? GENERAL_DIRECTION;
   let judgement;
   try {
+    // 現行制度脈絡（2026-10 政策連續性）：讓「基於既有制度延伸」的想法
+    // 被視為合理演進。預產雜湊與現場判定共用同一份清單，兩端一致。
+    const activePolicies = await loadActivePolicySummaries(nation.id);
     // v3 閒時預產：先以輸入雜湊比對背景預產快取，命中就直接用（不打 AI、
     // 取用即消耗）；未命中（沒預產過／玩家改過想法／輸入已變）照舊現場判定。
-    const { hash } = await buildPoliticsJudgeInput(nation, idea, settings);
+    const { hash } = await buildPoliticsJudgeInput(
+      nation,
+      idea,
+      settings,
+      activePolicies,
+    );
     judgement =
       (await takePregenResult<PolicyJudgement>(
         PREGEN_KIND_POLITICS,
@@ -678,6 +709,7 @@ export async function judgeIdea(
         direction: legacyDirection,
         eraSlug,
         idea: idea.idea,
+        activePolicies,
         politicalNote: nation.politicalNote,
         geoContext,
         settings,
@@ -842,17 +874,23 @@ export async function applyRandomEvent(
   digest: PoliticsNationDigest,
   summary: PoliticsSettlementSummary,
   geoContext: string = "",
+  /** 呼叫端（settleNation）已載入時直接傳入；省略時本函式自行查詢。 */
+  activePolicies?: readonly ActivePolicySummary[],
 ): Promise<void> {
   const good =
     Math.random() * 100 < goodEventProbabilityPct(state.stability, settings);
   const direction =
     enabledDirs[Math.floor(Math.random() * enabledDirs.length)] ?? "law";
   try {
+    // 現行制度脈絡：事件可與既有制度互動（受益反彈、執行風波等）。
+    const policies =
+      activePolicies ?? (await loadActivePolicySummaries(nation.id));
     const event = await generateRandomEvent({
       government: nation.government,
       direction,
       eraSlug,
       good,
+      activePolicies: policies,
       politicalNote: nation.politicalNote,
       geoContext,
       settings,
@@ -898,6 +936,8 @@ export async function applyCoup(
   digest: PoliticsNationDigest,
   summary: PoliticsSettlementSummary,
   geoContext: string = "",
+  /** 呼叫端（settleNation）已載入時直接傳入；省略時本函式自行查詢。 */
+  activePolicies?: readonly ActivePolicySummary[],
 ): Promise<void> {
   // 政變被動改變政體：從政變常見政體中挑一個（排除現制）。
   const currentSlug = governmentSlugByLabel(nation.government);
@@ -908,6 +948,9 @@ export async function applyCoup(
   let description =
     "累積的民怨終於爆發——反對勢力發動政變奪取權力，全國政局被打回原點：民心、穩定與政府威信全數重置，短期內政令難行、軍心浮動。";
   try {
+    // 現行制度脈絡：政變敘事可提及對既有制度的衝擊／廢止。
+    const policies =
+      activePolicies ?? (await loadActivePolicySummaries(nation.id));
     const narrative = await generateCoupNarrative({
       government: nation.government,
       eraSlug,
@@ -915,6 +958,7 @@ export async function applyCoup(
       newGovernment: nextGovLabel,
       politicalNote: nation.politicalNote,
       geoContext,
+      activePolicies: policies,
     });
     title = narrative.title;
     description = narrative.description;
@@ -1166,12 +1210,16 @@ export async function judgeGovernmentDecisionForNation(
 ): Promise<boolean> {
   let judgement;
   try {
+    // 現行制度脈絡（2026-10 政策連續性）：決策以既有制度為基礎延伸時
+    // 屬合理演進，不因「當前年代沒有該制度」被誤判。
+    const activePolicies = await loadActivePolicySummaries(nation.id);
     judgement = await judgeGovernmentDecision({
       government: nation.government,
       eraSlug,
       politicalSupport: nation.politicalSupport,
       politicalNote: nation.politicalNote,
       decision: pending.decision,
+      activePolicies,
       geoContext,
     });
   } catch (err) {
