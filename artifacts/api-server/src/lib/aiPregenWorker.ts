@@ -31,6 +31,13 @@ import {
   buildPoliticsJudgeInput,
   storePregenResult,
 } from "./aiPregenCache";
+import {
+  GENERAL_POOL_TARGET_PER_BUCKET,
+} from "./generals";
+import {
+  loadDominantCultureProfile,
+  topUpGeneralPool,
+} from "./generalAi";
 
 /**
  * AI 閒時預產 worker（v3）。
@@ -62,6 +69,8 @@ const TICK_MS = 30_000;
 const STOP_BEFORE_SETTLEMENT_MS = 20 * 60 * 1000;
 /** 單件生成失敗後的冷卻毫秒數。 */
 const FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
+/** 武將預產池：單一「時代×文化圈」桶的補位目標。 */
+const PREGEN_KIND_GENERAL_POOL = "general_pool";
 
 let tickInFlight = false;
 const failureCooldown = new Map<string, number>();
@@ -146,7 +155,10 @@ async function tick(): Promise<void> {
         db.select().from(aiPregenCacheTable),
         nextTurnSettlementInstant(now),
         db
-          .select({ financeNextRunAt: worldGameStateTable.financeNextRunAt })
+          .select({
+            financeNextRunAt: worldGameStateTable.financeNextRunAt,
+            currentEra: worldGameStateTable.currentEra,
+          })
           .from(worldGameStateTable)
           .where(eq(worldGameStateTable.id, 1))
           .limit(1),
@@ -235,6 +247,60 @@ async function tick(): Promise<void> {
 
     // 最舊的想法優先。
     candidates.sort((a, b) => a.ideaCreatedAt.getTime() - b.ideaCreatedAt.getTime());
+
+    // 武將預產池補位（每個「時代×文化圈」桶補到目標數）：玩家抽取走池卡
+    // （notePregenWork 打旗標）或開機首個 tick 時補。與其他預產同樣受
+    // 「結算前 20 分鐘」規則保護（時代可能推進 → 舊時代池卡會作廢）。
+    const currentEra = state[0]?.currentEra ?? null;
+    if (currentEra !== null && nextTurnAt !== null) {
+      const nextTurnMs = nextTurnAt.getTime();
+      if (now.getTime() < nextTurnMs - STOP_BEFORE_SETTLEMENT_MS) {
+        const bucketRep = new Map<string, string>();
+        for (const nation of nations) {
+          const profile = await loadDominantCultureProfile(nation.id);
+          const key = `${currentEra}|${profile}`;
+          if (!bucketRep.has(key)) bucketRep.set(key, nation.id);
+        }
+        for (const [bucketKey, repNationId] of bucketRep) {
+          const profile = bucketKey.split("|")[1]!;
+          const cooldownKey = `${PREGEN_KIND_GENERAL_POOL}:${repNationId}`;
+          const cooldownUntil = failureCooldown.get(cooldownKey);
+          if (cooldownUntil !== undefined && cooldownUntil > Date.now()) {
+            // 冷卻中：排自我喚醒後跳過該桶（旗標保留，其他工作照做）。
+            rearmPregenWorkAt(cooldownUntil);
+            continue;
+          }
+          // 二次確認仍然閒置。
+          const fresh = getAiQueueStats();
+          if (fresh.active > 0 || fresh.queued > 0) return;
+          try {
+            const made = await runWithAiPriority(AI_PRIORITY_PREGEN, () =>
+              topUpGeneralPool({
+                eraSlug: currentEra,
+                cultureProfile: profile,
+                targetPerBucket: GENERAL_POOL_TARGET_PER_BUCKET,
+              }),
+            );
+            if (made) {
+              noteGameActivity();
+              logger.info(
+                { eraSlug: currentEra, cultureProfile: profile },
+                "ai pregen: general pool topped up",
+              );
+              // 一個 tick 只生成一張；旗標保留，下個 tick 補下一桶。
+              return;
+            }
+          } catch (err) {
+            failureCooldown.set(cooldownKey, Date.now() + FAILURE_COOLDOWN_MS);
+            logger.error(
+              { err, eraSlug: currentEra, cultureProfile: profile },
+              "ai pregen: general pool top-up failed (cooldown)",
+            );
+            return;
+          }
+        }
+      }
+    }
 
     // 每種類的下次結算時間（fiscal = 財政排程；politics = 下次回合時段）。
     const fiscalNext = state[0]?.financeNextRunAt ?? null;

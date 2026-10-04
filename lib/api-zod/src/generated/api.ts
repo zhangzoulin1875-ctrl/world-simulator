@@ -1818,6 +1818,407 @@ export const DisbandMilitaryUnitsResponse = zod.object({
 });
 
 /**
+ * @summary 武將列表 + 配額/抽取成本/可指派軍團
+ */
+export const ListGeneralsResponse = zod.object({
+  generals: zod.array(
+    zod.object({
+      id: zod.number(),
+      name: zod.string().describe("AI 生成的歷史風格姓名"),
+      title: zod.string().describe("稱號（如「常勝將軍」）"),
+      background: zod.string().describe("300 字內背景敘事"),
+      category: zod
+        .enum(["infantry", "ranged", "cavalry", "siege"])
+        .describe("專精兵種分類"),
+      categoryLabel: zod.string().describe("分類顯示名（時代感知）"),
+      grade: zod.number().describe("品級 1–5"),
+      status: zod
+        .enum(["candidate", "recruited", "dismissed"])
+        .describe("candidate=候選 recruited=在營 dismissed=已遣返"),
+      skills: zod
+        .array(
+          zod.object({
+            name: zod.string().describe("技能名稱（AI 生成）"),
+            description: zod.string().describe("技能描述（敘事用）"),
+            effect: zod
+              .enum(["offense", "defense", "versatile"])
+              .describe("效果類型"),
+            bonusPct: zod.number().describe("效果幅度 %（0–10）"),
+            unlockGrade: zod.number().describe("解鎖品級（1\/2\/4）"),
+          }),
+        )
+        .describe("技能列表（品級不足者為未解鎖）"),
+      eraSlug: zod.string().describe("生成\/招募時的世界時代"),
+      assignedLegionId: zod
+        .number()
+        .nullish()
+        .describe("坐鎮軍團 id（未指派 = null）"),
+      upgradeNarrative: zod
+        .string()
+        .nullish()
+        .describe("最近一次升階的史官敘事（≤300 字）"),
+      combatMods: zod
+        .object({
+          offenseMult: zod.number(),
+          defenseMult: zod.number(),
+        })
+        .describe("戰力乘數（品級 4%\/級 + 技能加成；僅作用於同專精分類兵種）"),
+    }),
+  ),
+  quota: zod.object({
+    cap: zod.number().describe("在營上限（8）"),
+    recruited: zod.number().describe("在營數"),
+    candidates: zod.number().describe("候選數"),
+    drawnThisTurn: zod.boolean().describe("本回合已抽取"),
+  }),
+  costs: zod.object({
+    drawMoney: zod.number().describe("抽取成本：5% 國庫"),
+    drawProduction: zod.number().describe("抽取成本：5% 可用生產力"),
+  }),
+  assignmentOptions: zod
+    .array(
+      zod.object({
+        legionId: zod.number(),
+        campaignId: zod.number(),
+        slot: zod.enum(["A", "B", "C"]),
+        assignedGeneralId: zod
+          .number()
+          .nullish()
+          .describe("該軍團現任武將 id（空 = 無人坐鎮）"),
+        assignedGeneralName: zod.string().nullish(),
+      }),
+    )
+    .describe("該國進行中戰役的所有軍團（可指派目標）"),
+});
+
+/**
+ * @summary 抽取武將（5% 國庫 + 5% 可用生產力；一回合一張；優先發預產池）
+ */
+export const DrawGeneralResponse = zod.object({
+  general: zod.object({
+    id: zod.number(),
+    name: zod.string().describe("AI 生成的歷史風格姓名"),
+    title: zod.string().describe("稱號（如「常勝將軍」）"),
+    background: zod.string().describe("300 字內背景敘事"),
+    category: zod
+      .enum(["infantry", "ranged", "cavalry", "siege"])
+      .describe("專精兵種分類"),
+    categoryLabel: zod.string().describe("分類顯示名（時代感知）"),
+    grade: zod.number().describe("品級 1–5"),
+    status: zod
+      .enum(["candidate", "recruited", "dismissed"])
+      .describe("candidate=候選 recruited=在營 dismissed=已遣返"),
+    skills: zod
+      .array(
+        zod.object({
+          name: zod.string().describe("技能名稱（AI 生成）"),
+          description: zod.string().describe("技能描述（敘事用）"),
+          effect: zod
+            .enum(["offense", "defense", "versatile"])
+            .describe("效果類型"),
+          bonusPct: zod.number().describe("效果幅度 %（0–10）"),
+          unlockGrade: zod.number().describe("解鎖品級（1\/2\/4）"),
+        }),
+      )
+      .describe("技能列表（品級不足者為未解鎖）"),
+    eraSlug: zod.string().describe("生成\/招募時的世界時代"),
+    assignedLegionId: zod
+      .number()
+      .nullish()
+      .describe("坐鎮軍團 id（未指派 = null）"),
+    upgradeNarrative: zod
+      .string()
+      .nullish()
+      .describe("最近一次升階的史官敘事（≤300 字）"),
+    combatMods: zod
+      .object({
+        offenseMult: zod.number(),
+        defenseMult: zod.number(),
+      })
+      .describe("戰力乘數（品級 4%\/級 + 技能加成；僅作用於同專精分類兵種）"),
+  }),
+  spent: zod
+    .object({
+      money: zod.number(),
+      production: zod.number(),
+    })
+    .describe("本次抽取實扣"),
+});
+
+/**
+ * @summary 招募候選武將（在營上限 8 名）
+ */
+export const RecruitGeneralParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const RecruitGeneralResponse = zod.object({
+  general: zod.object({
+    id: zod.number(),
+    name: zod.string().describe("AI 生成的歷史風格姓名"),
+    title: zod.string().describe("稱號（如「常勝將軍」）"),
+    background: zod.string().describe("300 字內背景敘事"),
+    category: zod
+      .enum(["infantry", "ranged", "cavalry", "siege"])
+      .describe("專精兵種分類"),
+    categoryLabel: zod.string().describe("分類顯示名（時代感知）"),
+    grade: zod.number().describe("品級 1–5"),
+    status: zod
+      .enum(["candidate", "recruited", "dismissed"])
+      .describe("candidate=候選 recruited=在營 dismissed=已遣返"),
+    skills: zod
+      .array(
+        zod.object({
+          name: zod.string().describe("技能名稱（AI 生成）"),
+          description: zod.string().describe("技能描述（敘事用）"),
+          effect: zod
+            .enum(["offense", "defense", "versatile"])
+            .describe("效果類型"),
+          bonusPct: zod.number().describe("效果幅度 %（0–10）"),
+          unlockGrade: zod.number().describe("解鎖品級（1\/2\/4）"),
+        }),
+      )
+      .describe("技能列表（品級不足者為未解鎖）"),
+    eraSlug: zod.string().describe("生成\/招募時的世界時代"),
+    assignedLegionId: zod
+      .number()
+      .nullish()
+      .describe("坐鎮軍團 id（未指派 = null）"),
+    upgradeNarrative: zod
+      .string()
+      .nullish()
+      .describe("最近一次升階的史官敘事（≤300 字）"),
+    combatMods: zod
+      .object({
+        offenseMult: zod.number(),
+        defenseMult: zod.number(),
+      })
+      .describe("戰力乘數（品級 4%\/級 + 技能加成；僅作用於同專精分類兵種）"),
+  }),
+});
+
+/**
+ * @summary 遣返武將（候選或已招募皆可；不退資源）
+ */
+export const DismissGeneralParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DismissGeneralResponse = zod.object({
+  general: zod.object({
+    id: zod.number(),
+    name: zod.string().describe("AI 生成的歷史風格姓名"),
+    title: zod.string().describe("稱號（如「常勝將軍」）"),
+    background: zod.string().describe("300 字內背景敘事"),
+    category: zod
+      .enum(["infantry", "ranged", "cavalry", "siege"])
+      .describe("專精兵種分類"),
+    categoryLabel: zod.string().describe("分類顯示名（時代感知）"),
+    grade: zod.number().describe("品級 1–5"),
+    status: zod
+      .enum(["candidate", "recruited", "dismissed"])
+      .describe("candidate=候選 recruited=在營 dismissed=已遣返"),
+    skills: zod
+      .array(
+        zod.object({
+          name: zod.string().describe("技能名稱（AI 生成）"),
+          description: zod.string().describe("技能描述（敘事用）"),
+          effect: zod
+            .enum(["offense", "defense", "versatile"])
+            .describe("效果類型"),
+          bonusPct: zod.number().describe("效果幅度 %（0–10）"),
+          unlockGrade: zod.number().describe("解鎖品級（1\/2\/4）"),
+        }),
+      )
+      .describe("技能列表（品級不足者為未解鎖）"),
+    eraSlug: zod.string().describe("生成\/招募時的世界時代"),
+    assignedLegionId: zod
+      .number()
+      .nullish()
+      .describe("坐鎮軍團 id（未指派 = null）"),
+    upgradeNarrative: zod
+      .string()
+      .nullish()
+      .describe("最近一次升階的史官敘事（≤300 字）"),
+    combatMods: zod
+      .object({
+        offenseMult: zod.number(),
+        defenseMult: zod.number(),
+      })
+      .describe("戰力乘數（品級 4%\/級 + 技能加成；僅作用於同專精分類兵種）"),
+  }),
+});
+
+/**
+ * @summary 升階（指數成本、遞減成功率；失敗照扣成本）
+ */
+export const UpgradeGeneralParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UpgradeGeneralResponse = zod.object({
+  general: zod.object({
+    id: zod.number(),
+    name: zod.string().describe("AI 生成的歷史風格姓名"),
+    title: zod.string().describe("稱號（如「常勝將軍」）"),
+    background: zod.string().describe("300 字內背景敘事"),
+    category: zod
+      .enum(["infantry", "ranged", "cavalry", "siege"])
+      .describe("專精兵種分類"),
+    categoryLabel: zod.string().describe("分類顯示名（時代感知）"),
+    grade: zod.number().describe("品級 1–5"),
+    status: zod
+      .enum(["candidate", "recruited", "dismissed"])
+      .describe("candidate=候選 recruited=在營 dismissed=已遣返"),
+    skills: zod
+      .array(
+        zod.object({
+          name: zod.string().describe("技能名稱（AI 生成）"),
+          description: zod.string().describe("技能描述（敘事用）"),
+          effect: zod
+            .enum(["offense", "defense", "versatile"])
+            .describe("效果類型"),
+          bonusPct: zod.number().describe("效果幅度 %（0–10）"),
+          unlockGrade: zod.number().describe("解鎖品級（1\/2\/4）"),
+        }),
+      )
+      .describe("技能列表（品級不足者為未解鎖）"),
+    eraSlug: zod.string().describe("生成\/招募時的世界時代"),
+    assignedLegionId: zod
+      .number()
+      .nullish()
+      .describe("坐鎮軍團 id（未指派 = null）"),
+    upgradeNarrative: zod
+      .string()
+      .nullish()
+      .describe("最近一次升階的史官敘事（≤300 字）"),
+    combatMods: zod
+      .object({
+        offenseMult: zod.number(),
+        defenseMult: zod.number(),
+      })
+      .describe("戰力乘數（品級 4%\/級 + 技能加成；僅作用於同專精分類兵種）"),
+  }),
+  success: zod.boolean().describe("本次擲骰結果（失敗照扣成本）"),
+  successPct: zod.number().describe("本次成功率 %"),
+  spent: zod
+    .object({
+      money: zod.number(),
+      production: zod.number(),
+    })
+    .describe("本次升階實扣"),
+});
+
+/**
+ * @summary 指派武將坐鎮軍團（一軍團一名；僅加成同專精分類兵種）
+ */
+export const AssignGeneralParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const AssignGeneralBody = zod.object({
+  campaignId: zod.number(),
+  slot: zod.enum(["A", "B", "C"]),
+});
+
+export const AssignGeneralResponse = zod.object({
+  general: zod.object({
+    id: zod.number(),
+    name: zod.string().describe("AI 生成的歷史風格姓名"),
+    title: zod.string().describe("稱號（如「常勝將軍」）"),
+    background: zod.string().describe("300 字內背景敘事"),
+    category: zod
+      .enum(["infantry", "ranged", "cavalry", "siege"])
+      .describe("專精兵種分類"),
+    categoryLabel: zod.string().describe("分類顯示名（時代感知）"),
+    grade: zod.number().describe("品級 1–5"),
+    status: zod
+      .enum(["candidate", "recruited", "dismissed"])
+      .describe("candidate=候選 recruited=在營 dismissed=已遣返"),
+    skills: zod
+      .array(
+        zod.object({
+          name: zod.string().describe("技能名稱（AI 生成）"),
+          description: zod.string().describe("技能描述（敘事用）"),
+          effect: zod
+            .enum(["offense", "defense", "versatile"])
+            .describe("效果類型"),
+          bonusPct: zod.number().describe("效果幅度 %（0–10）"),
+          unlockGrade: zod.number().describe("解鎖品級（1\/2\/4）"),
+        }),
+      )
+      .describe("技能列表（品級不足者為未解鎖）"),
+    eraSlug: zod.string().describe("生成\/招募時的世界時代"),
+    assignedLegionId: zod
+      .number()
+      .nullish()
+      .describe("坐鎮軍團 id（未指派 = null）"),
+    upgradeNarrative: zod
+      .string()
+      .nullish()
+      .describe("最近一次升階的史官敘事（≤300 字）"),
+    combatMods: zod
+      .object({
+        offenseMult: zod.number(),
+        defenseMult: zod.number(),
+      })
+      .describe("戰力乘數（品級 4%\/級 + 技能加成；僅作用於同專精分類兵種）"),
+  }),
+});
+
+/**
+ * @summary 解除軍團指派
+ */
+export const UnassignGeneralParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const UnassignGeneralResponse = zod.object({
+  general: zod.object({
+    id: zod.number(),
+    name: zod.string().describe("AI 生成的歷史風格姓名"),
+    title: zod.string().describe("稱號（如「常勝將軍」）"),
+    background: zod.string().describe("300 字內背景敘事"),
+    category: zod
+      .enum(["infantry", "ranged", "cavalry", "siege"])
+      .describe("專精兵種分類"),
+    categoryLabel: zod.string().describe("分類顯示名（時代感知）"),
+    grade: zod.number().describe("品級 1–5"),
+    status: zod
+      .enum(["candidate", "recruited", "dismissed"])
+      .describe("candidate=候選 recruited=在營 dismissed=已遣返"),
+    skills: zod
+      .array(
+        zod.object({
+          name: zod.string().describe("技能名稱（AI 生成）"),
+          description: zod.string().describe("技能描述（敘事用）"),
+          effect: zod
+            .enum(["offense", "defense", "versatile"])
+            .describe("效果類型"),
+          bonusPct: zod.number().describe("效果幅度 %（0–10）"),
+          unlockGrade: zod.number().describe("解鎖品級（1\/2\/4）"),
+        }),
+      )
+      .describe("技能列表（品級不足者為未解鎖）"),
+    eraSlug: zod.string().describe("生成\/招募時的世界時代"),
+    assignedLegionId: zod
+      .number()
+      .nullish()
+      .describe("坐鎮軍團 id（未指派 = null）"),
+    upgradeNarrative: zod
+      .string()
+      .nullish()
+      .describe("最近一次升階的史官敘事（≤300 字）"),
+    combatMods: zod
+      .object({
+        offenseMult: zod.number(),
+        defenseMult: zod.number(),
+      })
+      .describe("戰力乘數（品級 4%\/級 + 技能加成；僅作用於同專精分類兵種）"),
+  }),
+});
+
+/**
  * @summary Nation directory (players + NPCs) sorted by land-border distance
  */
 export const ListDiplomacyNationsQueryParams = zod.object({

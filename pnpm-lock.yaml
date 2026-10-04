@@ -157,6 +157,9 @@ importers:
 
   .:
     devDependencies:
+      '@neondatabase/serverless':
+        specifier: ^1.2.0
+        version: 1.2.0
       '@types/node':
         specifier: 'catalog:'
         version: 25.3.5
@@ -189,7 +192,7 @@ importers:
         version: 14.26.3
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.1(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0)
+        version: 0.45.1(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0)
       express:
         specifier: ^5
         version: 5.2.1
@@ -584,10 +587,10 @@ importers:
     dependencies:
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.1(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0)
+        version: 0.45.1(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0)
       drizzle-zod:
         specifier: ^0.8.3
-        version: 0.8.3(drizzle-orm@0.45.1(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0))(zod@3.25.76)
+        version: 0.8.3(drizzle-orm@0.45.1(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0))(zod@3.25.76)
       pg:
         specifier: ^8.20.0
         version: 8.20.0
@@ -995,6 +998,10 @@ packages:
     resolution: {integrity: sha512-CmCXPQrkbwExx3j946/PtHWHbYJiCRBRDl4BlkRQcJB/YOwQxJRTpoo7aTsortjgoJ1x7opzTSxn7C+ASSLVjQ==}
     cpu: [x64]
     os: [win32]
+
+  '@neondatabase/serverless@1.2.0':
+    resolution: {integrity: sha512-tnaqgixUengZQNd9ZrS3ytQfamJzLKY8QxgqWQTNHHtB+KrFQWk77JTbbpg4RD+J3qE4eO2lVytvGDX5Kj6FdQ==}
+    engines: {node: '>=19.0.0'}
 
   '@ngageoint/geopackage@4.2.8':
     resolution: {integrity: sha512-B9xsMT49aRiEfECKzgrpCHn1IoVD2z83XYGoSfa3sWvNisrr76K9ECrJ6MxxFOE6MSTJq/nDmhOD6dZ1Sn0SHQ==}
@@ -4504,6 +4511,8 @@ snapshots:
   '@msgpackr-extract/msgpackr-extract-win32-x64@3.0.4':
     optional: true
 
+  '@neondatabase/serverless@1.2.0': {}
+
   '@ngageoint/geopackage@4.2.8(@types/node@25.3.5)':
     dependencies:
       '@turf/bbox': 6.3.0
@@ -6143,15 +6152,16 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.45.1(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0):
+  drizzle-orm@0.45.1(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0):
     optionalDependencies:
+      '@neondatabase/serverless': 1.2.0
       '@types/pg': 8.18.0
       better-sqlite3: 12.11.1
       pg: 8.20.0
 
-  drizzle-zod@0.8.3(drizzle-orm@0.45.1(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0))(zod@3.25.76):
+  drizzle-zod@0.8.3(drizzle-orm@0.45.1(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0))(zod@3.25.76):
     dependencies:
-      drizzle-orm: 0.45.1(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0)
+      drizzle-orm: 0.45.1(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0)
       zod: 3.25.76
 
   dunder-proto@1.0.1:

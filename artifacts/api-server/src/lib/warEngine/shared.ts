@@ -3,6 +3,7 @@ import {
   playerNationsTable,
   playerResearchedTreeNodesTable,
   techTreeNodesTable,
+  type GeneralSkill,
   type MilitaryTechBonus,
 } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
@@ -110,6 +111,15 @@ export interface LoadedLegion {
   morale: number;
   supply: number;
   garrisoningCity: boolean;
+  /** 武將系統 — 坐鎮武將（無 = undefined；只加成與其專精分類相同的兵種）。 */
+  general?: {
+    id: number;
+    name: string;
+    title: string;
+    category: string;
+    grade: number;
+    skills: GeneralSkill[];
+  };
   units: {
     unitRowId: number;
     templateId: number;
@@ -141,6 +151,12 @@ export interface LoadedLegion {
      */
     weaponOffenseMult?: number;
     weaponDefenseMult?: number;
+    /**
+     * 武將系統 — 坐鎮武將的戰鬥乘數（generalCombatMods 算出；只對該軍團
+     * 內與武將專精分類相同的兵種生效；無武將/兵種不相容 = undefined）。
+     */
+    generalOffenseMult?: number;
+    generalDefenseMult?: number;
     /** 本週期戰死數（applyCycleResult 內部累計用）。 */
     deadThisCycle?: number;
   }[];

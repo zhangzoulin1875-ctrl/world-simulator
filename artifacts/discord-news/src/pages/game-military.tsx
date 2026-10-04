@@ -40,8 +40,9 @@ import { GameNotifications } from "@/components/game-notifications";
 import { HelpButton } from "@/components/help-button";
 import { WarHqTab } from "@/components/war-hq-tab";
 import { WarOrdersTab } from "@/components/war-orders-tab";
+import { GeneralsTab } from "@/components/generals-tab";
 
-type TabKey = "build" | "hq" | "orders";
+type TabKey = "build" | "hq" | "orders" | "generals";
 
 export default function GameMilitary() {
   return (
@@ -66,6 +67,7 @@ function MilitaryScreen({
     { key: "build", label: "建造軍隊" },
     { key: "hq", label: "指揮部" },
     { key: "orders", label: "軍事指令" },
+    { key: "generals", label: "武將" },
   ];
 
   return (
@@ -131,6 +133,7 @@ function MilitaryScreen({
         {tab === "build" && <BuildTab overview={overview} />}
         {tab === "hq" && <WarHqTab />}
         {tab === "orders" && <WarOrdersTab />}
+        {tab === "generals" && <GeneralsTab />}
       </div>
     </div>
   );

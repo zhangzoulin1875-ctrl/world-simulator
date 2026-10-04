@@ -24,7 +24,7 @@ import { logger } from "./logger";
  */
 
 /** civ profile slug → zh-TW 文化圈標籤（供 AI 判斷應採用哪種歷史文化風格）。 */
-const PROFILE_CULTURE: Readonly<Record<string, string>> = {
+export const PROFILE_CULTURE: Readonly<Record<string, string>> = {
   china_core: "華夏中原",
   china_south: "華南",
   china_frontier: "中國邊疆",

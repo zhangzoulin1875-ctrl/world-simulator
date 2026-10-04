@@ -8,6 +8,8 @@ import {
   playerArmiesTable,
   playerNationsTable,
   recruitProductionSpendsTable,
+  generalDrawsTable,
+  generalPoolTable,
   regionBuildingsTable,
   worldGameStateTable,
 } from "@workspace/db";
@@ -524,6 +526,26 @@ async function doRunTurn(
       .where(sql`${recruitProductionSpendsTable.createdAt} <= ${claimIso}`);
   } catch (err) {
     logger.error({ err }, "turn engine: expired recruit spend cleanup failed");
+  }
+
+  // 武將系統 — 抽取/升階的生產力流量列同規清理（quota 判定改由新回合起算）。
+  try {
+    await db
+      .delete(generalDrawsTable)
+      .where(sql`${generalDrawsTable.createdAt} <= ${claimIso}`);
+  } catch (err) {
+    logger.error({ err }, "turn engine: expired general draw cleanup failed");
+  }
+
+  // 武將預產池 — 時代推進後舊時代的備用卡作廢（era_changed 時才清；失敗僅記錄）。
+  if (eraChanged) {
+    try {
+      await db
+        .delete(generalPoolTable)
+        .where(sql`${generalPoolTable.eraSlug} <> ${newEra}`);
+    } catch (err) {
+      logger.error({ err }, "turn engine: stale general pool cleanup failed");
+    }
   }
 
   const summary: TurnUpdateSummary = {

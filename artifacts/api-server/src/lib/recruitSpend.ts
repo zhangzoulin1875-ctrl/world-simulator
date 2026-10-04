@@ -1,6 +1,7 @@
 import { desc, eq, sql } from "drizzle-orm";
 import {
   db,
+  generalDrawsTable,
   militaryUnitTemplatesTable,
   recruitProductionSpendsTable,
 } from "@workspace/db";
@@ -28,7 +29,14 @@ export async function loadCurrentTurnRecruitSpend(
   nationId: string,
   dbc: DbLike = db,
 ): Promise<number> {
-  const [row] = await dbc
+  // 武將系統 — 抽取/升階的生產力消耗同為當回合流量（general_draws.
+  // production_spent），一併計入，讓所有可用生產力守衛自動涵蓋。
+  const generalTurnPredicate = sql`(
+    (SELECT last_turn_at FROM world_game_state WHERE id = 1) IS NULL
+    OR ${generalDrawsTable.createdAt} >
+       (SELECT last_turn_at FROM world_game_state WHERE id = 1)
+  )`;
+  const [recruitRow] = await dbc
     .select({
       total: sql<string>`COALESCE(SUM(${recruitProductionSpendsTable.amount}), 0)`,
     })
@@ -36,7 +44,15 @@ export async function loadCurrentTurnRecruitSpend(
     .where(
       sql`${eq(recruitProductionSpendsTable.nationId, nationId)} AND ${CURRENT_TURN_PREDICATE}`,
     );
-  return Number(row?.total ?? 0);
+  const [generalRow] = await dbc
+    .select({
+      total: sql<string>`COALESCE(SUM(${generalDrawsTable.productionSpent}), 0)`,
+    })
+    .from(generalDrawsTable)
+    .where(
+      sql`${eq(generalDrawsTable.ownerNationId, nationId)} AND ${generalTurnPredicate}`,
+    );
+  return Number(recruitRow?.total ?? 0) + Number(generalRow?.total ?? 0);
 }
 
 /** 本回合招募花費的單筆紀錄（顯示用）。 */

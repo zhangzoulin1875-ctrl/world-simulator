@@ -58,6 +58,8 @@ import { logger } from "../logger";
 import { pgErrorCode } from "../playerValidation";
 import { getRecoveryBonuses, type LoadedLegion, type Tx } from "./shared";
 import { weaponCombatMods, type WeaponSkillEffect } from "../weapons";
+import { generalCombatMods } from "../generals";
+import { generalsTable } from "@workspace/db";
 import { loadParticipants, pruneStaleJoiners } from "./participants";
 import { endCampaignById, endCampaignInTx, notifyEndForBoth } from "./endCampaign";
 import { applyCycleResult } from "./applyCycleResult";
@@ -207,6 +209,12 @@ async function loadLegions(campaignId: number): Promise<Map<string, LoadedLegion
       weaponSkillName: militaryWeaponsTable.skillName,
       weaponSkillEffect: militaryWeaponsTable.skillEffect,
       weaponSkillBonusPct: militaryWeaponsTable.skillBonusPct,
+      generalId: generalsTable.id,
+      generalName: generalsTable.name,
+      generalTitle: generalsTable.title,
+      generalCategory: generalsTable.category,
+      generalGrade: generalsTable.grade,
+      generalSkills: generalsTable.skills,
     })
     .from(warCampaignLegionsTable)
     .leftJoin(
@@ -220,6 +228,14 @@ async function loadLegions(campaignId: number): Promise<Map<string, LoadedLegion
     .leftJoin(
       militaryWeaponsTable,
       eq(militaryWeaponsTable.id, militaryUnitTemplatesTable.equippedWeaponId),
+    )
+    // 武將系統 — 坐鎮武將（assigned_legion_id 唯一索引保證 ≤1 列）。
+    .leftJoin(
+      generalsTable,
+      and(
+        eq(generalsTable.assignedLegionId, warCampaignLegionsTable.id),
+        eq(generalsTable.status, "recruited"),
+      ),
     )
     .where(eq(warCampaignLegionsTable.campaignId, campaignId))
     .orderBy(asc(warCampaignLegionsTable.slot));
@@ -236,6 +252,18 @@ async function loadLegions(campaignId: number): Promise<Map<string, LoadedLegion
         morale: row.morale,
         supply: row.supply,
         garrisoningCity: row.garrisoningCity,
+        ...(row.generalId !== null
+          ? {
+              general: {
+                id: row.generalId,
+                name: row.generalName ?? "",
+                title: row.generalTitle ?? "",
+                category: row.generalCategory ?? "infantry",
+                grade: row.generalGrade ?? 1,
+                skills: row.generalSkills ?? [],
+              },
+            }
+          : {}),
         units: [],
       };
       legionIndex.set(row.legionId, legion);
@@ -261,6 +289,20 @@ async function loadLegions(campaignId: number): Promise<Map<string, LoadedLegion
         antiRangedPct: row.templateAntiRangedPct ?? 0,
         siegePct: row.templateSiegePct ?? 0,
         eraSlug: row.templateEraSlug ?? undefined,
+        ...(legion.general &&
+        legion.general.category === (row.templateCategory ?? "infantry")
+          ? (() => {
+              const mods = generalCombatMods({
+                grade: legion.general.grade,
+                skills: legion.general.skills,
+              });
+              return {
+                generalName: legion.general.name,
+                generalOffenseMult: mods.offenseMult,
+                generalDefenseMult: mods.defenseMult,
+              };
+            })()
+          : {}),
         ...(row.weaponName
           ? (() => {
               const compatible = (row.weaponCompatibleCategories ?? []).includes(
@@ -296,6 +338,9 @@ function toAiLegions(
   return legions.map((l) => ({
     slot: l.slot,
     ...(nationNameOf ? { nationName: nationNameOf(l.nationId) } : {}),
+    ...(l.general
+      ? { generalName: l.general.name, generalTitle: l.general.title }
+      : {}),
     morale: l.morale,
     supply: l.supply,
     garrisoningCity: l.garrisoningCity,

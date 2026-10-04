@@ -931,6 +931,215 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorMessage" }
 
+  /military/generals:
+    get:
+      operationId: listGenerals
+      tags: [military]
+      summary: 武將列表 + 配額/抽取成本/可指派軍團
+      responses:
+        "200":
+          description: Generals overview
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GeneralsListResponse" }
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /military/generals/draw:
+    post:
+      operationId: drawGeneral
+      tags: [military]
+      summary: 抽取武將（5% 國庫 + 5% 可用生產力；一回合一張；優先發預產池）
+      responses:
+        "200":
+          description: Drawn a new candidate general
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GeneralDrawResponse" }
+        "400":
+          description: 尚未建國
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "409":
+          description: 本回合已抽取過
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "503":
+          description: AI 生成暫時不可用（池空且同步生成失敗）
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /military/generals/{id}/recruit:
+    post:
+      operationId: recruitGeneral
+      tags: [military]
+      summary: 招募候選武將（在營上限 8 名）
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Recruited
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GeneralMutationResponse" }
+        "400":
+          description: 已達上限
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "404":
+          description: 找不到該名候選武將
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /military/generals/{id}/dismiss:
+    post:
+      operationId: dismissGeneral
+      tags: [military]
+      summary: 遣返武將（候選或已招募皆可；不退資源）
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Dismissed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GeneralMutationResponse" }
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "404":
+          description: 找不到該名武將
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /military/generals/{id}/upgrade:
+    post:
+      operationId: upgradeGeneral
+      tags: [military]
+      summary: 升階（指數成本、遞減成功率；失敗照扣成本）
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Upgrade attempted (success = true/false)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GeneralUpgradeResponse" }
+        "400":
+          description: 已達最高品級 / 資源不足
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "404":
+          description: 找不到該名已招募武將
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /military/generals/{id}/assign:
+    post:
+      operationId: assignGeneral
+      tags: [military]
+      summary: 指派武將坐鎮軍團（一軍團一名；僅加成同專精分類兵種）
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GeneralAssignRequest" }
+      responses:
+        "200":
+          description: Assigned
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GeneralMutationResponse" }
+        "400":
+          description: 參數不正確 / 軍團不存在於該戰役
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "404":
+          description: 找不到該名已招募武將
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "409":
+          description: 該軍團已有其他武將坐鎮
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /military/generals/{id}/unassign:
+    post:
+      operationId: unassignGeneral
+      tags: [military]
+      summary: 解除軍團指派
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Unassigned
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GeneralMutationResponse" }
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "404":
+          description: 該武將目前沒有指揮軍團
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
   /diplomacy/nations:
     get:
       operationId: listDiplomacyNations
@@ -3785,6 +3994,161 @@ components:
           description: 技能效果類型（offense=進攻/defense=防禦/versatile=攻守各半）
         skillBonusPct: { type: integer, description: 技能效果幅度 %（0–10） }
         eraSlug: { type: string, nullable: true, description: 設計時的世界時代 }
+
+    General:
+      type: object
+      required:
+        [
+          id,
+          name,
+          title,
+          background,
+          category,
+          categoryLabel,
+          grade,
+          status,
+          skills,
+          eraSlug,
+          combatMods,
+        ]
+      properties:
+        id: { type: integer }
+        name: { type: string, description: AI 生成的歷史風格姓名 }
+        title: { type: string, description: 稱號（如「常勝將軍」） }
+        background: { type: string, description: 300 字內背景敘事 }
+        category:
+          type: string
+          enum: [infantry, ranged, cavalry, siege]
+          description: 專精兵種分類
+        categoryLabel: { type: string, description: 分類顯示名（時代感知） }
+        grade: { type: integer, description: 品級 1–5 }
+        status:
+          type: string
+          enum: [candidate, recruited, dismissed]
+          description: candidate=候選 recruited=在營 dismissed=已遣返
+        skills:
+          type: array
+          description: 技能列表（品級不足者為未解鎖）
+          items: { $ref: "#/components/schemas/GeneralSkill" }
+        eraSlug: { type: string, description: 生成/招募時的世界時代 }
+        assignedLegionId:
+          type: integer
+          nullable: true
+          description: 坐鎮軍團 id（未指派 = null）
+        upgradeNarrative:
+          type: string
+          nullable: true
+          description: 最近一次升階的史官敘事（≤300 字）
+        combatMods:
+          type: object
+          description: 戰力乘數（品級 4%/級 + 技能加成；僅作用於同專精分類兵種）
+          required: [offenseMult, defenseMult]
+          properties:
+            offenseMult: { type: number }
+            defenseMult: { type: number }
+
+    GeneralSkill:
+      type: object
+      required: [name, description, effect, bonusPct, unlockGrade]
+      properties:
+        name: { type: string, description: 技能名稱（AI 生成） }
+        description: { type: string, description: 技能描述（敘事用） }
+        effect:
+          type: string
+          enum: [offense, defense, versatile]
+          description: 效果類型
+        bonusPct: { type: integer, description: 效果幅度 %（0–10） }
+        unlockGrade: { type: integer, description: 解鎖品級（1/2/4） }
+
+    GeneralCosts:
+      type: object
+      required: [drawMoney, drawProduction]
+      properties:
+        drawMoney: { type: integer, description: 抽取成本：5% 國庫 }
+        drawProduction: { type: integer, description: 抽取成本：5% 可用生產力 }
+
+    GeneralsQuota:
+      type: object
+      required: [cap, recruited, candidates, drawnThisTurn]
+      properties:
+        cap: { type: integer, description: 在營上限（8） }
+        recruited: { type: integer, description: 在營數 }
+        candidates: { type: integer, description: 候選數 }
+        drawnThisTurn: { type: boolean, description: 本回合已抽取 }
+
+    GeneralAssignmentOption:
+      type: object
+      required: [legionId, campaignId, slot]
+      properties:
+        legionId: { type: integer }
+        campaignId: { type: integer }
+        slot:
+          type: string
+          enum: [A, B, C]
+        assignedGeneralId:
+          type: integer
+          nullable: true
+          description: 該軍團現任武將 id（空 = 無人坐鎮）
+        assignedGeneralName:
+          type: string
+          nullable: true
+
+    GeneralsListResponse:
+      type: object
+      required: [generals, quota, costs, assignmentOptions]
+      properties:
+        generals:
+          type: array
+          items: { $ref: "#/components/schemas/General" }
+        quota: { $ref: "#/components/schemas/GeneralsQuota" }
+        costs: { $ref: "#/components/schemas/GeneralCosts" }
+        assignmentOptions:
+          type: array
+          description: 該國進行中戰役的所有軍團（可指派目標）
+          items: { $ref: "#/components/schemas/GeneralAssignmentOption" }
+
+    GeneralDrawResponse:
+      type: object
+      required: [general, spent]
+      properties:
+        general: { $ref: "#/components/schemas/General" }
+        spent:
+          type: object
+          required: [money, production]
+          description: 本次抽取實扣
+          properties:
+            money: { type: integer }
+            production: { type: integer }
+
+    GeneralMutationResponse:
+      type: object
+      required: [general]
+      properties:
+        general: { $ref: "#/components/schemas/General" }
+
+    GeneralUpgradeResponse:
+      type: object
+      required: [general, success, successPct, spent]
+      properties:
+        general: { $ref: "#/components/schemas/General" }
+        success: { type: boolean, description: 本次擲骰結果（失敗照扣成本） }
+        successPct: { type: integer, description: 本次成功率 % }
+        spent:
+          type: object
+          required: [money, production]
+          description: 本次升階實扣
+          properties:
+            money: { type: integer }
+            production: { type: integer }
+
+    GeneralAssignRequest:
+      type: object
+      required: [campaignId, slot]
+      properties:
+        campaignId: { type: integer }
+        slot:
+          type: string
+          enum: [A, B, C]
 
     MilitaryArmyEntry:
       type: object

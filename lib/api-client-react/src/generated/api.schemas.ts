@@ -611,6 +611,185 @@ export interface MilitaryUnitTemplate {
   equippedWeapon?: MilitaryUnitTemplateEquippedWeapon;
 }
 
+/**
+ * 專精兵種分類
+ */
+export type GeneralCategory =
+  (typeof GeneralCategory)[keyof typeof GeneralCategory];
+
+export const GeneralCategory = {
+  infantry: "infantry",
+  ranged: "ranged",
+  cavalry: "cavalry",
+  siege: "siege",
+} as const;
+
+/**
+ * candidate=候選 recruited=在營 dismissed=已遣返
+ */
+export type GeneralStatus = (typeof GeneralStatus)[keyof typeof GeneralStatus];
+
+export const GeneralStatus = {
+  candidate: "candidate",
+  recruited: "recruited",
+  dismissed: "dismissed",
+} as const;
+
+/**
+ * 戰力乘數（品級 4%/級 + 技能加成；僅作用於同專精分類兵種）
+ */
+export type GeneralCombatMods = {
+  offenseMult: number;
+  defenseMult: number;
+};
+
+/**
+ * 效果類型
+ */
+export type GeneralSkillEffect =
+  (typeof GeneralSkillEffect)[keyof typeof GeneralSkillEffect];
+
+export const GeneralSkillEffect = {
+  offense: "offense",
+  defense: "defense",
+  versatile: "versatile",
+} as const;
+
+export interface GeneralSkill {
+  /** 技能名稱（AI 生成） */
+  name: string;
+  /** 技能描述（敘事用） */
+  description: string;
+  /** 效果類型 */
+  effect: GeneralSkillEffect;
+  /** 效果幅度 %（0–10） */
+  bonusPct: number;
+  /** 解鎖品級（1/2/4） */
+  unlockGrade: number;
+}
+
+export interface General {
+  id: number;
+  /** AI 生成的歷史風格姓名 */
+  name: string;
+  /** 稱號（如「常勝將軍」） */
+  title: string;
+  /** 300 字內背景敘事 */
+  background: string;
+  /** 專精兵種分類 */
+  category: GeneralCategory;
+  /** 分類顯示名（時代感知） */
+  categoryLabel: string;
+  /** 品級 1–5 */
+  grade: number;
+  /** candidate=候選 recruited=在營 dismissed=已遣返 */
+  status: GeneralStatus;
+  /** 技能列表（品級不足者為未解鎖） */
+  skills: GeneralSkill[];
+  /** 生成/招募時的世界時代 */
+  eraSlug: string;
+  /** 坐鎮軍團 id（未指派 = null） */
+  assignedLegionId?: number | null;
+  /** 最近一次升階的史官敘事（≤300 字） */
+  upgradeNarrative?: string | null;
+  /** 戰力乘數（品級 4%/級 + 技能加成；僅作用於同專精分類兵種） */
+  combatMods: GeneralCombatMods;
+}
+
+export interface GeneralCosts {
+  /** 抽取成本：5% 國庫 */
+  drawMoney: number;
+  /** 抽取成本：5% 可用生產力 */
+  drawProduction: number;
+}
+
+export interface GeneralsQuota {
+  /** 在營上限（8） */
+  cap: number;
+  /** 在營數 */
+  recruited: number;
+  /** 候選數 */
+  candidates: number;
+  /** 本回合已抽取 */
+  drawnThisTurn: boolean;
+}
+
+export type GeneralAssignmentOptionSlot =
+  (typeof GeneralAssignmentOptionSlot)[keyof typeof GeneralAssignmentOptionSlot];
+
+export const GeneralAssignmentOptionSlot = {
+  A: "A",
+  B: "B",
+  C: "C",
+} as const;
+
+export interface GeneralAssignmentOption {
+  legionId: number;
+  campaignId: number;
+  slot: GeneralAssignmentOptionSlot;
+  /** 該軍團現任武將 id（空 = 無人坐鎮） */
+  assignedGeneralId?: number | null;
+  assignedGeneralName?: string | null;
+}
+
+export interface GeneralsListResponse {
+  generals: General[];
+  quota: GeneralsQuota;
+  costs: GeneralCosts;
+  /** 該國進行中戰役的所有軍團（可指派目標） */
+  assignmentOptions: GeneralAssignmentOption[];
+}
+
+/**
+ * 本次抽取實扣
+ */
+export type GeneralDrawResponseSpent = {
+  money: number;
+  production: number;
+};
+
+export interface GeneralDrawResponse {
+  general: General;
+  /** 本次抽取實扣 */
+  spent: GeneralDrawResponseSpent;
+}
+
+export interface GeneralMutationResponse {
+  general: General;
+}
+
+/**
+ * 本次升階實扣
+ */
+export type GeneralUpgradeResponseSpent = {
+  money: number;
+  production: number;
+};
+
+export interface GeneralUpgradeResponse {
+  general: General;
+  /** 本次擲骰結果（失敗照扣成本） */
+  success: boolean;
+  /** 本次成功率 % */
+  successPct: number;
+  /** 本次升階實扣 */
+  spent: GeneralUpgradeResponseSpent;
+}
+
+export type GeneralAssignRequestSlot =
+  (typeof GeneralAssignRequestSlot)[keyof typeof GeneralAssignRequestSlot];
+
+export const GeneralAssignRequestSlot = {
+  A: "A",
+  B: "B",
+  C: "C",
+} as const;
+
+export interface GeneralAssignRequest {
+  campaignId: number;
+  slot: GeneralAssignRequestSlot;
+}
+
 export interface MilitaryArmyEntry {
   templateId: number;
   quantity: number;

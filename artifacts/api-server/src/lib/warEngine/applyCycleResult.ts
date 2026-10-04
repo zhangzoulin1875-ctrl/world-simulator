@@ -343,12 +343,19 @@ export async function applyCycleResult(
           attack: u.attack,
           defense: u.defense,
           hp: u.hp,
-          // 武器系統 — 裝備乘數（未裝備 = undefined → 結算層視為 1）。
-          ...(u.weaponOffenseMult !== undefined
-            ? { offenseMult: u.weaponOffenseMult }
+          // 武器系統 — 裝備乘數；武將系統 — 坐鎮武將乘數（只乘專精分類）。
+          // 兩者皆未裝 = undefined → 結算層視為 1；兩者皆有 = 相乘。
+          ...((u.weaponOffenseMult ?? 1) * (u.generalOffenseMult ?? 1) !== 1
+            ? {
+                offenseMult:
+                  (u.weaponOffenseMult ?? 1) * (u.generalOffenseMult ?? 1),
+              }
             : {}),
-          ...(u.weaponDefenseMult !== undefined
-            ? { defenseMult: u.weaponDefenseMult }
+          ...((u.weaponDefenseMult ?? 1) * (u.generalDefenseMult ?? 1) !== 1
+            ? {
+                defenseMult:
+                  (u.weaponDefenseMult ?? 1) * (u.generalDefenseMult ?? 1),
+              }
             : {}),
         })),
       })),

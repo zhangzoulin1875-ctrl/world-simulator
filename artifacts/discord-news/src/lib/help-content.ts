@@ -18,6 +18,7 @@ export type HelpKey =
   | "military:build"
   | "military:hq"
   | "military:orders"
+  | "military:generals"
   | "politics"
   | "technology:military"
   | "technology:social"
@@ -143,6 +144,22 @@ export const HELP_CONTENT: Record<HelpKey, HelpSection> = {
       "善用偵查掌握敵情，再依情勢在進攻與防守間切換。",
     ],
     terms: ["戰役", "軍團", "偵查", "傷兵"],
+  },
+  "military:generals": {
+    title: "軍事 · 武將",
+    subtitle: "招賢納士、養將練兵，為軍團坐鎮名帥。",
+    meaning: [
+      "武將分頁是抽取與培養名將的地方。抽取一名武將花費 5% 國庫與 5% 可用生產力，每回合限一次。",
+      "抽出的武將依你國家的文化圈與當前時代生成（可能是史實名將，也可能是無名豪傑），分為步兵、遠程、騎兵、攻城四類專精。",
+      "招募後的武將可以指派到進行中戰役的軍團坐鎮，只對同專精分類的兵種提供攻防加成。",
+      "升階能提高品級並解鎖新技能，但成本指數上升、成功率遞減，失敗不退資源。",
+    ],
+    howto: [
+      "抽取後武將先進候選區：招募入帳下（在營上限 8 名）或遣返（不退資源）。",
+      "在營武將可指派到戰役軍團（一軍團一名），加成於結算時生效。",
+      "升階前留意成功率提示：品級越高越難成功，謹慎投入。",
+    ],
+    terms: ["武將", "品級", "軍團", "生產力"],
   },
   politics: {
     title: "政治介面",

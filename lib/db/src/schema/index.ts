@@ -4,6 +4,7 @@ export * from "./mapRegions";
 export * from "./playerNations";
 export * from "./playerNotifications";
 export * from "./military";
+export * from "./generals";
 export * from "./diplomacy";
 export * from "./politics";
 export * from "./cabinet";

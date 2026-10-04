@@ -63,6 +63,11 @@ import type {
   FoundNationRequest,
   GameMusicTracksResponse,
   GameNewsResponse,
+  GeneralAssignRequest,
+  GeneralDrawResponse,
+  GeneralMutationResponse,
+  GeneralUpgradeResponse,
+  GeneralsListResponse,
   GovernmentsResponse,
   HealthStatus,
   InvestRegionProductivityRequest,
@@ -3037,6 +3042,585 @@ export const useDisbandMilitaryUnits = <
   TContext
 > => {
   return useMutation(getDisbandMilitaryUnitsMutationOptions(options));
+};
+
+/**
+ * @summary 武將列表 + 配額/抽取成本/可指派軍團
+ */
+export const getListGeneralsUrl = () => {
+  return `/api/military/generals`;
+};
+
+export const listGenerals = async (
+  options?: RequestInit,
+): Promise<GeneralsListResponse> => {
+  return customFetch<GeneralsListResponse>(getListGeneralsUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getListGeneralsQueryKey = () => {
+  return [`/api/military/generals`] as const;
+};
+
+export const getListGeneralsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listGenerals>>,
+  TError = ErrorType<ErrorMessage>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listGenerals>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListGeneralsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listGenerals>>> = ({
+    signal,
+  }) => listGenerals({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listGenerals>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListGeneralsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listGenerals>>
+>;
+export type ListGeneralsQueryError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary 武將列表 + 配額/抽取成本/可指派軍團
+ */
+
+export function useListGenerals<
+  TData = Awaited<ReturnType<typeof listGenerals>>,
+  TError = ErrorType<ErrorMessage>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof listGenerals>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListGeneralsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary 抽取武將（5% 國庫 + 5% 可用生產力；一回合一張；優先發預產池）
+ */
+export const getDrawGeneralUrl = () => {
+  return `/api/military/generals/draw`;
+};
+
+export const drawGeneral = async (
+  options?: RequestInit,
+): Promise<GeneralDrawResponse> => {
+  return customFetch<GeneralDrawResponse>(getDrawGeneralUrl(), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getDrawGeneralMutationOptions = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof drawGeneral>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof drawGeneral>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["drawGeneral"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof drawGeneral>>,
+    void
+  > = () => {
+    return drawGeneral(requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DrawGeneralMutationResult = NonNullable<
+  Awaited<ReturnType<typeof drawGeneral>>
+>;
+
+export type DrawGeneralMutationError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary 抽取武將（5% 國庫 + 5% 可用生產力；一回合一張；優先發預產池）
+ */
+export const useDrawGeneral = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof drawGeneral>>,
+    TError,
+    void,
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof drawGeneral>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getDrawGeneralMutationOptions(options));
+};
+
+/**
+ * @summary 招募候選武將（在營上限 8 名）
+ */
+export const getRecruitGeneralUrl = (id: number) => {
+  return `/api/military/generals/${id}/recruit`;
+};
+
+export const recruitGeneral = async (
+  id: number,
+  options?: RequestInit,
+): Promise<GeneralMutationResponse> => {
+  return customFetch<GeneralMutationResponse>(getRecruitGeneralUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getRecruitGeneralMutationOptions = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recruitGeneral>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof recruitGeneral>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["recruitGeneral"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof recruitGeneral>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return recruitGeneral(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RecruitGeneralMutationResult = NonNullable<
+  Awaited<ReturnType<typeof recruitGeneral>>
+>;
+
+export type RecruitGeneralMutationError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary 招募候選武將（在營上限 8 名）
+ */
+export const useRecruitGeneral = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof recruitGeneral>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof recruitGeneral>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getRecruitGeneralMutationOptions(options));
+};
+
+/**
+ * @summary 遣返武將（候選或已招募皆可；不退資源）
+ */
+export const getDismissGeneralUrl = (id: number) => {
+  return `/api/military/generals/${id}/dismiss`;
+};
+
+export const dismissGeneral = async (
+  id: number,
+  options?: RequestInit,
+): Promise<GeneralMutationResponse> => {
+  return customFetch<GeneralMutationResponse>(getDismissGeneralUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getDismissGeneralMutationOptions = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof dismissGeneral>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof dismissGeneral>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["dismissGeneral"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof dismissGeneral>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return dismissGeneral(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DismissGeneralMutationResult = NonNullable<
+  Awaited<ReturnType<typeof dismissGeneral>>
+>;
+
+export type DismissGeneralMutationError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary 遣返武將（候選或已招募皆可；不退資源）
+ */
+export const useDismissGeneral = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof dismissGeneral>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof dismissGeneral>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDismissGeneralMutationOptions(options));
+};
+
+/**
+ * @summary 升階（指數成本、遞減成功率；失敗照扣成本）
+ */
+export const getUpgradeGeneralUrl = (id: number) => {
+  return `/api/military/generals/${id}/upgrade`;
+};
+
+export const upgradeGeneral = async (
+  id: number,
+  options?: RequestInit,
+): Promise<GeneralUpgradeResponse> => {
+  return customFetch<GeneralUpgradeResponse>(getUpgradeGeneralUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getUpgradeGeneralMutationOptions = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof upgradeGeneral>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof upgradeGeneral>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["upgradeGeneral"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof upgradeGeneral>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return upgradeGeneral(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpgradeGeneralMutationResult = NonNullable<
+  Awaited<ReturnType<typeof upgradeGeneral>>
+>;
+
+export type UpgradeGeneralMutationError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary 升階（指數成本、遞減成功率；失敗照扣成本）
+ */
+export const useUpgradeGeneral = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof upgradeGeneral>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof upgradeGeneral>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getUpgradeGeneralMutationOptions(options));
+};
+
+/**
+ * @summary 指派武將坐鎮軍團（一軍團一名；僅加成同專精分類兵種）
+ */
+export const getAssignGeneralUrl = (id: number) => {
+  return `/api/military/generals/${id}/assign`;
+};
+
+export const assignGeneral = async (
+  id: number,
+  generalAssignRequest: GeneralAssignRequest,
+  options?: RequestInit,
+): Promise<GeneralMutationResponse> => {
+  return customFetch<GeneralMutationResponse>(getAssignGeneralUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(generalAssignRequest),
+  });
+};
+
+export const getAssignGeneralMutationOptions = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof assignGeneral>>,
+    TError,
+    { id: number; data: BodyType<GeneralAssignRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof assignGeneral>>,
+  TError,
+  { id: number; data: BodyType<GeneralAssignRequest> },
+  TContext
+> => {
+  const mutationKey = ["assignGeneral"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof assignGeneral>>,
+    { id: number; data: BodyType<GeneralAssignRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return assignGeneral(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AssignGeneralMutationResult = NonNullable<
+  Awaited<ReturnType<typeof assignGeneral>>
+>;
+export type AssignGeneralMutationBody = BodyType<GeneralAssignRequest>;
+export type AssignGeneralMutationError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary 指派武將坐鎮軍團（一軍團一名；僅加成同專精分類兵種）
+ */
+export const useAssignGeneral = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof assignGeneral>>,
+    TError,
+    { id: number; data: BodyType<GeneralAssignRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof assignGeneral>>,
+  TError,
+  { id: number; data: BodyType<GeneralAssignRequest> },
+  TContext
+> => {
+  return useMutation(getAssignGeneralMutationOptions(options));
+};
+
+/**
+ * @summary 解除軍團指派
+ */
+export const getUnassignGeneralUrl = (id: number) => {
+  return `/api/military/generals/${id}/unassign`;
+};
+
+export const unassignGeneral = async (
+  id: number,
+  options?: RequestInit,
+): Promise<GeneralMutationResponse> => {
+  return customFetch<GeneralMutationResponse>(getUnassignGeneralUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getUnassignGeneralMutationOptions = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unassignGeneral>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof unassignGeneral>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["unassignGeneral"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof unassignGeneral>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return unassignGeneral(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UnassignGeneralMutationResult = NonNullable<
+  Awaited<ReturnType<typeof unassignGeneral>>
+>;
+
+export type UnassignGeneralMutationError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary 解除軍團指派
+ */
+export const useUnassignGeneral = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unassignGeneral>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof unassignGeneral>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getUnassignGeneralMutationOptions(options));
 };
 
 /**

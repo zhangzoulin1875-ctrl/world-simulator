@@ -10,9 +10,12 @@
   },
   "private": true,
   "pnpm": {
-    "onlyBuiltDependencies": ["sharp"]
+    "onlyBuiltDependencies": [
+      "sharp"
+    ]
   },
   "devDependencies": {
+    "@neondatabase/serverless": "^1.2.0",
     "@types/node": "catalog:",
     "prettier": "^3.8.1",
     "typescript": "~5.9.2"
