@@ -52,6 +52,7 @@ import { runGeneralsMigrations } from "./lib/generalsMigrations";
 import { runNationNameSanitizeMigration } from "./lib/nationNameSanitizeMigration";
 import { startRegionControlHealthLoop } from "./lib/regionControlHealth";
 import { startProductionSpentHealthLoop } from "./lib/productionSpentHealth";
+import { startDbKeepalive } from "./lib/dbKeepalive";
 import { startSessionCleanupLoop } from "./lib/sessions";
 import { startTurnLoop } from "./lib/turnEngine";
 import { startWarEngineLoops } from "./lib/warEngine";
@@ -169,6 +170,7 @@ function startBackgroundWork(): void {
   startTurnLoop();
   startRegionControlHealthLoop();
   startProductionSpentHealthLoop();
+  startDbKeepalive();
   startWarEngineLoops();
   startWorldSchedulerLoops();
   startAiPregenWorker();
