@@ -24,6 +24,64 @@ import { playerNationsTable } from "./playerNations";
  * 所有戰鬥數值與招募成本都存在模板上；已研發軍事科技的加成在讀取時套用，
  * 不回寫模板。
  */
+/**
+ * 武器系統 — 玩家 AI 設計的武器藍圖。相容類別由 AI 建議、伺服器夾限；
+ * 每把武器附帶一個 AI 生成的「特殊技能」（名稱＋描述獨一無二，效果為
+ * 結構化欄位，戰鬥結算確定性套用）。
+ */
+export const militaryWeaponsTable = pgTable(
+  "military_weapons",
+  {
+    id: serial("id").primaryKey(),
+    /** 設計者（玩家 Discord user id）。 */
+    ownerDiscordUserId: text("owner_discord_user_id").references(
+      () => playerNationsTable.discordUserId,
+      { onDelete: "cascade" },
+    ),
+    /** Task #389 同款：NPC 以國家 id 持有（目前 NPC 不設計武器，保留欄位）。 */
+    ownerNationId: uuid("owner_nation_id").references(
+      () => playerNationsTable.id,
+      { onDelete: "cascade" },
+    ),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    /** AI 建議的相容兵種類別（jsonb 陣列，元素為 MILITARY_CATEGORIES）。 */
+    compatibleCategories: text("compatible_categories")
+      .array()
+      .notNull(),
+    /** 相容兵種的攻擊加成（%； 夾限 0–15）。 */
+    attackPct: integer("attack_pct").notNull().default(0),
+    /** 相容兵種的防禦加成（%； 夾限 0–15）。 */
+    defensePct: integer("defense_pct").notNull().default(0),
+    /** 特殊技能名稱（AI 生成、獨一無二）。 */
+    skillName: text("skill_name").notNull(),
+    /** 特殊技能描述（AI 生成、獨一無二）。 */
+    skillDescription: text("skill_description").notNull(),
+    /** 技能效果類型：offense | defense | versatile。 */
+    skillEffect: text("skill_effect").notNull(),
+    /** 技能效果幅度（%；夾限 0–10）。 */
+    skillBonusPct: integer("skill_bonus_pct").notNull().default(0),
+    /** AI 設計時的世界時代 slug。 */
+    eraSlug: text("era_slug"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => ({
+    ownerIdx: index("military_weapons_owner_idx").on(t.ownerDiscordUserId),
+    ownerNationIdx: index("military_weapons_owner_nation_idx").on(
+      t.ownerNationId,
+    ),
+  }),
+);
+
+export type MilitaryWeapon = typeof militaryWeaponsTable.$inferSelect;
+export type InsertMilitaryWeapon = typeof militaryWeaponsTable.$inferInsert;
+
 export const militaryUnitTemplatesTable = pgTable(
   "military_unit_templates",
   {
@@ -76,6 +134,14 @@ export const militaryUnitTemplatesTable = pgTable(
     /** Task #406 — 每單位製造所需木材／礦石（招募與購買時同交易扣庫存）。 */
     woodCostPerUnit: integer("wood_cost_per_unit").notNull().default(0),
     oreCostPerUnit: integer("ore_cost_per_unit").notNull().default(0),
+    /**
+     * 武器系統 — 已裝備的武器（軍事武器藍圖）；null = 未裝備。
+     * 銷毀武器時 FK ON DELETE SET NULL 自動卸除裝備。
+     */
+    equippedWeaponId: integer("equipped_weapon_id").references(
+      () => militaryWeaponsTable.id,
+      { onDelete: "set null" },
+    ),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

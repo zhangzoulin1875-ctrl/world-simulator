@@ -6,9 +6,11 @@ import {
   playerArmiesTable,
   militaryUnitTemplatesTable,
   militaryPurchaseQuotasTable,
+  militaryWeaponsTable,
   playerUnitCustomizationsTable,
   recruitProductionSpendsTable,
   type MilitaryUnitTemplate,
+  type MilitaryWeapon,
   type PlayerNation,
 } from "@workspace/db";
 import { getSession, readSessionToken } from "../lib/sessions";
@@ -57,8 +59,21 @@ import {
   countCustomUnits,
   designCustomUnit,
 } from "../lib/militaryAi";
-import { AiQuotaExceededError } from "../lib/gameAi";
+import { AiQuotaExceededError } from "../lib/gameAi";import type { WeaponSkillEffect } from "../lib/weapons";
 import {
+  MAX_WEAPONS_PER_PLAYER,
+  WEAPON_DESIGN_CHARGE_CAP,
+  describeWeaponMods,
+  serializeWeapon,
+  weaponCombatMods,
+  weaponCompatibleWith,
+} from "../lib/weapons";
+import {
+  WeaponCapError,
+  WeaponDesignRejectedError,
+  countWeapons,
+  designCustomWeapon,
+} from "../lib/weaponAi";import {
   loadResearchedKeySlugs,
   loadResearchedMilitaryTechs,
   type ResearchedMilitaryNode,
@@ -165,8 +180,23 @@ function serializeTemplate(
   eraSlug: string,
   researchedKeySlugs: readonly string[],
   customName: string | null = null,
+  equippedWeapon: MilitaryWeapon | null = null,
 ) {
   const effective = applyTechBonuses(template, researched);
+  // 武器系統 — 裝備摘要（相容判定為伺服器純函式；不相容仍可裝備但受懲罰）。
+  const weaponCompatible = equippedWeapon
+    ? weaponCompatibleWith(equippedWeapon, template.category)
+    : null;
+  const weaponMods = equippedWeapon
+    ? describeWeaponMods({
+        equipped: true,
+        compatible: weaponCompatible ?? false,
+        attackPct: equippedWeapon.attackPct,
+        defensePct: equippedWeapon.defensePct,
+        skillEffect: equippedWeapon.skillEffect as WeaponSkillEffect,
+        skillBonusPct: equippedWeapon.skillBonusPct,
+      })
+    : null;
   return {
     id: template.id,
     category: template.category,
@@ -201,6 +231,14 @@ function serializeTemplate(
     baseDefense: template.defense,
     baseSpeed: template.speed,
     baseAccuracy: template.accuracy,
+    equippedWeaponId: template.equippedWeaponId,
+    equippedWeapon: equippedWeapon
+      ? {
+          ...serializeWeapon(equippedWeapon, eraSlug),
+          compatible: weaponCompatible,
+          modsLabel: weaponMods,
+        }
+      : null,
   };
 }
 
@@ -276,6 +314,7 @@ router.get("/military/overview", async (req, res) => {
     customNames,
     wounded,
     currentTurnSpend,
+    weapons,
   ] = await Promise.all([
     loadVisibleTemplates(userId),
     loadResearchedTechs(userId),
@@ -289,7 +328,14 @@ router.get("/military/overview", async (req, res) => {
     loadCustomNames(userId),
     getWoundedStatus(userId, nation.id),
     loadCurrentTurnRecruitSpend(nation.id),
+    db
+      .select()
+      .from(militaryWeaponsTable)
+      .where(eq(militaryWeaponsTable.ownerDiscordUserId, userId))
+      .orderBy(asc(militaryWeaponsTable.id)),
   ]);
+
+  const weaponById = new Map(weapons.map((w) => [w.id, w]));
 
   const customCounts = new Map<string, number>();
   for (const t of templates) {
@@ -328,6 +374,9 @@ router.get("/military/overview", async (req, res) => {
         eraSlug,
         researchedKeySlugs,
         customNames.get(t.id) ?? null,
+        t.equippedWeaponId
+          ? (weaponById.get(t.equippedWeaponId) ?? null)
+          : null,
       ),
     ),
     armies: armies.map((a) => ({ templateId: a.templateId, quantity: a.quantity })),
@@ -348,6 +397,11 @@ router.get("/military/overview", async (req, res) => {
     // Task #510 — 兵種設計改為次數制（每回合 +1、上限 5、每次設計消耗 1）。
     unitDesignCharges: nation.unitDesignCharges,
     unitDesignChargeCap: UNIT_DESIGN_CHARGE_CAP,
+    // 武器系統 — 武器藍圖清單與設計次數（每回合回滿至上限）。
+    weapons: weapons.map((w) => serializeWeapon(w, eraSlug)),
+    weaponDesignCharges: nation.weaponDesignCharges,
+    weaponDesignChargeCap: WEAPON_DESIGN_CHARGE_CAP,
+    weaponLimit: MAX_WEAPONS_PER_PLAYER,
     // Task #386 — 顯示用倍率（route 序列化才取整到 2 位小數）。
     costMultiplier: Math.round(costMult * 100) / 100,
     maxOrderQuantity: MAX_ORDER_QUANTITY,
@@ -1213,6 +1267,256 @@ router.delete("/military/templates/:id", async (req, res) => {
     req.log.error({ err }, "military template delete failed");
     res.status(500).json({ error: "刪除失敗，請稍後再試" });
   }
+});
+
+// ── 武器系統（兵種設計的姊妹系統）──────────────────────────────
+
+/** POST /military/design-weapon — AI 武器設計（含特殊技能），消耗 1 次設計次數。 */
+router.post("/military/design-weapon", aiRateLimit, async (req, res) => {
+  const auth = await requirePlayer(req, res);
+  if (!auth) return;
+  const { nation, userId } = auth;
+
+  if (nation.coupPolicyLockTurns > 0) {
+    res.status(403).json({
+      error: `政變後政局動盪，暫時無法設計武器（剩餘 ${nation.coupPolicyLockTurns} 回合）`,
+    });
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const rawRequirement = body["requirement"];
+  if (
+    typeof rawRequirement !== "string" ||
+    rawRequirement.trim().length === 0 ||
+    rawRequirement.trim().length > 500
+  ) {
+    res.status(400).json({ error: "requirement 必須是 1～500 字的說明" });
+    return;
+  }
+  const requirement = rawRequirement.trim();
+
+  // 武器總數上限預先檢查（快速失敗，不扣次數）；併發繞過由
+  // designCustomWeapon 入庫交易內的 advisory-lock 檢查兜底。
+  const existingCount = await countWeapons(userId);
+  if (existingCount >= MAX_WEAPONS_PER_PLAYER) {
+    res.status(400).json({ error: new WeaponCapError().message });
+    return;
+  }
+
+  // 原子扣 1 次設計次數（條件式 UPDATE，併發不會雙重消耗）。
+  const claimed = await db
+    .update(playerNationsTable)
+    .set({
+      weaponDesignCharges: sql`${playerNationsTable.weaponDesignCharges} - 1`,
+    })
+    .where(
+      and(
+        eq(playerNationsTable.discordUserId, userId),
+        sql`${playerNationsTable.weaponDesignCharges} >= 1`,
+      ),
+    )
+    .returning();
+  if (!claimed[0]) {
+    res.status(400).json({
+      error: `武器設計次數不足（每回合回滿至上限 ${WEAPON_DESIGN_CHARGE_CAP} 次）`,
+    });
+    return;
+  }
+
+  let weapon: Awaited<ReturnType<typeof designCustomWeapon>>;
+  try {
+    const [eraSlug, gameYear] = await Promise.all([
+      getCurrentEraSlug(),
+      getCurrentGameYear(),
+    ]);
+    weapon = await designCustomWeapon({
+      ownerDiscordUserId: userId,
+      requirement,
+      eraSlug,
+      gameYear,
+      nation: { id: claimed[0].id, name: claimed[0].name },
+    });
+  } catch (err) {
+    // 未入庫即失敗 → 退還次數（封頂 3；weaponDesignCharges 每回合回滿，
+    // 此處仍以 +1 封頂寫回，避免回合中途退還超過上限）。
+    await db
+      .update(playerNationsTable)
+      .set({
+        weaponDesignCharges: sql`LEAST(${WEAPON_DESIGN_CHARGE_CAP}, ${playerNationsTable.weaponDesignCharges} + 1)`,
+      })
+      .where(eq(playerNationsTable.discordUserId, userId))
+      .catch((refundErr) =>
+        req.log.error({ refundErr, userId }, "weapon design refund failed"),
+      );
+    if (err instanceof WeaponCapError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    if (err instanceof AiQuotaExceededError) {
+      res.status(503).json({ error: err.message });
+      return;
+    }
+    if (err instanceof WeaponDesignRejectedError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    req.log.error({ err, userId }, "AI weapon design failed");
+    res.status(502).json({
+      error:
+        err instanceof Error && err.message.startsWith("AI")
+          ? err.message
+          : "AI 武器設計失敗，請稍後再試（設計次數已退還）",
+    });
+    return;
+  }
+
+  req.log.info(
+    { userId, weaponId: weapon.id },
+    "AI weapon design completed",
+  );
+  try {
+    res.json({
+      weapon: serializeWeapon(weapon, weapon.eraSlug ?? "medieval"),
+      weaponDesignCharges: claimed[0].weaponDesignCharges,
+    });
+  } catch (err) {
+    // 武器已入庫且已扣次數 — 不退還；下次 overview 會看到。
+    req.log.error({ err, userId, weaponId: weapon.id },
+      "post-design weapon serialization failed (weapon persisted, charge kept)");
+    res.status(500).json({
+      error: "武器已設計完成，但載入結果時發生錯誤，請重新整理頁面查看",
+    });
+  }
+});
+
+/**
+ * POST /military/equip-weapon — 兵種裝備／卸除武器。
+ * body: { templateId, weaponId }（weaponId = null 表示卸除）。
+ * 不相容仍可裝備（戰鬥時受懲罰）；伺服器回傳相容判定供前端顯示。
+ */
+router.post("/military/equip-weapon", async (req, res) => {
+  const auth = await requirePlayer(req, res);
+  if (!auth) return;
+  const { userId } = auth;
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const rawTemplateId = body["templateId"];
+  const rawWeaponId = body["weaponId"];
+  const templateId =
+    typeof rawTemplateId === "number"
+      ? rawTemplateId
+      : Number(rawTemplateId);
+  if (!Number.isInteger(templateId) || templateId <= 0) {
+    res.status(400).json({ error: "templateId 不正確" });
+    return;
+  }
+
+  try {
+    const [template] = await db
+      .select()
+      .from(militaryUnitTemplatesTable)
+      .where(
+        and(
+          eq(militaryUnitTemplatesTable.id, templateId),
+          eq(militaryUnitTemplatesTable.ownerDiscordUserId, userId),
+        ),
+      )
+      .limit(1);
+    if (!template) {
+      throw new HttpError(404, "找不到該自創兵種");
+    }
+
+    let weapon: MilitaryWeapon | null = null;
+    if (rawWeaponId !== null && rawWeaponId !== undefined) {
+      const weaponId =
+        typeof rawWeaponId === "number" ? rawWeaponId : Number(rawWeaponId);
+      if (!Number.isInteger(weaponId) || weaponId <= 0) {
+        throw new HttpError(400, "weaponId 不正確");
+      }
+      const [row] = await db
+        .select()
+        .from(militaryWeaponsTable)
+        .where(
+          and(
+            eq(militaryWeaponsTable.id, weaponId),
+            eq(militaryWeaponsTable.ownerDiscordUserId, userId),
+          ),
+        )
+        .limit(1);
+      if (!row) throw new HttpError(404, "找不到該武器");
+      weapon = row;
+    }
+
+    await db
+      .update(militaryUnitTemplatesTable)
+      .set({ equippedWeaponId: weapon ? weapon.id : null })
+      .where(eq(militaryUnitTemplatesTable.id, templateId));
+
+    const compatible = weapon
+      ? weaponCompatibleWith(weapon, template.category)
+      : null;
+    res.json({
+      templateId,
+      equippedWeaponId: weapon ? weapon.id : null,
+      compatible,
+      modsLabel: weapon
+        ? describeWeaponMods({
+            equipped: true,
+            compatible: compatible ?? false,
+            attackPct: weapon.attackPct,
+            defensePct: weapon.defensePct,
+            skillEffect: weapon.skillEffect as WeaponSkillEffect,
+            skillBonusPct: weapon.skillBonusPct,
+          })
+        : "未裝備",
+    });
+  } catch (err) {
+    if (err instanceof HttpError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    req.log.error({ err, userId }, "weapon equip failed");
+    res.status(500).json({ error: "裝備設定失敗，請稍後再試" });
+  }
+});
+
+/** DELETE /military/weapons/:id — 銷毀武器（不退次數；已裝備兵種自動卸除）。 */
+router.delete("/military/weapons/:id", async (req, res) => {
+  const auth = await requirePlayer(req, res);
+  if (!auth) return;
+  const { userId } = auth;
+
+  const weaponId = parseTemplateIdParam(req.params.id);
+  const deleted = await db
+    .delete(militaryWeaponsTable)
+    .where(
+      and(
+        eq(militaryWeaponsTable.id, weaponId),
+        eq(militaryWeaponsTable.ownerDiscordUserId, userId),
+      ),
+    )
+    .returning({ id: militaryWeaponsTable.id });
+  if (!deleted[0]) {
+    res.status(404).json({ error: "找不到可銷毀的武器" });
+    return;
+  }
+  // equipped_weapon_id FK ON DELETE SET NULL 已自動卸除裝備；此處防禦性
+  // 再清一次（涵蓋未來 schema 變動）。
+  await db
+    .update(militaryUnitTemplatesTable)
+    .set({ equippedWeaponId: null })
+    .where(
+      and(
+        eq(militaryUnitTemplatesTable.ownerDiscordUserId, userId),
+        eq(militaryUnitTemplatesTable.equippedWeaponId, weaponId),
+      ),
+    )
+    .catch((err) =>
+      req.log.error({ err, userId, weaponId }, "weapon unequip cleanup failed"),
+    );
+  req.log.info({ userId, weaponId }, "weapon deleted");
+  res.json({ weaponId, deleted: true });
 });
 
 export default router;

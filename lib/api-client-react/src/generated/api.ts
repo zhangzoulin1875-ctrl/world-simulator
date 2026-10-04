@@ -136,6 +136,11 @@ import type {
   WarLegionsUpdateResult,
   WarOrderRequest,
   WarReportsResponse,
+  WeaponDeleteResult,
+  WeaponDesignRequest,
+  WeaponDesignResult,
+  WeaponEquipRequest,
+  WeaponEquipResult,
   WorldEraStatsResponse,
   WorldGameStateResponse,
 } from "./api.schemas";
@@ -2178,6 +2183,262 @@ export const useDesignMilitaryUnit = <
   TContext
 > => {
   return useMutation(getDesignMilitaryUnitMutationOptions(options));
+};
+
+/**
+ * @summary AI 武器設計（含獨一無二的特殊技能）— 消耗 1 次武器設計次數（AI 失敗退還）
+ */
+export const getDesignMilitaryWeaponUrl = () => {
+  return `/api/military/design-weapon`;
+};
+
+export const designMilitaryWeapon = async (
+  weaponDesignRequest: WeaponDesignRequest,
+  options?: RequestInit,
+): Promise<WeaponDesignResult> => {
+  return customFetch<WeaponDesignResult>(getDesignMilitaryWeaponUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(weaponDesignRequest),
+  });
+};
+
+export const getDesignMilitaryWeaponMutationOptions = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof designMilitaryWeapon>>,
+    TError,
+    { data: BodyType<WeaponDesignRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof designMilitaryWeapon>>,
+  TError,
+  { data: BodyType<WeaponDesignRequest> },
+  TContext
+> => {
+  const mutationKey = ["designMilitaryWeapon"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof designMilitaryWeapon>>,
+    { data: BodyType<WeaponDesignRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return designMilitaryWeapon(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DesignMilitaryWeaponMutationResult = NonNullable<
+  Awaited<ReturnType<typeof designMilitaryWeapon>>
+>;
+export type DesignMilitaryWeaponMutationBody = BodyType<WeaponDesignRequest>;
+export type DesignMilitaryWeaponMutationError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary AI 武器設計（含獨一無二的特殊技能）— 消耗 1 次武器設計次數（AI 失敗退還）
+ */
+export const useDesignMilitaryWeapon = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof designMilitaryWeapon>>,
+    TError,
+    { data: BodyType<WeaponDesignRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof designMilitaryWeapon>>,
+  TError,
+  { data: BodyType<WeaponDesignRequest> },
+  TContext
+> => {
+  return useMutation(getDesignMilitaryWeaponMutationOptions(options));
+};
+
+/**
+ * @summary 兵種裝備／卸除武器（不相容仍可裝備，戰鬥時受懲罰）
+ */
+export const getEquipMilitaryWeaponUrl = () => {
+  return `/api/military/equip-weapon`;
+};
+
+export const equipMilitaryWeapon = async (
+  weaponEquipRequest: WeaponEquipRequest,
+  options?: RequestInit,
+): Promise<WeaponEquipResult> => {
+  return customFetch<WeaponEquipResult>(getEquipMilitaryWeaponUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(weaponEquipRequest),
+  });
+};
+
+export const getEquipMilitaryWeaponMutationOptions = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof equipMilitaryWeapon>>,
+    TError,
+    { data: BodyType<WeaponEquipRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof equipMilitaryWeapon>>,
+  TError,
+  { data: BodyType<WeaponEquipRequest> },
+  TContext
+> => {
+  const mutationKey = ["equipMilitaryWeapon"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof equipMilitaryWeapon>>,
+    { data: BodyType<WeaponEquipRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return equipMilitaryWeapon(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type EquipMilitaryWeaponMutationResult = NonNullable<
+  Awaited<ReturnType<typeof equipMilitaryWeapon>>
+>;
+export type EquipMilitaryWeaponMutationBody = BodyType<WeaponEquipRequest>;
+export type EquipMilitaryWeaponMutationError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary 兵種裝備／卸除武器（不相容仍可裝備，戰鬥時受懲罰）
+ */
+export const useEquipMilitaryWeapon = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof equipMilitaryWeapon>>,
+    TError,
+    { data: BodyType<WeaponEquipRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof equipMilitaryWeapon>>,
+  TError,
+  { data: BodyType<WeaponEquipRequest> },
+  TContext
+> => {
+  return useMutation(getEquipMilitaryWeaponMutationOptions(options));
+};
+
+/**
+ * @summary 銷毀武器（不退設計次數；已裝備兵種自動卸除）
+ */
+export const getDeleteMilitaryWeaponUrl = (id: number) => {
+  return `/api/military/weapons/${id}`;
+};
+
+export const deleteMilitaryWeapon = async (
+  id: number,
+  options?: RequestInit,
+): Promise<WeaponDeleteResult> => {
+  return customFetch<WeaponDeleteResult>(getDeleteMilitaryWeaponUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteMilitaryWeaponMutationOptions = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteMilitaryWeapon>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteMilitaryWeapon>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteMilitaryWeapon"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteMilitaryWeapon>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteMilitaryWeapon(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteMilitaryWeaponMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteMilitaryWeapon>>
+>;
+
+export type DeleteMilitaryWeaponMutationError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary 銷毀武器（不退設計次數；已裝備兵種自動卸除）
+ */
+export const useDeleteMilitaryWeapon = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteMilitaryWeapon>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteMilitaryWeapon>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getDeleteMilitaryWeaponMutationOptions(options));
 };
 
 /**

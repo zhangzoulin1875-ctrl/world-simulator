@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { MilitaryUnitTemplateEquippedWeapon } from "./militaryUnitTemplateEquippedWeapon";
 
 export interface MilitaryUnitTemplate {
   id: number;
@@ -46,4 +47,8 @@ export interface MilitaryUnitTemplate {
   baseDefense: number;
   baseSpeed: number;
   baseAccuracy: number;
+  /** 武器系統 — 已裝備的武器 id（null = 未裝備） */
+  equippedWeaponId?: number | null;
+  /** 武器系統 — 裝備中的武器摘要（含相容判定與效果標籤；null = 未裝備） */
+  equippedWeapon?: MilitaryUnitTemplateEquippedWeapon;
 }

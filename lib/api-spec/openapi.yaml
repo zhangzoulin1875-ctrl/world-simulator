@@ -611,6 +611,97 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorMessage" }
 
+  /military/design-weapon:
+    post:
+      operationId: designMilitaryWeapon
+      tags: [military]
+      summary: AI 武器設計（含獨一無二的特殊技能）— 消耗 1 次武器設計次數（AI 失敗退還）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WeaponDesignRequest" }
+      responses:
+        "200":
+          description: Designed weapon
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WeaponDesignResult" }
+        "400":
+          description: Validation / no charges / weapon cap reached / requirement rejected
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "502":
+          description: AI generation failed (charge refunded)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /military/equip-weapon:
+    post:
+      operationId: equipMilitaryWeapon
+      tags: [military]
+      summary: 兵種裝備／卸除武器（不相容仍可裝備，戰鬥時受懲罰）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WeaponEquipRequest" }
+      responses:
+        "200":
+          description: Equip result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WeaponEquipResult" }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "404":
+          description: Template or weapon not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /military/weapons/{id}:
+    delete:
+      operationId: deleteMilitaryWeapon
+      tags: [military]
+      summary: 銷毀武器（不退設計次數；已裝備兵種自動卸除）
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WeaponDeleteResult" }
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "404":
+          description: Weapon not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
   /tech-tree/overview:
     get:
       operationId: getTechTreeOverview
@@ -3641,6 +3732,59 @@ components:
         baseDefense: { type: integer }
         baseSpeed: { type: number }
         baseAccuracy: { type: integer }
+        equippedWeaponId:
+          type: integer
+          nullable: true
+          description: 武器系統 — 已裝備的武器 id（null = 未裝備）
+        equippedWeapon:
+          type: object
+          nullable: true
+          description: 武器系統 — 裝備中的武器摘要（含相容判定與效果標籤；null = 未裝備）
+          allOf:
+            - $ref: "#/components/schemas/MilitaryWeapon"
+            - type: object
+              properties:
+                compatible: { type: boolean, description: 該兵種是否在武器相容類別中 }
+                modsLabel: { type: string, description: 效果摘要（「攻 +10%・技能效果：攻 +8%」等） }
+
+    MilitaryWeapon:
+      type: object
+      required:
+        [
+          id,
+          name,
+          description,
+          compatibleCategories,
+          compatibleLabels,
+          attackPct,
+          defensePct,
+          skillName,
+          skillDescription,
+          skillEffect,
+          skillBonusPct,
+        ]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        description: { type: string }
+        compatibleCategories:
+          type: array
+          description: AI 建議的相容兵種類別（1–3 個）
+          items: { type: string }
+        compatibleLabels:
+          type: array
+          description: 相容類別顯示名
+          items: { type: string }
+        attackPct: { type: integer, description: 相容兵種攻擊加成 %（0–15） }
+        defensePct: { type: integer, description: 相容兵種防禦加成 %（0–15） }
+        skillName: { type: string, description: AI 生成的獨一無二特殊技能名稱 }
+        skillDescription: { type: string, description: 特殊技能描述（現實可行、無超自然） }
+        skillEffect:
+          type: string
+          enum: [offense, defense, versatile]
+          description: 技能效果類型（offense=進攻/defense=防禦/versatile=攻守各半）
+        skillBonusPct: { type: integer, description: 技能效果幅度 %（0–10） }
+        eraSlug: { type: string, nullable: true, description: 設計時的世界時代 }
 
     MilitaryArmyEntry:
       type: object
@@ -3823,6 +3967,10 @@ components:
           attackModifierPct,
           unitDesignCharges,
           unitDesignChargeCap,
+          weapons,
+          weaponDesignCharges,
+          weaponDesignChargeCap,
+          weaponLimit,
           costMultiplier,
           maxOrderQuantity,
           customUnitLimit,
@@ -3865,6 +4013,19 @@ components:
         unitDesignChargeCap:
           type: integer
           description: "設計次數上限（5）"
+        weapons:
+          type: array
+          description: 武器系統 — 玩家所有武器藍圖
+          items: { $ref: "#/components/schemas/MilitaryWeapon" }
+        weaponDesignCharges:
+          type: integer
+          description: 武器系統 — 剩餘武器設計次數（每回合回滿至上限）
+        weaponDesignChargeCap:
+          type: integer
+          description: 武器系統 — 設計次數上限（3）
+        weaponLimit:
+          type: integer
+          description: 武器系統 — 每位玩家武器藍圖上限（10；銷毀可釋放）
         costMultiplier:
           type: number
           description: "研發/設計成本倍率（本國調整後生產力 ÷ 全球平均；已四捨五入到 2 位小數，僅供顯示）"
@@ -4934,6 +5095,56 @@ components:
         unitDesignCharges:
           type: integer
           description: "Task #510 — 剩餘兵種設計次數（0–5）"
+
+    WeaponDesignRequest:
+      type: object
+      required: [requirement]
+      properties:
+        requirement:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: 武器設計需求說明（繁體中文）
+
+    WeaponDesignResult:
+      type: object
+      required: [weapon, weaponDesignCharges]
+      properties:
+        weapon: { $ref: "#/components/schemas/MilitaryWeapon" }
+        weaponDesignCharges:
+          type: integer
+          description: 剩餘武器設計次數
+
+    WeaponEquipRequest:
+      type: object
+      required: [templateId]
+      properties:
+        templateId: { type: integer, description: 自創兵種 template id }
+        weaponId:
+          type: integer
+          nullable: true
+          description: 要裝備的武器 id（null = 卸除）
+
+    WeaponEquipResult:
+      type: object
+      required: [templateId, equippedWeaponId, modsLabel]
+      properties:
+        templateId: { type: integer }
+        equippedWeaponId:
+          type: integer
+          nullable: true
+        compatible:
+          type: boolean
+          nullable: true
+          description: 相容判定（卸除時為 null）
+        modsLabel: { type: string, description: 效果摘要（未裝備 = "未裝備"） }
+
+    WeaponDeleteResult:
+      type: object
+      required: [weaponId, deleted]
+      properties:
+        weaponId: { type: integer }
+        deleted: { type: boolean }
 
     MilitaryRenameResult:
       type: object

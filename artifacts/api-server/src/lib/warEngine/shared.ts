@@ -130,6 +130,17 @@ export interface LoadedLegion {
     siegePct: number;
     /** Task #625 — 兵種設計時代 slug（用於過時偵測）。 */
     eraSlug?: string;
+    /** 武器系統 — 裝備武器名稱（未裝備為 undefined）。 */
+    weaponName?: string;
+    /** 武器系統 — 特殊技能名稱。 */
+    weaponSkillName?: string;
+    /** 武器系統 — 相容與否（戰報敘事用）。 */
+    weaponCompatible?: boolean;
+    /**
+     * 武器系統 — 戰鬥乘數（weaponCombatMods 算出；未裝備 = 1）。
+     */
+    weaponOffenseMult?: number;
+    weaponDefenseMult?: number;
     /** 本週期戰死數（applyCycleResult 內部累計用）。 */
     deadThisCycle?: number;
   }[];

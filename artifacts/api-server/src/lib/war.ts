@@ -420,6 +420,13 @@ export interface PowerUnitInput {
   attack: number;
   defense: number;
   hp: number;
+  /**
+   * 武器系統 — 該兵種裝備武器後的戰鬥乘數（相容加成／不相容懲罰＋
+   * 特殊技能效果，由呼叫端以 weaponCombatMods 純函式算出）。
+   * 缺省 = 1（未裝備或舊路徑）。
+   */
+  offenseMult?: number;
+  defenseMult?: number;
 }
 
 /** 單一軍團的戰力輸入（士氣／補給／是否駐守城市／作戰積極度）。 */
@@ -487,9 +494,12 @@ export function computeEffectivePower(input: SidePowerInput): SidePower {
     const defMult = cond * (legion.garrisoning ? wallMult : 1);
     for (const u of legion.units) {
       const q = Math.max(0, u.quantity);
+      // 武器系統 — 裝備乘數只放大該兵種的攻/防貢獻（缺省 1）。
+      const weaponOff = u.offenseMult ?? 1;
+      const weaponDef = u.defenseMult ?? 1;
       troops += q;
-      offense += q * Math.max(0, u.attack) * offMult;
-      defense += q * Math.max(0, u.defense + u.hp) * defMult;
+      offense += q * Math.max(0, u.attack) * offMult * weaponOff;
+      defense += q * Math.max(0, u.defense + u.hp) * defMult * weaponDef;
     }
   }
   return {

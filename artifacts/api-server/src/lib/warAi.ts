@@ -122,6 +122,12 @@ export interface WarCycleUnitInput {
   siegePct: number;
   /** Task #625 — 兵種設計時代 slug（供過時偵測純函式；可選，無值時略過偵測）。 */
   eraSlug?: string;
+  /** 武器系統 — 裝備武器名稱（未裝備時省略）。 */
+  weaponName?: string;
+  /** 武器系統 — 武器特殊技能名稱（戰報敘事素材）。 */
+  weaponSkillName?: string;
+  /** 武器系統 — 相容與否（不相容時受戰力懲罰，敘事應反映）。 */
+  weaponCompatible?: boolean;
 }
 
 export interface WarCycleLegionInput {
@@ -315,7 +321,7 @@ export async function analyzeWarUnits(
       `${sideLabel}兵種：`,
       ...units.map(
         (u) =>
-          `  ${u.category}（制騎 ${u.antiCavalryPct}%・制遠 ${u.antiRangedPct}%・攻城 ${u.siegePct}%）×${u.quantity}`,
+          `  ${u.category}（制騎 ${u.antiCavalryPct}%・制遠 ${u.antiRangedPct}%・攻城 ${u.siegePct}%）×${u.quantity}${u.weaponName ? `・裝備武器「${u.weaponName}」${u.weaponCompatible === false ? "（不合用，戰力受損）" : ""}` : ""}`,
       ),
     ].join("\n");
   };
@@ -391,7 +397,9 @@ function serializeSide(side: WarCycleSideInput): string {
       `軍團${legion.slot}${legion.nationName ? `（${legion.nationName}）` : ""}：士氣 ${legion.morale}／補給 ${legion.supply}${legion.garrisoningCity ? "／駐守城市" : ""}`,
     );
     for (const u of legion.units) {
-      lines.push(`  - ${u.name}（${u.category}）×${u.quantity}`);
+      lines.push(
+        `  - ${u.name}（${u.category}）×${u.quantity}${u.weaponName ? `・武器「${u.weaponName}」${u.weaponSkillName ? `（特殊技能「${u.weaponSkillName}」）` : ""}${u.weaponCompatible === false ? "（不合用，戰力受損）" : ""}` : ""}`,
+      );
     }
   }
   if (side.orders.length === 0) {

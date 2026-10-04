@@ -60,6 +60,11 @@ export const playerNationsTable = pgTable("player_nations", {
    * 1 次（同樣封頂 5）。取代原本的科技點數設計成本。
    */
   unitDesignCharges: integer("unit_design_charges").notNull().default(5),
+  /**
+   * 武器設計次數：每回合回滿至 3（weaponDesignChargeCap）；每次 AI 武器
+   * 設計消耗 1 次，AI 失敗退回。武器設計屬兵種設計的姊妹系統。
+   */
+  weaponDesignCharges: integer("weapon_design_charges").notNull().default(3),
   money: bigint("money", { mode: "number" }).notNull().default(10_000),
   /**
    * Task #406 — 資源庫存：木材與礦石（整數 ≥0）。由地區建築（木材廠／礦場）

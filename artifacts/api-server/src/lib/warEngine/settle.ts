@@ -4,6 +4,7 @@ import {
   mapRegionEraStatsTable,
   mapRegionsTable,
   militaryUnitTemplatesTable,
+  militaryWeaponsTable,
   playerNationsTable,
   regionControlsTable,
   warCampaignLegionsTable,
@@ -56,6 +57,7 @@ import { getPoliticsSettings } from "../politicsSettings";
 import { logger } from "../logger";
 import { pgErrorCode } from "../playerValidation";
 import { getRecoveryBonuses, type LoadedLegion, type Tx } from "./shared";
+import { weaponCombatMods, type WeaponSkillEffect } from "../weapons";
 import { loadParticipants, pruneStaleJoiners } from "./participants";
 import { endCampaignById, endCampaignInTx, notifyEndForBoth } from "./endCampaign";
 import { applyCycleResult } from "./applyCycleResult";
@@ -197,6 +199,14 @@ async function loadLegions(campaignId: number): Promise<Map<string, LoadedLegion
       templateAntiRangedPct: militaryUnitTemplatesTable.antiRangedPct,
       templateSiegePct: militaryUnitTemplatesTable.siegePct,
       templateEraSlug: militaryUnitTemplatesTable.eraSlug,
+      equippedWeaponId: militaryUnitTemplatesTable.equippedWeaponId,
+      weaponName: militaryWeaponsTable.name,
+      weaponCompatibleCategories: militaryWeaponsTable.compatibleCategories,
+      weaponAttackPct: militaryWeaponsTable.attackPct,
+      weaponDefensePct: militaryWeaponsTable.defensePct,
+      weaponSkillName: militaryWeaponsTable.skillName,
+      weaponSkillEffect: militaryWeaponsTable.skillEffect,
+      weaponSkillBonusPct: militaryWeaponsTable.skillBonusPct,
     })
     .from(warCampaignLegionsTable)
     .leftJoin(
@@ -206,6 +216,10 @@ async function loadLegions(campaignId: number): Promise<Map<string, LoadedLegion
     .leftJoin(
       militaryUnitTemplatesTable,
       eq(militaryUnitTemplatesTable.id, warCampaignLegionUnitsTable.templateId),
+    )
+    .leftJoin(
+      militaryWeaponsTable,
+      eq(militaryWeaponsTable.id, militaryUnitTemplatesTable.equippedWeaponId),
     )
     .where(eq(warCampaignLegionsTable.campaignId, campaignId))
     .orderBy(asc(warCampaignLegionsTable.slot));
@@ -247,6 +261,28 @@ async function loadLegions(campaignId: number): Promise<Map<string, LoadedLegion
         antiRangedPct: row.templateAntiRangedPct ?? 0,
         siegePct: row.templateSiegePct ?? 0,
         eraSlug: row.templateEraSlug ?? undefined,
+        ...(row.weaponName
+          ? (() => {
+              const compatible = (row.weaponCompatibleCategories ?? []).includes(
+                row.templateCategory ?? "",
+              );
+              const mods = weaponCombatMods({
+                equipped: true,
+                compatible,
+                attackPct: row.weaponAttackPct ?? 0,
+                defensePct: row.weaponDefensePct ?? 0,
+                skillEffect: (row.weaponSkillEffect ?? "versatile") as WeaponSkillEffect,
+                skillBonusPct: row.weaponSkillBonusPct ?? 0,
+              });
+              return {
+                weaponName: row.weaponName,
+                weaponSkillName: row.weaponSkillName ?? undefined,
+                weaponCompatible: compatible,
+                weaponOffenseMult: mods.offenseMult,
+                weaponDefenseMult: mods.defenseMult,
+              };
+            })()
+          : {}),
       });
     }
   }
@@ -278,6 +314,13 @@ function toAiLegions(
       antiRangedPct: u.antiRangedPct,
       siegePct: u.siegePct,
       eraSlug: u.eraSlug,
+      ...(u.weaponName
+        ? {
+            weaponName: u.weaponName,
+            weaponSkillName: u.weaponSkillName,
+            weaponCompatible: u.weaponCompatible,
+          }
+        : {}),
     })),
   }));
 }

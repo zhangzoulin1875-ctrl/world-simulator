@@ -12,6 +12,7 @@ import type { MilitaryResources } from "./militaryResources";
 import type { MilitaryTech } from "./militaryTech";
 import type { MilitaryTechBonus } from "./militaryTechBonus";
 import type { MilitaryUnitTemplate } from "./militaryUnitTemplate";
+import type { MilitaryWeapon } from "./militaryWeapon";
 import type { NavalLandingInfo } from "./navalLandingInfo";
 
 export interface MilitaryOverview {
@@ -33,6 +34,14 @@ export interface MilitaryOverview {
   unitDesignCharges: number;
   /** 設計次數上限（5） */
   unitDesignChargeCap: number;
+  /** 武器系統 — 玩家所有武器藍圖 */
+  weapons: MilitaryWeapon[];
+  /** 武器系統 — 剩餘武器設計次數（每回合回滿至上限） */
+  weaponDesignCharges: number;
+  /** 武器系統 — 設計次數上限（3） */
+  weaponDesignChargeCap: number;
+  /** 武器系統 — 每位玩家武器藍圖上限（10；銷毀可釋放） */
+  weaponLimit: number;
   /** 研發/設計成本倍率（本國調整後生產力 ÷ 全球平均；已四捨五入到 2 位小數，僅供顯示） */
   costMultiplier: number;
   maxOrderQuantity: number;

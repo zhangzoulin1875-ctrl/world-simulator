@@ -13,6 +13,7 @@ import {
 } from "@workspace/db";
 import { buildingOutput, buildingUpkeep } from "./regionBuildings";
 import { UNIT_DESIGN_CHARGE_CAP } from "./military";
+import { WEAPON_DESIGN_CHARGE_CAP } from "./weapons";
 import { logger } from "./logger";
 import {
   noteGameActivity,
@@ -797,6 +798,9 @@ async function doRunTurn(
           // Task #510 — 兵種設計次數每回合 +1，封頂 5（所有國家一致，含
           // 無主/NPC；NPC 設計流程本就不消耗，僅為簡化統一處理）。
           unitDesignCharges: sql`LEAST(${UNIT_DESIGN_CHARGE_CAP}, ${playerNationsTable.unitDesignCharges} + 1)`,
+          // 武器設計次數：每回合「回滿」至上限 3（與兵種的累積 +1 制不同，
+          // 每回合最多可設計 3 把）。
+          weaponDesignCharges: sql`${WEAPON_DESIGN_CHARGE_CAP}`,
           // Task #584 — 政變後果倒數：政策封鎖與士氣懲罰回合數每回合 −1，夾 ≥0。
           coupPolicyLockTurns: sql`GREATEST(0, ${playerNationsTable.coupPolicyLockTurns} - 1)`,
           coupMoralePenaltyTurns: sql`GREATEST(0, ${playerNationsTable.coupMoralePenaltyTurns} - 1)`,

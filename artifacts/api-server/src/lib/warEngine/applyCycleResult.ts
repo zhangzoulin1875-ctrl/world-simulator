@@ -343,6 +343,13 @@ export async function applyCycleResult(
           attack: u.attack,
           defense: u.defense,
           hp: u.hp,
+          // 武器系統 — 裝備乘數（未裝備 = undefined → 結算層視為 1）。
+          ...(u.weaponOffenseMult !== undefined
+            ? { offenseMult: u.weaponOffenseMult }
+            : {}),
+          ...(u.weaponDefenseMult !== undefined
+            ? { defenseMult: u.weaponDefenseMult }
+            : {}),
         })),
       })),
       attackModifierPct: attackModifierPct[side.key],

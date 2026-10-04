@@ -11,6 +11,7 @@ import { runMapRegionEraStatsSync } from "./lib/mapRegionEraStats";
 import { runMapCitySync, validateMapCitySeed } from "./lib/mapCities";
 import { runMapV2RegionReset } from "./lib/mapV2Reset";
 import { runMilitaryMigrations } from "./lib/militaryMigrations";
+import { runWeaponMigrations } from "./lib/weaponMigrations";
 import { runDiplomacyMigrations } from "./lib/diplomacyMigrations";
 import { runResourceMigrations } from "./lib/resourceMigrations";
 import {
@@ -96,6 +97,8 @@ async function runStartupMigrations(): Promise<void> {
   // 所有地區綁定的遊戲資料（掌控/戰爭/戰役/傷兵…）；國家/外觀/音樂保留。
   await runMapV2RegionReset();
   await runMilitaryMigrations();
+  // 武器系統（兵種設計的姊妹系統：武器藍圖/裝備/設計次數）。
+  await runWeaponMigrations();
   await runDiplomacyMigrations();
   // Task #406 — 資源系統（木材/礦石庫存、地區建築、條約資源欄位）。
   await runResourceMigrations();

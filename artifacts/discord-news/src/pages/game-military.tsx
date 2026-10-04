@@ -21,10 +21,12 @@ import {
   useRenameMilitaryUnit,
   useDisbandMilitaryUnits,
   useDeleteMilitaryUnitTemplate,
+  useEquipMilitaryWeapon,
 } from "@workspace/api-client-react";
 import type {
   MilitaryOverview,
   MilitaryUnitTemplate,
+  MilitaryWeapon,
 } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -323,6 +325,7 @@ function BuildTab({ overview }: { overview: MilitaryOverview }) {
             unlocked={unlockedSet.has(t.category)}
             maxOrderQuantity={overview.maxOrderQuantity}
             availableProduction={overview.resources.production}
+            weapons={overview.weapons}
           />
         ))}
       </div>
@@ -406,6 +409,7 @@ function UnitCard({
   unlocked,
   maxOrderQuantity,
   availableProduction,
+  weapons,
 }: {
   template: MilitaryUnitTemplate;
   owned: number;
@@ -413,6 +417,8 @@ function UnitCard({
   maxOrderQuantity: number;
   /** Task #568 — 剩餘可用生產力額度（總量 − 已佔用 − 本回合招募花費）。 */
   availableProduction: number;
+  /** 武器系統 — 玩家武器庫（裝備下拉選單用）。 */
+  weapons: MilitaryWeapon[];
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -427,6 +433,26 @@ function UnitCard({
     queryClient.invalidateQueries({ queryKey: getGetMilitaryOverviewQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetPlayerNationQueryKey() });
   };
+
+  const equipMutation = useEquipMilitaryWeapon({
+    mutation: {
+      onSuccess: (res) => {
+        invalidate();
+        if (res.equippedWeaponId === null) {
+          toast({ title: "已卸除武器", description: `${displayName} 不再裝備武器` });
+        } else if (res.compatible === false) {
+          toast({
+            title: "已裝備（不合用）",
+            description: `武器與兵種不相容：${res.modsLabel}`,
+          });
+        } else {
+          toast({ title: "裝備完成", description: res.modsLabel });
+        }
+      },
+      onError: (err) =>
+        toast({ title: "裝備失敗", description: apiErrorMessage(err), variant: "destructive" }),
+    },
+  });
 
   const recruitMutation = useRecruitMilitaryUnits({
     mutation: {
@@ -718,6 +744,47 @@ function UnitCard({
           )}
         </div>
       )}
+
+      {/* 武器系統 — 裝備列：相容武器加成戰力；不合用則懲罰。 */}
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-2.5">
+        <Swords className="h-4 w-4 shrink-0 text-amber-300" />
+        <select
+          value={t.equippedWeaponId ?? ""}
+          onChange={(e) => {
+            const v = e.target.value;
+            equipMutation.mutate({
+              data: { templateId: t.id, weaponId: v === "" ? null : Number(v) },
+            });
+          }}
+          disabled={equipMutation.isPending}
+          className="max-w-52 rounded-lg border border-white/20 bg-black/50 px-2.5 py-1.5 text-xs outline-none focus:border-amber-300/60 disabled:opacity-40"
+          data-testid={`select-equip-weapon-${t.id}`}
+        >
+          <option value="" className="bg-zinc-900">
+            未裝備武器
+          </option>
+          {weapons.map((w) => (
+            <option key={w.id} value={w.id} className="bg-zinc-900">
+              {w.name}（{w.compatibleLabels.join("、")}）
+            </option>
+          ))}
+        </select>
+        {t.equippedWeapon && (
+          <span
+            className={`rounded px-2 py-0.5 text-[10px] ${
+              t.equippedWeapon.compatible
+                ? "bg-amber-500/15 text-amber-200"
+                : "bg-red-500/15 text-red-200"
+            }`}
+            data-testid={`text-equipped-mods-${t.id}`}
+          >
+            {t.equippedWeapon.modsLabel}
+            {t.equippedWeapon.skillName
+              ? `・技能「${t.equippedWeapon.skillName}」`
+              : ""}
+          </span>
+        )}
+      </div>
 
       {/* 管理列：解散軍隊／刪除自創兵種（不退還資源） */}
       <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">

@@ -1197,6 +1197,49 @@ export const GetMilitaryOverviewResponse = zod.object({
       baseDefense: zod.number(),
       baseSpeed: zod.number(),
       baseAccuracy: zod.number(),
+      equippedWeaponId: zod
+        .number()
+        .nullish()
+        .describe("武器系統 — 已裝備的武器 id（null = 未裝備）"),
+      equippedWeapon: zod
+        .object({
+          id: zod.number(),
+          name: zod.string(),
+          description: zod.string(),
+          compatibleCategories: zod
+            .array(zod.string())
+            .describe("AI 建議的相容兵種類別（1–3 個）"),
+          compatibleLabels: zod.array(zod.string()).describe("相容類別顯示名"),
+          attackPct: zod.number().describe("相容兵種攻擊加成 %（0–15）"),
+          defensePct: zod.number().describe("相容兵種防禦加成 %（0–15）"),
+          skillName: zod.string().describe("AI 生成的獨一無二特殊技能名稱"),
+          skillDescription: zod
+            .string()
+            .describe("特殊技能描述（現實可行、無超自然）"),
+          skillEffect: zod
+            .enum(["offense", "defense", "versatile"])
+            .describe(
+              "技能效果類型（offense=進攻\/defense=防禦\/versatile=攻守各半）",
+            ),
+          skillBonusPct: zod.number().describe("技能效果幅度 %（0–10）"),
+          eraSlug: zod.string().nullish().describe("設計時的世界時代"),
+        })
+        .and(
+          zod.object({
+            compatible: zod
+              .boolean()
+              .optional()
+              .describe("該兵種是否在武器相容類別中"),
+            modsLabel: zod
+              .string()
+              .optional()
+              .describe("效果摘要（「攻 +10%・技能效果：攻 +8%」等）"),
+          }),
+        )
+        .nullish()
+        .describe(
+          "武器系統 — 裝備中的武器摘要（含相容判定與效果標籤；null = 未裝備）",
+        ),
     }),
   ),
   armies: zod.array(
@@ -1275,6 +1318,39 @@ export const GetMilitaryOverviewResponse = zod.object({
     .number()
     .describe("Task #510 — 剩餘兵種設計次數（0–5；每回合 +1、設計消耗 1）"),
   unitDesignChargeCap: zod.number().describe("設計次數上限（5）"),
+  weapons: zod
+    .array(
+      zod.object({
+        id: zod.number(),
+        name: zod.string(),
+        description: zod.string(),
+        compatibleCategories: zod
+          .array(zod.string())
+          .describe("AI 建議的相容兵種類別（1–3 個）"),
+        compatibleLabels: zod.array(zod.string()).describe("相容類別顯示名"),
+        attackPct: zod.number().describe("相容兵種攻擊加成 %（0–15）"),
+        defensePct: zod.number().describe("相容兵種防禦加成 %（0–15）"),
+        skillName: zod.string().describe("AI 生成的獨一無二特殊技能名稱"),
+        skillDescription: zod
+          .string()
+          .describe("特殊技能描述（現實可行、無超自然）"),
+        skillEffect: zod
+          .enum(["offense", "defense", "versatile"])
+          .describe(
+            "技能效果類型（offense=進攻\/defense=防禦\/versatile=攻守各半）",
+          ),
+        skillBonusPct: zod.number().describe("技能效果幅度 %（0–10）"),
+        eraSlug: zod.string().nullish().describe("設計時的世界時代"),
+      }),
+    )
+    .describe("武器系統 — 玩家所有武器藍圖"),
+  weaponDesignCharges: zod
+    .number()
+    .describe("武器系統 — 剩餘武器設計次數（每回合回滿至上限）"),
+  weaponDesignChargeCap: zod.number().describe("武器系統 — 設計次數上限（3）"),
+  weaponLimit: zod
+    .number()
+    .describe("武器系統 — 每位玩家武器藍圖上限（10；銷毀可釋放）"),
   costMultiplier: zod
     .number()
     .describe(
@@ -1461,10 +1537,119 @@ export const DesignMilitaryUnitResponse = zod.object({
     baseDefense: zod.number(),
     baseSpeed: zod.number(),
     baseAccuracy: zod.number(),
+    equippedWeaponId: zod
+      .number()
+      .nullish()
+      .describe("武器系統 — 已裝備的武器 id（null = 未裝備）"),
+    equippedWeapon: zod
+      .object({
+        id: zod.number(),
+        name: zod.string(),
+        description: zod.string(),
+        compatibleCategories: zod
+          .array(zod.string())
+          .describe("AI 建議的相容兵種類別（1–3 個）"),
+        compatibleLabels: zod.array(zod.string()).describe("相容類別顯示名"),
+        attackPct: zod.number().describe("相容兵種攻擊加成 %（0–15）"),
+        defensePct: zod.number().describe("相容兵種防禦加成 %（0–15）"),
+        skillName: zod.string().describe("AI 生成的獨一無二特殊技能名稱"),
+        skillDescription: zod
+          .string()
+          .describe("特殊技能描述（現實可行、無超自然）"),
+        skillEffect: zod
+          .enum(["offense", "defense", "versatile"])
+          .describe(
+            "技能效果類型（offense=進攻\/defense=防禦\/versatile=攻守各半）",
+          ),
+        skillBonusPct: zod.number().describe("技能效果幅度 %（0–10）"),
+        eraSlug: zod.string().nullish().describe("設計時的世界時代"),
+      })
+      .and(
+        zod.object({
+          compatible: zod
+            .boolean()
+            .optional()
+            .describe("該兵種是否在武器相容類別中"),
+          modsLabel: zod
+            .string()
+            .optional()
+            .describe("效果摘要（「攻 +10%・技能效果：攻 +8%」等）"),
+        }),
+      )
+      .nullish()
+      .describe(
+        "武器系統 — 裝備中的武器摘要（含相容判定與效果標籤；null = 未裝備）",
+      ),
   }),
   unitDesignCharges: zod
     .number()
     .describe("Task #510 — 剩餘兵種設計次數（0–5）"),
+});
+
+/**
+ * @summary AI 武器設計（含獨一無二的特殊技能）— 消耗 1 次武器設計次數（AI 失敗退還）
+ */
+export const designMilitaryWeaponBodyRequirementMax = 500;
+
+export const DesignMilitaryWeaponBody = zod.object({
+  requirement: zod
+    .string()
+    .min(1)
+    .max(designMilitaryWeaponBodyRequirementMax)
+    .describe("武器設計需求說明（繁體中文）"),
+});
+
+export const DesignMilitaryWeaponResponse = zod.object({
+  weapon: zod.object({
+    id: zod.number(),
+    name: zod.string(),
+    description: zod.string(),
+    compatibleCategories: zod
+      .array(zod.string())
+      .describe("AI 建議的相容兵種類別（1–3 個）"),
+    compatibleLabels: zod.array(zod.string()).describe("相容類別顯示名"),
+    attackPct: zod.number().describe("相容兵種攻擊加成 %（0–15）"),
+    defensePct: zod.number().describe("相容兵種防禦加成 %（0–15）"),
+    skillName: zod.string().describe("AI 生成的獨一無二特殊技能名稱"),
+    skillDescription: zod
+      .string()
+      .describe("特殊技能描述（現實可行、無超自然）"),
+    skillEffect: zod
+      .enum(["offense", "defense", "versatile"])
+      .describe(
+        "技能效果類型（offense=進攻\/defense=防禦\/versatile=攻守各半）",
+      ),
+    skillBonusPct: zod.number().describe("技能效果幅度 %（0–10）"),
+    eraSlug: zod.string().nullish().describe("設計時的世界時代"),
+  }),
+  weaponDesignCharges: zod.number().describe("剩餘武器設計次數"),
+});
+
+/**
+ * @summary 兵種裝備／卸除武器（不相容仍可裝備，戰鬥時受懲罰）
+ */
+export const EquipMilitaryWeaponBody = zod.object({
+  templateId: zod.number().describe("自創兵種 template id"),
+  weaponId: zod.number().nullish().describe("要裝備的武器 id（null = 卸除）"),
+});
+
+export const EquipMilitaryWeaponResponse = zod.object({
+  templateId: zod.number(),
+  equippedWeaponId: zod.number().nullable(),
+  compatible: zod.boolean().nullish().describe("相容判定（卸除時為 null）"),
+  modsLabel: zod.string().describe('效果摘要（未裝備 = \"未裝備\"）'),
+});
+
+/**
+ * @summary 銷毀武器（不退設計次數；已裝備兵種自動卸除）
+ */
+export const DeleteMilitaryWeaponParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const DeleteMilitaryWeaponResponse = zod.object({
+  weaponId: zod.number(),
+  deleted: zod.boolean(),
 });
 
 /**

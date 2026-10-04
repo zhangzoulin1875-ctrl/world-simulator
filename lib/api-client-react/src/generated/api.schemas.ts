@@ -516,6 +516,55 @@ export interface MilitaryCategoryInfo {
   customCount: number;
 }
 
+/**
+ * 技能效果類型（offense=進攻/defense=防禦/versatile=攻守各半）
+ */
+export type MilitaryWeaponSkillEffect =
+  (typeof MilitaryWeaponSkillEffect)[keyof typeof MilitaryWeaponSkillEffect];
+
+export const MilitaryWeaponSkillEffect = {
+  offense: "offense",
+  defense: "defense",
+  versatile: "versatile",
+} as const;
+
+export interface MilitaryWeapon {
+  id: number;
+  name: string;
+  description: string;
+  /** AI 建議的相容兵種類別（1–3 個） */
+  compatibleCategories: string[];
+  /** 相容類別顯示名 */
+  compatibleLabels: string[];
+  /** 相容兵種攻擊加成 %（0–15） */
+  attackPct: number;
+  /** 相容兵種防禦加成 %（0–15） */
+  defensePct: number;
+  /** AI 生成的獨一無二特殊技能名稱 */
+  skillName: string;
+  /** 特殊技能描述（現實可行、無超自然） */
+  skillDescription: string;
+  /** 技能效果類型（offense=進攻/defense=防禦/versatile=攻守各半） */
+  skillEffect: MilitaryWeaponSkillEffect;
+  /** 技能效果幅度 %（0–10） */
+  skillBonusPct: number;
+  /** 設計時的世界時代 */
+  eraSlug?: string | null;
+}
+
+/**
+ * 武器系統 — 裝備中的武器摘要（含相容判定與效果標籤；null = 未裝備）
+ */
+export type MilitaryUnitTemplateEquippedWeapon =
+  | (MilitaryWeapon &
+      ({
+        /** 該兵種是否在武器相容類別中 */
+        compatible?: boolean;
+        /** 效果摘要（「攻 +10%・技能效果：攻 +8%」等） */
+        modsLabel?: string;
+      } | null))
+  | null;
+
 export interface MilitaryUnitTemplate {
   id: number;
   category: string;
@@ -556,6 +605,10 @@ export interface MilitaryUnitTemplate {
   baseDefense: number;
   baseSpeed: number;
   baseAccuracy: number;
+  /** 武器系統 — 已裝備的武器 id（null = 未裝備） */
+  equippedWeaponId?: number | null;
+  /** 武器系統 — 裝備中的武器摘要（含相容判定與效果標籤；null = 未裝備） */
+  equippedWeapon?: MilitaryUnitTemplateEquippedWeapon;
 }
 
 export interface MilitaryArmyEntry {
@@ -728,6 +781,14 @@ export interface MilitaryOverview {
   unitDesignCharges: number;
   /** 設計次數上限（5） */
   unitDesignChargeCap: number;
+  /** 武器系統 — 玩家所有武器藍圖 */
+  weapons: MilitaryWeapon[];
+  /** 武器系統 — 剩餘武器設計次數（每回合回滿至上限） */
+  weaponDesignCharges: number;
+  /** 武器系統 — 設計次數上限（3） */
+  weaponDesignChargeCap: number;
+  /** 武器系統 — 每位玩家武器藍圖上限（10；銷毀可釋放） */
+  weaponLimit: number;
   /** 研發/設計成本倍率（本國調整後生產力 ÷ 全球平均；已四捨五入到 2 位小數，僅供顯示） */
   costMultiplier: number;
   maxOrderQuantity: number;
@@ -1506,6 +1567,42 @@ export interface MilitaryDesignResult {
   template: MilitaryUnitTemplate;
   /** Task #510 — 剩餘兵種設計次數（0–5） */
   unitDesignCharges: number;
+}
+
+export interface WeaponDesignRequest {
+  /**
+   * 武器設計需求說明（繁體中文）
+   * @minLength 1
+   * @maxLength 500
+   */
+  requirement: string;
+}
+
+export interface WeaponDesignResult {
+  weapon: MilitaryWeapon;
+  /** 剩餘武器設計次數 */
+  weaponDesignCharges: number;
+}
+
+export interface WeaponEquipRequest {
+  /** 自創兵種 template id */
+  templateId: number;
+  /** 要裝備的武器 id（null = 卸除） */
+  weaponId?: number | null;
+}
+
+export interface WeaponEquipResult {
+  templateId: number;
+  equippedWeaponId: number | null;
+  /** 相容判定（卸除時為 null） */
+  compatible?: boolean | null;
+  /** 效果摘要（未裝備 = "未裝備"） */
+  modsLabel: string;
+}
+
+export interface WeaponDeleteResult {
+  weaponId: number;
+  deleted: boolean;
 }
 
 export interface MilitaryRenameResult {
