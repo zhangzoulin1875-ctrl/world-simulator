@@ -379,6 +379,30 @@ test("政變敘事 AI 失敗：以預設文字完成政變、不拋錯、重置�
 
 // ── Task #592 — 政治註記只在政變／改制後重生（每回合演進已移除） ──
 
+test("政變不再強制更換政體：政體不變、不計入改制、政策鎖 3 回合", async () => {
+  const id = await createNation({ suffix: "-coup-nogov", money: 20_000, stability: 60 });
+  const nation = await loadNation(id);
+  const govBefore = nation.government;
+  const settings = await getPoliticsSettings();
+  const digest = emptyPoliticsDigest(nation.name);
+  const summary = emptySummary();
+
+  const restore = stubAiThrow();
+  try {
+    await applyCoup(nation, settings, ERA_SLUG, digest, summary);
+  } finally {
+    restore();
+  }
+
+  const after = await loadNation(id);
+  assert.equal(after.government, govBefore, "政變後政體必須維持原樣");
+  assert.equal(nation.government, govBefore, "記憶體內國家物件政體也不得變動");
+  assert.equal(summary.governmentChanges, 0, "不應計入政體變更");
+  assert.equal(after.governmentChangeAcceptance, nation.governmentChangeAcceptance, "政體變更接受度不應被歸零");
+  assert.equal(after.coupPolicyLockTurns, 3, "政策鎖定預設 3 回合");
+  assert.ok(digest.coup, "政變本身仍要記錄");
+});
+
 test("政變成功：玩家國家的政治註記全新重生（覆蓋舊註記）", async () => {
   const oldNote = "舊版政治註記：政局長期平穩，治理風格保守務實。";
   const newNote = "政變後的新政治註記：強人掌權、軍方主導決策，政局進入高壓重整期。";

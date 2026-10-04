@@ -967,10 +967,12 @@ export async function applyCoup(
   /** 國情快照；省略時本函式自行載入。 */
   context?: string,
 ): Promise<void> {
-  // 政變被動改變政體：從政變常見政體中挑一個（排除現制）。
-  const currentSlug = governmentSlugByLabel(nation.government);
-  const nextGovSlug = pickCoupGovernment(currentSlug, COUP_GOVERNMENT_SLUGS);
-  const nextGovLabel = nextGovSlug ? governmentLabel(nextGovSlug) : null;
+  // 2026-10-05 起:軍方政變不再強制改政體(政體改由國策樹的黑線/紅線/
+  // 民主化/世襲化路線與革命內戰決定,避免兩套機制互相衝突)。政變仍會重設
+  // 滿意度/穩定度/支持度並鎖定政策 coupPolicyLockTurns(預設 3)回合。
+  // 下游所有改制分支(寫庫/通知/註記清空/governmentChanges)皆以
+  // nextGovLabel 是否為 null 判斷,故此處固定 null 即可整段跳過。
+  const nextGovLabel: string | null = null;
 
   let title = "政變爆發";
   let description =
