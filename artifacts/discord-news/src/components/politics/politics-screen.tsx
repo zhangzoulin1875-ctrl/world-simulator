@@ -10,6 +10,7 @@ import { PolicyPanel } from "./policy-panel";
 import { MilitaryPanel } from "./military-panel";
 import { MilitaryDemandCard } from "./military-demand-card";
 import { ParliamentPanel } from "@/components/parliament/parliament-panel";
+import { FocusPanel } from "@/components/focus/focus-panel";
 import { PoliticsHistoryTimeline } from "./politics-history-timeline";
 
 export function PoliticsScreen({
@@ -55,6 +56,9 @@ export function PoliticsScreen({
 
         {/* 政府治理：政體＋政治註記＋支持度／接受度＋政府決策 */}
         <GovernmentPanel overview={overview} />
+
+        {/* 國策樹:政體轉型與各項國策 */}
+        <FocusPanel />
 
         <AdvisorSlotsPanel unlocked={overview.social.advisorSlotEnabled} />
 

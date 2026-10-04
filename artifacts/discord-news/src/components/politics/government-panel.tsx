@@ -188,8 +188,7 @@ export function GovernmentPanel({ overview }: { overview: PoliticsOverview }) {
               政體變更
             </div>
             <p className="text-xs leading-relaxed text-white/65">
-              政體不再靠累積「接受度」更換,之後將由國策樹的轉型國策決定。
-            </p>
+              更換政體必須完成國策樹中對應的「轉型國策」(花政治點數與回合、有代價),詳見下方國策樹。</p>
           </div>
 
           <div className="rounded-lg border border-white/10 bg-black/30 p-3">

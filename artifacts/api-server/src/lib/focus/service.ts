@@ -21,9 +21,10 @@ import {
   type StartBlockReason,
 } from "./core";
 import { getCatalog, getFocusDef } from "./catalog";
+import type { FocusDef } from "./types";
 import { summarizeEffects } from "./effects";
 import { afterRegimeTransition, applyRegimeTransition, type RegimeTransitionResult } from "../politicsSettlement";
-import { describeCondition, eraReached, firstFailedCondition } from "./conditions";
+import { describeCondition, eraReached, firstFailedCondition, type ConditionFacts } from "./conditions";
 
 type Nation = typeof playerNationsTable.$inferSelect;
 
@@ -225,19 +226,59 @@ export async function startFocus(nation: Nation, focusId: string): Promise<Start
   }
 }
 
-async function startFocusInner(nation: Nation, focusId: string): Promise<StartResult> {
-  const def = getFocusDef(focusId);
-  if (!def) return { ok: false, reason: "unknown_focus", message: "找不到此國策" };
+/** 判斷一個國策「現在能不能啟動」所需的全部事實(由呼叫端讀 DB 後傳入)。 */
+export interface StartFacts {
+  governmentLabel: string | null;
+  eraSlug: string;
+  completed: ReadonlySet<string>;
+  active: ReadonlyMap<FocusSlot, string>;
+  points: number;
+  coupPolicyLockTurns: number;
+  conditionFacts: ConditionFacts;
+}
 
-  const slug = governmentSlugByLabel(nation.government);
+export type StartVerdict =
+  | { ok: true }
+  | { ok: false; reason: StartBlockReason | "unknown_focus" | "government_not_allowed" | "era_locked" | "condition_failed"; message: string };
+
+/**
+ * 啟動判斷的唯一真相來源:startFocus(真的扣點)與畫面清單(唯讀)共用,
+ * 兩邊規則不可能分叉。順序:政體 → 時代 → 基礎檢查 → 客觀條件。
+ */
+export function evaluateStart(def: FocusDef, f: StartFacts): StartVerdict {
+  const slug = governmentSlugByLabel(f.governmentLabel);
   if (def.governments && def.governments.length > 0 && (!slug || !def.governments.includes(slug))) {
     return { ok: false, reason: "government_not_allowed", message: "目前政體無法推行此國策" };
   }
-
-  const eraSlug = await getCurrentEraSlug();
-  if (!eraReached(eraSlug, def.minEra)) {
+  if (!eraReached(f.eraSlug, def.minEra)) {
     return { ok: false, reason: "era_locked", message: "世界尚未進入可推行此國策的時代" };
   }
+  const siblingIds = new Set<string>(def.excludes ?? []);
+  if (def.exclusiveGroup) {
+    for (const d of getCatalog()) if (d.exclusiveGroup === def.exclusiveGroup && d.id !== def.id) siblingIds.add(d.id);
+  }
+  const block = checkStartFocus({
+    focusId: def.id,
+    cost: def.cost,
+    slot: def.slot,
+    requires: def.requires,
+    requiresAny: def.requiresAny,
+    excludes: [...siblingIds],
+    completed: f.completed,
+    active: f.active,
+    points: f.points,
+    coupPolicyLockTurns: f.coupPolicyLockTurns,
+  });
+  if (block) return { ok: false, reason: block, message: START_BLOCK_TEXT[block] };
+  const failed = firstFailedCondition(def.conditions, f.conditionFacts);
+  if (failed) return { ok: false, reason: "condition_failed", message: `條件未滿足:${describeCondition(failed)}` };
+  return { ok: true };
+}
+
+async function startFocusInner(nation: Nation, focusId: string): Promise<StartResult> {
+  const def = getFocusDef(focusId);
+  if (!def) return { ok: false, reason: "unknown_focus", message: "找不到此國策" };
+  const eraSlug = await getCurrentEraSlug();
 
   return db.transaction(async (tx) => {
     await lockNationFocus(tx, nation.id);
@@ -249,47 +290,28 @@ async function startFocusInner(nation: Nation, focusId: string): Promise<StartRe
       .select({ id: focusCompletedTable.focusId })
       .from(focusCompletedTable)
       .where(eq(focusCompletedTable.nationId, nation.id));
+    const [par] = await tx
+      .select({ s: parliamentStateTable.satisfaction })
+      .from(parliamentStateTable)
+      .where(eq(parliamentStateTable.nationId, nation.id));
 
-    const completed = new Set(done.map((d) => d.id));
-    const active = new Map<FocusSlot, string>(actives.map((a) => [a.slot as FocusSlot, a.focusId]));
-
-    // 互斥:同群組已有完成/進行中者 → 鎖定
-    const siblingIds = new Set<string>(def.excludes ?? []);
-    if (def.exclusiveGroup) {
-      for (const d of getCatalog()) if (d.exclusiveGroup === def.exclusiveGroup && d.id !== def.id) siblingIds.add(d.id);
-    }
-
-    const block = checkStartFocus({
-      focusId: def.id,
-      cost: def.cost,
-      slot: def.slot,
-      requires: def.requires,
-      requiresAny: def.requiresAny,
-      excludes: [...siblingIds],
-      completed,
-      active,
+    const verdict = evaluateStart(def, {
+      governmentLabel: fresh!.government,
+      eraSlug,
+      completed: new Set(done.map((d) => d.id)),
+      active: new Map<FocusSlot, string>(actives.map((a) => [a.slot as FocusSlot, a.focusId])),
       points: state!.points,
       coupPolicyLockTurns: fresh!.coupPolicyLockTurns,
-    });
-    if (block) return { ok: false as const, reason: block, message: START_BLOCK_TEXT[block] };
-
-    if (def.conditions && def.conditions.length > 0) {
-      const [par] = await tx
-        .select({ s: parliamentStateTable.satisfaction })
-        .from(parliamentStateTable)
-        .where(eq(parliamentStateTable.nationId, nation.id));
-      const failed = firstFailedCondition(def.conditions, {
+      conditionFacts: {
         politicalSupport: fresh!.politicalSupport,
         stability: fresh!.stability,
         militarySatisfaction: fresh!.satisfactionMilitary,
         parliamentSatisfaction: par?.s ?? 60,
         blackLean: state!.blackLean,
         redLean: state!.redLean,
-      });
-      if (failed) {
-        return { ok: false as const, reason: "condition_failed" as const, message: `條件未滿足:${describeCondition(failed)}` };
-      }
-    }
+      },
+    });
+    if (!verdict.ok) return verdict;
 
     await tx
       .update(focusStatesTable)
