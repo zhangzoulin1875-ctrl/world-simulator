@@ -296,7 +296,7 @@ test("備援配額用盡 → 冷卻期間不再呼叫備援，直接回報主供
     bulkModel: "fb-b",
   }));
   const urls: string[] = [];
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  globalThis.fetch = (async (input: string | URL) => {
     const url = String(input);
     urls.push(url);
     if (url.startsWith("https://fallback.example")) {
@@ -332,7 +332,7 @@ test("Nemotron 推理模型：請求帶 enable_thinking:false；其他模型不�
   assert.equal(shouldDisableThinking("google/diffusiongemma-26b-a4b-it"), false);
 
   const bodies: Array<Record<string, unknown>> = [];
-  globalThis.fetch = (async (_u: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = (async (_u: string | URL, init?: RequestInit) => {
     bodies.push(JSON.parse(String(init?.body)));
     return new Response(
       JSON.stringify({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: {} }),
@@ -355,7 +355,7 @@ test("供應商拒絕 chat_template_kwargs → 不帶旗標自動重試並記住
   const { __resetThinkingFlagForTest } = await import("./client");
   __resetThinkingFlagForTest();
   const bodies: Array<Record<string, unknown>> = [];
-  globalThis.fetch = (async (_u: RequestInfo | URL, init?: RequestInit) => {
+  globalThis.fetch = (async (_u: string | URL, init?: RequestInit) => {
     const b = JSON.parse(String(init?.body)) as Record<string, unknown>;
     bodies.push(b);
     if (b.chat_template_kwargs !== undefined) {
