@@ -1,0 +1,94 @@
+import { GOVERNMENTS } from "../governments";
+import { REGIME_EDGES, type RegimeEdge } from "./regimeGraph";
+import type { FocusCondition, FocusDef, FocusEffect } from "./types";
+
+/** 政體分類:決定轉型的代價與條件。 */
+const AUTOCRATIC = new Set(["absolute_monarchy", "military_dictatorship", "theocracy", "socialist_council"]);
+const DEMOCRATIC = new Set([
+  "parliamentary",
+  "parliamentary_republic",
+  "presidential_democracy",
+  "constitutional_monarchy",
+  "council_system",
+]);
+
+const labelOf = (slug: string) => GOVERNMENTS.find((g) => g.slug === slug)?.label ?? slug;
+
+/** 依軌道決定成本與回合(極端轉型更貴更慢)。 */
+function costAndTurns(track: RegimeEdge["track"]): { cost: number; turns: number } {
+  switch (track) {
+    case "stable": return { cost: 14, turns: 5 };
+    case "reform": return { cost: 20, turns: 7 };
+    case "red": return { cost: 30, turns: 9 };
+    case "black": return { cost: 32, turns: 10 };
+  }
+}
+
+/** 客觀門檻(取代舊「接受度」):轉型必須有社會基礎。 */
+function conditionsFor(edge: RegimeEdge): FocusCondition[] {
+  switch (edge.track) {
+    case "black":
+      return [
+        { kind: "leanAtLeast", side: "black", value: 50 },
+        { kind: "militarySatisfactionAtLeast", value: 55 },
+      ];
+    case "red":
+      return [
+        { kind: "leanAtLeast", side: "red", value: 50 },
+        { kind: "stabilityAtMost", value: 60 },
+      ];
+    case "reform":
+      return [{ kind: "politicalSupportAtLeast", value: 55 }];
+    case "stable":
+      return [{ kind: "stabilityAtLeast", value: 40 }];
+  }
+}
+
+/**
+ * 轉型代價(每個國策必有至少一項,validateCatalog 會強制):
+ *  - 走向集權:議會不滿(議會被架空)
+ *  - 走向民主:軍方不滿(失去特權)
+ *  - 極端路線另加穩定度與金錢(政局動盪、重整成本)
+ */
+function costEffectsFor(edge: RegimeEdge): FocusEffect[] {
+  const out: FocusEffect[] = [];
+  const toAutocratic = AUTOCRATIC.has(edge.to) && !AUTOCRATIC.has(edge.from);
+  const toDemocratic = DEMOCRATIC.has(edge.to) && !DEMOCRATIC.has(edge.from);
+  if (toAutocratic) out.push({ kind: "parliamentSatisfaction", value: -12 });
+  else if (toDemocratic) out.push({ kind: "militarySatisfaction", value: -10 });
+  else out.push({ kind: "grant", stat: "politicalSupport", value: -8 });
+
+  if (edge.track === "black" || edge.track === "red") {
+    out.push({ kind: "grant", stat: "stability", value: -12 });
+    out.push({ kind: "grant", stat: "money", value: -1200 });
+  } else if (edge.track === "reform") {
+    out.push({ kind: "grant", stat: "money", value: -600 });
+  }
+  return out;
+}
+
+function toFocus(edge: RegimeEdge): FocusDef {
+  const { cost, turns } = costAndTurns(edge.track);
+  const from = labelOf(edge.from);
+  const to = labelOf(edge.to);
+  return {
+    id: edge.focusId,
+    domain: "regime",
+    track: edge.track,
+    slot: "main",
+    title: `${from}轉${to}`,
+    description: `推動國家由「${from}」轉型為「${to}」。這是一場牽動整個國家機器的改制,需要足夠的社會基礎,並承擔相應的政治代價。`,
+    cost,
+    turns,
+    requires: [],
+    governments: [edge.from],
+    conditions: conditionsFor(edge),
+    milestone: true,
+    effects: [{ kind: "transition", toGovernment: edge.to }, ...costEffectsFor(edge)],
+  };
+}
+
+/** 由政體圖產生全部轉型國策(圖和國策因此不可能不同步)。 */
+export function buildRegimeFocuses(edges: readonly RegimeEdge[] = REGIME_EDGES): FocusDef[] {
+  return edges.map(toFocus);
+}

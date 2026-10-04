@@ -56,7 +56,6 @@ import { loadActiveSatisfactionBuffs } from "../lib/productionTechData";
 import { ensurePoliticalNote } from "../lib/politicalNote";
 import { getPoliticsSettings, savePoliticsSettings } from "../lib/politicsSettings";
 import {
-  applyPlayerGovernmentChange,
   runPoliticsSettlement,
 } from "../lib/politicsSettlement";
 

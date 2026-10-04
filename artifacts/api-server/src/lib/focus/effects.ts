@@ -19,7 +19,7 @@ export function isEffectWired(e: FocusEffect): boolean {
     case "unlock":
       return WIRED_UNLOCKS.has(e.capability);
     case "transition":
-      return false; // 政體轉型由第二階段接線
+      return true; // 政體轉型:由 service.ts 的轉型執行器處理(applyRegimeTransition)
     default:
       return true; // grant / lean / 議會 / 軍方 滿意度:一次性,直接寫欄位
   }
@@ -54,12 +54,14 @@ export function summarizeEffects(
   redLeanDelta: number;
   parliamentDelta: number;
   unwired: FocusEffect[];
+  transitionTo: string | null;
 } {
   const patch: NationPatch = {};
   let blackLeanDelta = 0;
   let redLeanDelta = 0;
   let parliamentDelta = 0;
   const unwired: FocusEffect[] = [];
+  let transitionTo: string | null = null;
 
   for (const e of effects) {
     if (!isEffectWired(e)) {
@@ -79,6 +81,9 @@ export function summarizeEffects(
       case "parliamentSatisfaction":
         parliamentDelta += e.value;
         break;
+      case "transition":
+        transitionTo = e.toGovernment;
+        break;
       case "lean":
         if (e.side === "black") blackLeanDelta += e.value;
         else redLeanDelta += e.value;
@@ -87,5 +92,5 @@ export function summarizeEffects(
         break;
     }
   }
-  return { patch, blackLeanDelta, redLeanDelta, parliamentDelta, unwired };
+  return { patch, blackLeanDelta, redLeanDelta, parliamentDelta, unwired, transitionTo };
 }

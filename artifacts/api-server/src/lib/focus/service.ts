@@ -10,7 +10,7 @@ import {
 import { logger } from "../logger";
 import { computeNationStats, getCurrentEraSlug } from "../nationStats";
 import { parliamentTier } from "../parliament/core";
-import { governmentSlugByLabel } from "../governments";
+import { governmentLabel, governmentSlugByLabel } from "../governments";
 import {
   advanceFocus,
   checkStartFocus,
@@ -22,6 +22,7 @@ import {
 } from "./core";
 import { getCatalog, getFocusDef } from "./catalog";
 import { summarizeEffects } from "./effects";
+import { afterRegimeTransition, applyRegimeTransition, type RegimeTransitionResult } from "../politicsSettlement";
 import { describeCondition, eraReached, firstFailedCondition } from "./conditions";
 
 type Nation = typeof playerNationsTable.$inferSelect;
@@ -73,6 +74,8 @@ export async function settleNationFocus(nation: Nation, eraSlug: string): Promis
   const cap = pointsCap(perTurn);
 
   const result: FocusSettleResult = { pointsGained: 0, completed: [], stalled: false };
+  // 交易提交後才執行的收尾(通知/筆記等外部副作用,失敗不回滾改制)
+  const afterCommit: RegimeTransitionResult[] = [];
 
   await db.transaction(async (tx) => {
     await lockNationFocus(tx, nation.id);
@@ -124,6 +127,36 @@ export async function settleNationFocus(nation: Nation, eraSlug: string): Promis
         politicalSupport: fresh!.politicalSupport,
         satisfactionMilitary: fresh!.satisfactionMilitary,
       });
+      if (eff.transitionTo) {
+        // 起點政體必須仍是目錄指定的那個(啟動後可能因革命等被改掉)
+        const fromOk = !def.governments || def.governments.includes(governmentSlugByLabel(fresh!.government) ?? "");
+        const targetLabel = governmentLabel(eff.transitionTo);
+        if (!fromOk || !targetLabel) {
+          // 不轉型:退還預扣點數,並記 log,讓玩家能重新選擇
+          await tx
+            .update(focusStatesTable)
+            .set({ points: sql`${focusStatesTable.points} + ${a.spentPoints}` })
+            .where(eq(focusStatesTable.nationId, nation.id));
+          await tx.delete(focusCompletedTable).where(and(eq(focusCompletedTable.nationId, nation.id), eq(focusCompletedTable.focusId, a.focusId)));
+          result.completed.pop();
+          logger.warn({ nationId: nation.id, focusId: a.focusId, government: fresh!.government }, "regime transition skipped: origin government changed");
+          continue;
+        }
+        const tr = await applyRegimeTransition(tx, fresh!, targetLabel, def.title);
+        afterCommit.push(tr);
+        // 政體變了:其他進行中的轉型國策(起點已不成立)一併作廢並退點
+        const others = await tx.select().from(focusActiveTable).where(eq(focusActiveTable.nationId, nation.id));
+        for (const o of others) {
+          const od = getFocusDef(o.focusId);
+          if (od && od.domain === "regime" && od.id !== def.id) {
+            await tx.delete(focusActiveTable).where(eq(focusActiveTable.id, o.id));
+            await tx
+              .update(focusStatesTable)
+              .set({ points: sql`${focusStatesTable.points} + ${o.spentPoints}` })
+              .where(eq(focusStatesTable.nationId, nation.id));
+          }
+        }
+      }
       if (Object.keys(eff.patch).length > 0) {
         await tx.update(playerNationsTable).set(eff.patch).where(eq(playerNationsTable.id, nation.id));
       }
@@ -147,6 +180,7 @@ export async function settleNationFocus(nation: Nation, eraSlug: string): Promis
       }
     }
   });
+  for (const tr of afterCommit) await afterRegimeTransition(nation, tr);
   return result;
 }
 

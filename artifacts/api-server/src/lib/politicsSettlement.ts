@@ -412,8 +412,6 @@ async function settleNation(
     satisfactionOffsets,
   );
 
-  // ── 3c. 政體變更接受度累積／消退（達 100 後由玩家主動改制，Task #127） ──
-  await settleAcceptance(freshNation, settings);
 
   // 現行制度摘要＋國情快照（2026-10）：事件／政變敘事共用，避免重複查詢。
   const activePolicySummaries = entries.map((e) => ({
@@ -513,7 +511,7 @@ async function settleNation(
   }
 
   // Task #592 — 政治註記不再每回合 AI 演進：平時沿用現有內容，只在政變
-  // （applyCoup 一律重生）與玩家主動改制（applyPlayerGovernmentChange）時全新重生。
+  // （applyCoup 一律重生）與轉型國策完成（applyRegimeTransition）時全新重生。
 
   // ── 7. 私訊摘要（Task #55）：有主國家且本回合有事才發，一國一則 ──
   if (freshNation.discordUserId !== null) {
@@ -1144,51 +1142,40 @@ async function regeneratePoliticalNote(
 }
 
 /**
- * 政體變更接受度已於 2026-10-05 下線:政體改由國策樹的「轉型國策」決定,
- * 不再有任何隨機/累積式門檻。欄位 governmentChangeAcceptance 暫時保留(不再讀寫),
- * 待國策樹穩定後再移除。此函式保留為空操作,避免動到結算呼叫順序。
+ * 政體轉型(2026-10-05 起由國策樹的「轉型國策」觸發,取代舊的「接受度累積到 100」)。
+ *
+ * 分兩段,確保「核心原子、副作用事後」:
+ *  1) applyRegimeTransition:只做資料變更(換政體、重設支持度、寫政治條目),
+ *     可放進呼叫端的交易內,與「國策完成」同生共死。
+ *  2) afterRegimeTransition:歷史紀錄、玩家通知、政治筆記重寫。這些可能失敗或很慢,
+ *     必須在交易提交之後才呼叫,失敗只記 log,絕不回滾已生效的改制。
  */
-async function settleAcceptance(
-  _nation: PlayerNation,
-  _settings: PoliticsSettings,
-): Promise<void> {
-  // no-op
+export interface RegimeTransitionResult {
+  fromGovernment: string | null;
+  toGovernment: string;
+  title: string;
+  description: string;
 }
 
-/**
- * Task #127 — 玩家主動政體變更：接受度達 100 時，改為玩家指定（且已解鎖）的政體。
- * 以條件式 UPDATE（WHERE 接受度 ≥ 100）搶佔，避免競態；成功後重設支持度、接受度歸零、
- * 寫入條目與歷史、重生政治註記並通知。回傳 false = 條件已不成立（例如接受度已被消耗）。
- */
-export async function applyPlayerGovernmentChange(
+export async function applyRegimeTransition(
+  tx: Pick<typeof db, "update" | "insert">,
   nation: PlayerNation,
   targetLabel: string,
-): Promise<boolean> {
+  focusTitle: string,
+): Promise<RegimeTransitionResult> {
   const settings = await getPoliticsSettings();
   const fromGovernment = nation.government;
-  const claimed = await db
+  await tx
     .update(playerNationsTable)
     .set({
       government: targetLabel,
       politicalSupport: settings.governmentChangeSupportReset,
-      governmentChangeAcceptance: 0,
     })
-    .where(
-      and(
-        eq(playerNationsTable.id, nation.id),
-        gte(playerNationsTable.governmentChangeAcceptance, 100),
-      ),
-    )
-    .returning();
-  if (claimed.length === 0) return false;
-
-  nation.government = targetLabel;
-  nation.politicalSupport = settings.governmentChangeSupportReset;
-  nation.governmentChangeAcceptance = 0;
+    .where(eq(playerNationsTable.id, nation.id));
 
   const title = "政體變更";
-  const description = `在累積的政治壓力下，國家順應民意，政體由「${fromGovernment}」主動變更為「${targetLabel}」。`;
-  await db.insert(politicsEntriesTable).values({
+  const description = `國策「${focusTitle}」大功告成,國家政體由「${fromGovernment ?? "未知"}」正式轉變為「${targetLabel}」。`;
+  await tx.insert(politicsEntriesTable).values({
     nationId: nation.id,
     direction: "law",
     entryType: "event",
@@ -1198,20 +1185,38 @@ export async function applyPlayerGovernmentChange(
     durationTurns: null,
     remainingTurns: null,
   });
-  await recordHistory(nation.id, "government_change", title, description);
+  return { fromGovernment, toGovernment: targetLabel, title, description };
+}
 
-  const geoContext = await buildNationGeoCultureContext(nation.id);
-  await regeneratePoliticalNote(nation, geoContext);
-
-  if (nation.discordUserId) {
-    notifyGovernmentChange({
-      discordUserId: nation.discordUserId,
-      fromGovernment,
-      toGovernment: targetLabel,
-      viaCoup: false,
-    });
+/** 交易提交後的收尾:歷史、通知、政治筆記。任何一步失敗都只記 log。 */
+export async function afterRegimeTransition(
+  nation: PlayerNation,
+  result: RegimeTransitionResult,
+): Promise<void> {
+  nation.government = result.toGovernment;
+  try {
+    await recordHistory(nation.id, "government_change", result.title, result.description);
+  } catch (err) {
+    logger.error({ err, nationId: nation.id }, "regime transition: record history failed");
   }
-  return true;
+  try {
+    const geoContext = await buildNationGeoCultureContext(nation.id);
+    await regeneratePoliticalNote(nation, geoContext);
+  } catch (err) {
+    logger.error({ err, nationId: nation.id }, "regime transition: political note failed");
+  }
+  if (nation.discordUserId) {
+    try {
+      notifyGovernmentChange({
+        discordUserId: nation.discordUserId,
+        fromGovernment: result.fromGovernment,
+        toGovernment: result.toGovernment,
+        viaCoup: false,
+      });
+    } catch (err) {
+      logger.error({ err, nationId: nation.id }, "regime transition: notify failed");
+    }
+  }
 }
 
 /**
@@ -1299,7 +1304,7 @@ export async function judgeGovernmentDecisionForNation(
   const newStability = clampPct(
     nation.stability + outcome.stabilityDelta - counterPenalty,
   );
-  // 接受度機制已下線(見 settleAcceptance),AI 回傳的 acceptanceDelta 一律忽略。
+  // 接受度機制已下線(改由轉型國策),AI 回傳的 acceptanceDelta 一律忽略。
   const newAcceptance = nation.governmentChangeAcceptance;
 
   await db

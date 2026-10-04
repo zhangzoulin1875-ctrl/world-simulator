@@ -6,6 +6,7 @@ import {
   pool,
   playerNationsTable,
   parliamentStateTable,
+  politicsEntriesTable,
   focusStatesTable,
   focusActiveTable,
   focusCompletedTable,
@@ -14,7 +15,8 @@ import { runGameMigrations } from "../gameMigrations";
 import { runFocusMigrations } from "../focusMigrations";
 import { runParliamentMigrations } from "../parliamentMigrations";
 import { settleNationFocus, startFocus, cancelFocus, runFocusSettlement } from "./service";
-import { setCatalogForTest } from "./catalog";
+import { setCatalogForTest, FOCUS_CATALOG } from "./catalog";
+import { findEdge } from "./regimeGraph";
 import { SAMPLE_CATALOG } from "./catalog.sample";
 import type { FocusDef } from "./types";
 import { governmentLabel } from "../governments";
@@ -51,7 +53,8 @@ beforeEach(async () => {
   await db.delete(focusActiveTable).where(eq(focusActiveTable.nationId, nationId));
   await db.delete(focusCompletedTable).where(eq(focusCompletedTable.nationId, nationId));
   await db.delete(focusStatesTable).where(eq(focusStatesTable.nationId, nationId));
-  await db.update(playerNationsTable).set({ coupPolicyLockTurns: 0, stability: 50, satisfactionMilitary: 60, politicalSupport: 50, money: 10_000 }).where(eq(playerNationsTable.id, nationId));
+  await db.update(playerNationsTable).set({ coupPolicyLockTurns: 0, stability: 50, satisfactionMilitary: 60, politicalSupport: 50, money: 10_000, government: governmentLabel("absolute_monarchy")! }).where(eq(playerNationsTable.id, nationId));
+  await db.delete(politicsEntriesTable).where(eq(politicsEntriesTable.nationId, nationId));
   await setSat(65);
   setCatalogForTest(SAMPLE_CATALOG);
 });
@@ -247,4 +250,88 @@ test("runFocusSettlement:單國錯誤不影響整批,回傳統計", async () => 
   const r = await runFocusSettlement();
   assert.ok(r.nations >= 1);
   assert.equal(r.failed, 0);
+});
+
+// ── 政體轉型 ────────────────────────────────────────────────
+
+const edgeFocus = (from: string, to: string) => findEdge(from, to)!.focusId;
+
+test("轉型國策完成:政體真的改變、支持度重設、寫入政治條目、議會黨派檔位可重建", async () => {
+  setCatalogForTest(FOCUS_CATALOG);
+  const id = edgeFocus("absolute_monarchy", "constitutional_monarchy"); // reform:支持度>=55
+  await give(100);
+  await db.update(playerNationsTable).set({ politicalSupport: 70 }).where(eq(playerNationsTable.id, nationId));
+  const start = await startFocus(await load(), id);
+  assert.equal(start.ok, true, JSON.stringify(start));
+  await setSat(65);
+  for (let i = 0; i < 9; i++) await settleNationFocus(await load(), ERA);
+  const n = await load();
+  assert.equal(n.government, governmentLabel("constitutional_monarchy"));
+  assert.equal(n.politicalSupport, 55, "支持度重設為 governmentChangeSupportReset 預設 55");
+  const entries = await db.select().from(politicsEntriesTable).where(eq(politicsEntriesTable.nationId, nationId));
+  assert.ok(entries.some((e) => e.title === "政體變更"));
+  assert.equal((await db.select().from(focusCompletedTable).where(eq(focusCompletedTable.nationId, nationId))).length, 1);
+  // 政體變了:原本以君主專制為起點的國策不再可見/可啟動
+  const again = await startFocus(await load(), edgeFocus("absolute_monarchy", "theocracy"));
+  assert.deepEqual([again.ok, !again.ok && again.reason], [false, "government_not_allowed"]);
+});
+
+test("轉型條件未達:被擋並說明,且不扣點、不換政體", async () => {
+  setCatalogForTest(FOCUS_CATALOG);
+  await give(100);
+  const r = await startFocus(await load(), edgeFocus("absolute_monarchy", "military_dictatorship")); // 需黑線傾向>=50
+  assert.equal(r.ok, false);
+  assert.ok(!r.ok && r.message.includes("傾向值"), JSON.stringify(r));
+  assert.equal((await fstate()).points, 100);
+  assert.equal((await load()).government, governmentLabel("absolute_monarchy"));
+});
+
+test("黑線轉型:傾向值達標後可走到軍事獨裁,並承擔穩定度/金錢代價", async () => {
+  setCatalogForTest(FOCUS_CATALOG);
+  await give(100);
+  await db.update(focusStatesTable).set({ blackLean: 60 }).where(eq(focusStatesTable.nationId, nationId));
+  await db.update(playerNationsTable).set({ satisfactionMilitary: 70, stability: 60, money: 5000 }).where(eq(playerNationsTable.id, nationId));
+  assert.equal((await startFocus(await load(), edgeFocus("absolute_monarchy", "military_dictatorship"))).ok, true);
+  await setSat(65);
+  for (let i = 0; i < 12; i++) await settleNationFocus(await load(), ERA);
+  const n = await load();
+  assert.equal(n.government, governmentLabel("military_dictatorship"));
+  assert.equal(n.stability, 48, "穩定度 -12");
+  assert.equal(n.money, 3800, "金錢 -1200");
+});
+
+test("起點政體在完成前被改掉:不轉型、全額退點、可重選", async () => {
+  setCatalogForTest(FOCUS_CATALOG);
+  await give(100);
+  await db.update(playerNationsTable).set({ politicalSupport: 70 }).where(eq(playerNationsTable.id, nationId));
+  const id = edgeFocus("absolute_monarchy", "constitutional_monarchy");
+  const s = await startFocus(await load(), id);
+  assert.equal(s.ok, true);
+  const afterStart = (await fstate()).points;
+  // 期間政體被別的力量(例如革命)改掉
+  await db.update(playerNationsTable).set({ government: governmentLabel("aristocracy")! }).where(eq(playerNationsTable.id, nationId));
+  await setSat(65);
+  for (let i = 0; i < 9; i++) await settleNationFocus(await load(), ERA);
+  const n = await load();
+  assert.equal(n.government, governmentLabel("aristocracy"), "不會憑空跳政體");
+  assert.equal((await db.select().from(focusCompletedTable).where(eq(focusCompletedTable.nationId, nationId))).length, 0, "沒有記為完成");
+  assert.ok((await fstate()).points >= afterStart + 20, "預扣點數全額退還(reform 成本 20)");
+});
+
+test("轉型完成後,同時進行中的其他轉型國策作廢並退點", async () => {
+  setCatalogForTest(FOCUS_CATALOG);
+  // 兩條轉型都從君主專制出發,但只有 main 槽,所以把第二條手動塞進 side 槽模擬
+  await give(100);
+  await db.update(playerNationsTable).set({ politicalSupport: 70 }).where(eq(playerNationsTable.id, nationId));
+  const a = edgeFocus("absolute_monarchy", "constitutional_monarchy");
+  const b = edgeFocus("absolute_monarchy", "dual_monarchy");
+  assert.equal((await startFocus(await load(), a)).ok, true);
+  await db.insert(focusActiveTable).values({ nationId, focusId: b, slot: "side", totalTurns: 50, spentPoints: 14 });
+  const before = (await fstate()).points;
+  await setSat(65);
+  for (let i = 0; i < 9; i++) await settleNationFocus(await load(), ERA);
+  assert.equal((await load()).government, governmentLabel("constitutional_monarchy"));
+  const actives = await db.select().from(focusActiveTable).where(eq(focusActiveTable.nationId, nationId));
+  assert.equal(actives.length, 0, "第二條轉型作廢");
+  assert.ok((await fstate()).points >= before + 14, "作廢的那條退回預扣點數");
 });
