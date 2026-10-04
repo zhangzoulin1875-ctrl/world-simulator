@@ -15,7 +15,6 @@ import {
   getGetPoliticsHistoryQueryKey,
   useSubmitGovernmentDecision,
   useWithdrawGovernmentDecision,
-  useChangeGovernment,
 } from "@workspace/api-client-react";
 import type { PoliticsOverview } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
@@ -56,7 +55,6 @@ export function GovernmentPanel({ overview }: { overview: PoliticsOverview }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [decision, setDecision] = useState("");
-  const [targetGov, setTargetGov] = useState("");
 
   const invalidate = () => {
     queryClient.invalidateQueries({
@@ -98,31 +96,8 @@ export function GovernmentPanel({ overview }: { overview: PoliticsOverview }) {
         }),
     },
   });
-  const changeGovernment = useChangeGovernment({
-    mutation: {
-      onSuccess: () => {
-        setTargetGov("");
-        toast({
-          title: "政體變更成功",
-          description: "已順應民意變更政體，政治支持度重設、接受度歸零。",
-        });
-        invalidate();
-      },
-      onError: (err) =>
-        toast({
-          title: "政體變更失敗",
-          description: apiErrorMessage(err),
-          variant: "destructive",
-        }),
-    },
-  });
-
   const pending = overview.pendingDecision;
   const unlocked = overview.social.unlockedGovernments;
-  const canChangeGovernment = overview.governmentChangeAcceptance >= 100;
-  const changeTargets = unlocked.filter(
-    (g) => g.label !== overview.government,
-  );
 
   return (
     <section
@@ -168,7 +143,7 @@ export function GovernmentPanel({ overview }: { overview: PoliticsOverview }) {
           {unlocked.length > 0 && (
             <div>
               <div className="mb-1 text-[11px] font-semibold text-white/60">
-                可切換政體（社會關鍵科技已解鎖）
+                已解鎖政體(依世界時代)
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {unlocked.map((g) => (
@@ -189,7 +164,7 @@ export function GovernmentPanel({ overview }: { overview: PoliticsOverview }) {
           )}
         </div>
 
-        {/* 支持度 / 接受度 + 政府決策 */}
+        {/* 支持度 + 政府決策 */}
         <div className="space-y-3">
           <Meter
             label="政治支持度"
@@ -204,69 +179,18 @@ export function GovernmentPanel({ overview }: { overview: PoliticsOverview }) {
             }
             testId="meter-support"
           />
-          <Meter
-            label="政體變更接受度"
-            value={overview.governmentChangeAcceptance}
-            hint="累積至 100 時，可主動變更政體（限社會關鍵科技已解鎖者）。"
-            colorClass="bg-purple-400"
-            testId="meter-acceptance"
-          />
-
-          {canChangeGovernment && (
-            <div
-              className="rounded-lg border border-purple-300/30 bg-purple-500/10 p-3"
-              data-testid="section-government-change"
-            >
-              <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold text-purple-200">
-                <Crown className="h-3.5 w-3.5" />
-                主動政體變更
-              </div>
-              {changeTargets.length === 0 ? (
-                <p
-                  className="text-xs leading-relaxed text-white/60"
-                  data-testid="text-no-change-targets"
-                >
-                  接受度已達 100，但目前沒有其他可切換的政體。請透過社會關鍵科技解鎖新政體後再試。
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-xs leading-relaxed text-white/65">
-                    接受度已達 100，可順應民意變更政體。變更後政治支持度將重設、接受度歸零。
-                  </p>
-                  <select
-                    value={targetGov}
-                    onChange={(e) => setTargetGov(e.target.value)}
-                    className="w-full rounded-lg border border-white/20 bg-black/40 p-2 text-sm text-white focus:border-purple-300/60 focus:outline-none"
-                    data-testid="select-target-government"
-                  >
-                    <option value="">選擇目標政體…</option>
-                    {changeTargets.map((g) => (
-                      <option key={g.slug} value={g.slug}>
-                        {g.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={() =>
-                      changeGovernment.mutate({
-                        data: { government: targetGov },
-                      })
-                    }
-                    disabled={
-                      changeGovernment.isPending || targetGov.length === 0
-                    }
-                    className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-purple-500/85 px-4 py-2 text-sm font-bold text-white transition hover:bg-purple-400 disabled:opacity-50"
-                    data-testid="button-change-government"
-                  >
-                    {changeGovernment.isPending && (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    )}
-                    變更政體
-                  </button>
-                </div>
-              )}
+          <div
+            className="rounded-lg border border-sky-300/20 bg-sky-500/5 p-3"
+            data-testid="note-government-change-rule"
+          >
+            <div className="mb-1 flex items-center gap-1.5 text-[11px] font-bold text-sky-200">
+              <Crown className="h-3.5 w-3.5" />
+              政體變更
             </div>
-          )}
+            <p className="text-xs leading-relaxed text-white/65">
+              政體不再靠累積「接受度」更換,之後將由國策樹的轉型國策決定。
+            </p>
+          </div>
 
           <div className="rounded-lg border border-white/10 bg-black/30 p-3">
             <div className="mb-2 flex items-center gap-1.5 text-[11px] font-bold text-amber-200">

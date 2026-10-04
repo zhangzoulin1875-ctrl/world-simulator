@@ -744,7 +744,7 @@ test("政府決策 AI 回 success:null：強制走失敗、決策結案、支持
     Math.max(0, Math.min(100, 80 - settings.decisionFailureSupportDelta)),
     "失敗應扣支持度",
   );
-  assert.equal(after.governmentChangeAcceptance, 22, "接受度應套用 delta");
+  assert.equal(after.governmentChangeAcceptance, 20, "接受度機制已下線:AI 的 acceptanceDelta 一律忽略,值維持不變");
   // 穩定度 = 44 − 4 −（可能的低支持度反制懲罰；支持度 80 通常不觸發，但容忍）。
   assert.ok(
     after.stability === 40 ||

@@ -462,54 +462,16 @@ router.delete("/politics/decision", async (req, res) => {
  * 主動政體變更（Task #127）：接受度達 100 且目標政體已由社會科技解鎖時，改為玩家
  * 指定的政體。決定性（無隨機），競態安全。
  */
+/**
+ * 手動政體變更已於 2026-10-05 下線(原本靠「接受度」累積到 100 才能任意跳政體)。
+ * 政體改由國策樹的「轉型國策」決定;此端點保留為 410,讓舊版前端得到明確訊息。
+ */
 router.post("/politics/government-change", async (req, res) => {
   const auth = await requirePlayer(req, res);
   if (!auth) return;
-  const { nation, userId } = auth;
-
-  if (nation.governmentChangeAcceptance < 100) {
-    res.status(400).json({
-      error: "政體變更接受度尚未達到 100，無法主動變更政體",
-    });
-    return;
-  }
-
-  const body = (req.body ?? {}) as Record<string, unknown>;
-  const target = body["government"];
-  if (typeof target !== "string" || target.trim().length === 0) {
-    res.status(400).json({ error: "請選擇目標政體" });
-    return;
-  }
-  const targetSlug = target.trim();
-
-  const social = await aggregateSocialEffectsForUser(userId);
-  if (!social.unlockedGovernments.includes(targetSlug)) {
-    res.status(400).json({ error: "目標政體尚未由社會關鍵科技解鎖" });
-    return;
-  }
-  const targetLabel = governmentLabel(targetSlug);
-  if (!targetLabel) {
-    res.status(400).json({ error: "目標政體不正確" });
-    return;
-  }
-  if (targetSlug === governmentSlugByLabel(nation.government)) {
-    res.status(400).json({ error: "目標政體與現行政體相同" });
-    return;
-  }
-
-  const ok = await applyPlayerGovernmentChange(nation, targetLabel);
-  if (!ok) {
-    res.status(409).json({
-      error: "政體變更條件已改變，請重新整理後再試",
-    });
-    return;
-  }
-
-  req.log.info(
-    { nationId: nation.id, targetSlug },
-    "player-initiated government change",
-  );
-  res.json({ ok: true });
+  res.status(410).json({
+    error: "政體變更改由國策樹的轉型國策決定,手動變更已下線",
+  });
 });
 
 /** 政治歷史（時間軸；最新在前，最多 100 筆）。 */

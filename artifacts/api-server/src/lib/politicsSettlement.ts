@@ -1144,28 +1144,15 @@ async function regeneratePoliticalNote(
 }
 
 /**
- * 政體變更接受度每回合結算（Task #127）：支持度低於門檻累積、否則消退（夾 0–100）。
- * 達 100 後由玩家主動改制（POST /api/politics/government-change），此處不自動更換政體。
+ * 政體變更接受度已於 2026-10-05 下線:政體改由國策樹的「轉型國策」決定,
+ * 不再有任何隨機/累積式門檻。欄位 governmentChangeAcceptance 暫時保留(不再讀寫),
+ * 待國策樹穩定後再移除。此函式保留為空操作,避免動到結算呼叫順序。
  */
 async function settleAcceptance(
-  nation: PlayerNation,
-  settings: PoliticsSettings,
+  _nation: PlayerNation,
+  _settings: PoliticsSettings,
 ): Promise<void> {
-  const newAcceptance = acceptanceTick(
-    nation.politicalSupport,
-    nation.governmentChangeAcceptance,
-    settings,
-  );
-
-  // Task #127：接受度只累積／消退（夾 0–100），達 100 後由玩家主動改制
-  // （POST /api/politics/government-change），此處不自動更換政體。政變才是被動改制。
-  if (newAcceptance !== nation.governmentChangeAcceptance) {
-    await db
-      .update(playerNationsTable)
-      .set({ governmentChangeAcceptance: newAcceptance })
-      .where(eq(playerNationsTable.id, nation.id));
-    nation.governmentChangeAcceptance = newAcceptance;
-  }
+  // no-op
 }
 
 /**
@@ -1312,10 +1299,8 @@ export async function judgeGovernmentDecisionForNation(
   const newStability = clampPct(
     nation.stability + outcome.stabilityDelta - counterPenalty,
   );
-  const acceptanceDelta = outcome.acceptanceDelta;
-  const newAcceptance = clampPct(
-    nation.governmentChangeAcceptance + acceptanceDelta,
-  );
+  // 接受度機制已下線(見 settleAcceptance),AI 回傳的 acceptanceDelta 一律忽略。
+  const newAcceptance = nation.governmentChangeAcceptance;
 
   await db
     .update(playerNationsTable)
@@ -1333,7 +1318,7 @@ export async function judgeGovernmentDecisionForNation(
     counterPenalty > 0
       ? `\n\n⚠️ 低支持度反制：政壇動盪加劇，穩定度額外 −${counterPenalty}%。`
       : "";
-  const description = `${outcome.description}（支持度 ${supportDelta >= 0 ? "+" : ""}${supportDelta}、穩定度 ${outcome.stabilityDelta >= 0 ? "+" : ""}${outcome.stabilityDelta}%、政體變更接受度 ${acceptanceDelta >= 0 ? "+" : ""}${acceptanceDelta}）${counterText}\n\n🏛️ 政府決策：「${pending.decision.trim()}」`;
+  const description = `${outcome.description}（支持度 ${supportDelta >= 0 ? "+" : ""}${supportDelta}、穩定度 ${outcome.stabilityDelta >= 0 ? "+" : ""}${outcome.stabilityDelta}%${counterText}\n\n🏛️ 政府決策：「${pending.decision.trim()}」`;
 
   await db.insert(politicsEntriesTable).values({
     nationId: nation.id,

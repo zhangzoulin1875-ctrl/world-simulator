@@ -133,7 +133,8 @@ const decisionOutcomeSchema = z.object({
    * 對政體變更接受度的一次性百分點偏移（Task #127）。成功推行通常降低改制
    * 壓力（負值），受挫通常升高（正值）。
    */
-  acceptanceDelta: z.number().int().min(-20).max(20),
+  // 政體變更接受度已下線:此欄位僅為相容舊回傳保留,解析後一律忽略。
+  acceptanceDelta: z.number().int().min(-20).max(20).optional().default(0),
 });
 
 const decisionJudgementSchema = z
@@ -709,10 +710,10 @@ export async function judgeGovernmentDecision(params: {
 
   const system = [
     "你是一款架空世界戰略遊戲的政府決策判定 AI。玩家的政府提出了一項國家級決策，請評估並產出結果，僅回覆 JSON 物件（不要 code fence、不要任何前後文字）。",
-    `JSON 欄位：{"fitScore": 0-100整數（此決策與該國政體、政治註記、時代的契合度，越契合越高）, "success": {"title": "…", "description": "…", "stabilityDelta": -20~20整數, "acceptanceDelta": -20~20整數}, "failure": {"title": "…", "description": "…", "stabilityDelta": -20~20整數, "acceptanceDelta": -20~20整數}}`,
+    `JSON 欄位：{"fitScore": 0-100整數（此決策與該國政體、政治註記、時代的契合度，越契合越高）, "success": {"title": "…", "description": "…", "stabilityDelta": -20~20整數}, "failure": {"title": "…", "description": "…", "stabilityDelta": -20~20整數}}`,
     "規則：",
-    "1. success 是決策順利推行的結果：描述有政體風格與時代感，stabilityDelta 通常為正或 0，acceptanceDelta 通常為負（改制壓力下降）。",
-    "2. failure 是決策受挫的結果：描述失敗原因（派系反對、執行不力、民意反彈等），stabilityDelta 通常為負，acceptanceDelta 通常為正（改制壓力上升）。",
+    "1. success 是決策順利推行的結果：描述有政體風格與時代感，stabilityDelta 通常為正或 0。。",
+    "2. failure 是決策受挫的結果：描述失敗原因（派系反對、執行不力、民意反彈等），stabilityDelta 通常為負。。",
     "3. 決策若與政體或時代明顯矛盾，fitScore 給低分並在 failure 描述中合理化。",
     "4. 所有文字繁體中文（zh-TW）。",
     "5. success 與 failure 兩者都必須是完整物件、永遠不要填 null：即使決策明顯不可行，也要寫出「假如順利推行」的完整 success；即使決策必然成功，也要寫出完整 failure。採用哪一種由伺服器擲骰決定。",
