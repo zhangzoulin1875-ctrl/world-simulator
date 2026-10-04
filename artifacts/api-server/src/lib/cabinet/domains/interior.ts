@@ -1,3 +1,5 @@
+import { getEraSlugs } from "../../nationStats";
+import { eraCostScale, scaleByEra } from "../../eraCostScale";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   db,
@@ -271,7 +273,7 @@ async function execBuildBuilding(
   if (!controlled) return { ok: false, error: "這座城市不在掌控地區內" };
   // Task #523 — 一般城市建築成本倍率（與 POST /economy/buildings 同一縮放）。
   const buildCost = scaleConstructionCost(
-    def.buildCost,
+    def.buildCost * eraCostScale((await getEraSlugs()).statsEra),
     (await getGameBalanceSettings()).constructionCosts.cityBuilding,
   );
   try {
@@ -360,6 +362,7 @@ async function execUpgradeWall(
     cityWallEnabled: prod.cityWallEnabled,
     productionEraSlug,
   };
+  const wallEraScale = eraCostScale((await getEraSlugs()).statsEra);
   try {
     return await db.transaction(async (tx) => {
       await tx.execute(
@@ -373,7 +376,7 @@ async function execUpgradeWall(
       const current: WallTier = wallRow?.tier ?? "wood";
       const check = canUpgradeWall(current, targetTier, wallOpts);
       if (!check.ok) throw new ExecGuardError(check.error);
-      const cost = WALL_UPGRADE_COST[check.tier];
+      const cost = scaleByEra(WALL_UPGRADE_COST[check.tier], wallEraScale);
       const updated = await tx
         .update(playerNationsTable)
         .set({ money: sql`${playerNationsTable.money} - ${cost}` })
@@ -485,6 +488,7 @@ async function gatherOptions(
           // Task #523 — 一般城市建築成本倍率（顯示與扣款一致）。
           const cityBuildingMult = (await getGameBalanceSettings())
             .constructionCosts.cityBuilding;
+          const menuEraScale = eraCostScale((await getEraSlugs()).statsEra);
           for (const c of cities) {
             const remainingSlots = slotsPerCity - (usedByCity.get(c.id) ?? 0);
             if (remainingSlots <= 0) continue;
@@ -496,7 +500,7 @@ async function gatherOptions(
                 cityName: c.name,
                 buildingType: bt,
                 buildingName: def.name,
-                cost: scaleConstructionCost(def.buildCost, cityBuildingMult),
+                cost: scaleConstructionCost(def.buildCost * menuEraScale, cityBuildingMult),
                 remainingSlots,
               });
             }
@@ -532,6 +536,7 @@ async function gatherOptions(
       }
 
       if (consider.has(KEY_UPGRADE_WALL)) {
+        const wallMenuEraScale = eraCostScale((await getEraSlugs()).statsEra);
         const productionEraSlug = await getProductionDomainEra(userId);
         const wallOpts = {
           cityWallEnabled: prod.cityWallEnabled,
@@ -555,7 +560,7 @@ async function gatherOptions(
             cityName: c.name,
             tier: next,
             tierLabel: WALL_TIER_LABELS[next],
-            cost: WALL_UPGRADE_COST[next],
+            cost: scaleByEra(WALL_UPGRADE_COST[next], wallMenuEraScale),
           });
         }
       }

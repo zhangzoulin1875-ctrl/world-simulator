@@ -46,13 +46,18 @@ export const BUILDING_UPKEEP_PER_LEVEL = 100;
  * 建到「第 level 級」的成本：基礎 × 1.2^(level−1)，向上取整。
  * level 1 = 新建；level n（n>1）= 從 n−1 升到 n 的成本。
  */
-export function buildingCost(level: number): {
+export function buildingCost(
+  level: number,
+  eraScale = 1,
+): {
   money: number;
   production: number;
 } {
   const factor = Math.pow(1.2, level - 1);
   return {
-    money: Math.ceil(BUILDING_BASE_COST.money * factor),
+    // 金錢軌隨時代膨脹；生產力軌不縮放——它會寫入 region_buildings.production_reserved，
+    // 受「production_spent = Σ production_reserved」不變量約束（見 productionSpentHealth）。
+    money: Math.ceil(BUILDING_BASE_COST.money * factor * eraScale),
     production: Math.ceil(BUILDING_BASE_COST.production * factor),
   };
 }
@@ -81,6 +86,6 @@ export function buildingWorkers(level: number): number {
 }
 
 /** 建築每回合金錢維護費（100 × level）。 */
-export function buildingUpkeep(level: number): number {
-  return BUILDING_UPKEEP_PER_LEVEL * level;
+export function buildingUpkeep(level: number, eraScale = 1): number {
+  return Math.round(BUILDING_UPKEEP_PER_LEVEL * level * eraScale);
 }

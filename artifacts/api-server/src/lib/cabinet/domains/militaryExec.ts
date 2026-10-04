@@ -1,3 +1,4 @@
+import { eraCostScale } from "../../eraCostScale";
 import { and, eq, sql } from "drizzle-orm";
 import {
   db,
@@ -121,7 +122,7 @@ export async function executeRecruit(
     researchedKeySlugs,
   );
   const researched = await loadResearchedMilitaryTechs(userId);
-  const effective = applyTechBonuses(template, researched);
+  const effective = applyTechBonuses(template, researched, eraCostScale(statsEra));
   // Task #557 — 生產力佔用 = ⌈數量 × 有效生產力維護費 ÷ 100⌉（與金錢購買同公式）。
   const cost = recruitCost(effective, quantity);
   // Task #568 — 立即性花費 = ⌈數量 × 有效 prodCostPer100 ÷ 100⌉（當回合流量，
@@ -221,7 +222,7 @@ export async function executePurchase(
     researchedKeySlugs,
   );
   const researched = await loadResearchedMilitaryTechs(userId);
-  const effective = applyTechBonuses(template, researched);
+  const effective = applyTechBonuses(template, researched, eraCostScale(statsEra));
   const moneyCost = effective.moneyCostPerUnit * quantity;
   if (!Number.isSafeInteger(moneyCost)) throw new Error("購買金額過大");
   const stats = await computeAdjustedNationStats(nation, statsEra);

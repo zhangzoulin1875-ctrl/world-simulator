@@ -1,3 +1,4 @@
+import { eraCostScale } from "../../eraCostScale";
 import { asc, eq } from "drizzle-orm";
 import {
   db,
@@ -231,7 +232,7 @@ export async function runDomain(ctx: RunDomainContext): Promise<void> {
         remainingPurchaseCap: remainingCap,
       },
       templates: unlockedTemplates.map((t) => {
-        const eff = applyTechBonuses(t, researched);
+        const eff = applyTechBonuses(t, researched, eraCostScale(statsEra));
         return {
           id: t.id,
           name: t.name,
@@ -267,7 +268,7 @@ export async function runDomain(ctx: RunDomainContext): Promise<void> {
     for (const item of plan.recruit) {
       const template = templateById.get(item.templateId);
       if (!template) continue;
-      const eff = applyTechBonuses(template, researched);
+      const eff = applyTechBonuses(template, researched, eraCostScale(statsEra));
       const cost = recruitCost(eff, item.quantity);
       const remaining = Math.max(0, availableProduction - usedProduction);
       const summary = `招募 ${template.name} ×${item.quantity.toLocaleString(
@@ -320,7 +321,7 @@ export async function runDomain(ctx: RunDomainContext): Promise<void> {
       const template = templateById.get(item.templateId);
       if (!template) continue;
       const remaining = Math.max(0, remainingCap - usedCap);
-      const eff = applyTechBonuses(template, researched);
+      const eff = applyTechBonuses(template, researched, eraCostScale(statsEra));
       const moneyCost = eff.moneyCostPerUnit * item.quantity;
       const summary = `購買 ${template.name} ×${item.quantity.toLocaleString(
         "en-US",

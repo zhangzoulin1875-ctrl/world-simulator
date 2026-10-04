@@ -8,7 +8,7 @@ import type { MilitaryTechBonus } from "@workspace/db";
  *   （2026-10 起：面積基準 + 人均保底混合，見 FOOD_PER_CAPITA_FLOOR）。
  *   土地項 = 控制面積 × 肥沃度 × 時代指數 × 農民比例 × 校準常數
  *   （控制面積 = 地區面積 km² × 控制比例；農民比例 = farmer_population_pct）。
- *   人均保底項 = 控制人口 × 時代指數 × FOOD_PER_CAPITA_FLOOR × 農民比例
+ *   人均保底項 = 控制人口 × FOOD_PER_CAPITA_FLOOR(1.3，固定) × 農民比例
  *   （集約農業：精耕細作的畝產由勞動力密度決定）。
  * - 消耗 = 平民每人口 1 ＋ 軍人每人 5（軍人數 = Σ 軍隊數量 × 兵種人口消耗）。
  * - 保底讓平民在任何年代開局都不飢荒（保底 ≥ 1.2 × 消耗），但養兵
@@ -70,15 +70,16 @@ export function foodEraIndexForEra(
 export const FOOD_CALIBRATION = 0.45;
 
 /**
- * 人均糧食保底：每人每回合至少產出「時代指數 × 12」糧食（再乘農民比例）。
+ * 人均糧食保底：每人每回合至少產出 1.3 糧食（再乘農民比例），**固定倍數、
+ * 不隨時代指數膨脹**。
  * 兩層意義：
- *  - 平民不飢荒：古典時代指數 0.1 → 保底 1.2 > 消耗 1，任何年代開局皆然
- *   （時代指數最小 0.1，保底恆 ≥ 1.2）。
- *  - 養兵見真章：軍人每人吃 5，土地貧瘠區養不起大軍、肥沃平原餘裕大，
- *   軍事潛力差異由土地項（面積×肥沃度）決定——這是前工業化國家的史實。
- * 兩項同乘時代指數與農民比例，管理員覆寫 eraIndex 時保底自動跟隨。
+ *  - 平民不飢荒：平民每人消耗 1，保底 1.3 > 1，任何年代開局皆然；
+ *    （舊版為「時代指數 × 12」，古典 1.2、後期可達數十倍，等於無限白送糧食。）
+ *  - 養兵見真章：軍人每人吃 5，保底只夠養平民；要養大軍必須靠土地項
+ *    （面積×肥沃度×時代指數），軍事潛力差異由土地決定——這是前工業化國家的史實。
+ * 土地項仍乘時代指數與農民比例（農業技術進步），保底項只乘農民比例。
  */
-export const FOOD_PER_CAPITA_FLOOR = 12;
+export const FOOD_PER_CAPITA_FLOOR = 1.3;
 
 /** 平民每人口每回合糧食消耗。 */
 export const CIVILIAN_FOOD_PER_CAPITA = 1;
@@ -143,7 +144,6 @@ export function regionFoodBase(
   const landTerm = area * fertility * eraIndex * farmerShare * FOOD_CALIBRATION;
   const popTerm =
     Math.max(0, region.controlledPopulation) *
-    eraIndex *
     FOOD_PER_CAPITA_FLOOR *
     farmerShare;
   return Math.max(landTerm, popTerm);

@@ -253,8 +253,10 @@ function StartingResourcesCard() {
         </CardTitle>
         <CardDescription>
           玩家「自創建國」時，新國家獲得的開局科技點數與金錢（預設 200 /
-          5000）。修改後立即生效，只影響之後建立的新國家；接手無主國家與既有
-          國家不受影響。
+          5000）。<strong>此處數值為「古典時代基準」</strong>：建國時會再乘上當前
+          世界時代的開銷係數（與稅收同一把尺，古典 ×1、一戰 ×285、現代 ×2980、
+          未來 ×4220），例如設 5000、一戰建國實得 1,425,000 金錢。修改後立即
+          生效，只影響之後建立的新國家；接手無主國家與既有國家不受影響。
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

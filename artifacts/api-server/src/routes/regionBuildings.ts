@@ -11,6 +11,7 @@ import {
 } from "@workspace/db";
 import { getSession, readSessionToken } from "../lib/sessions";
 import { getEraSlugs, computeAdjustedNationStats } from "../lib/nationStats";
+import { eraCostScale } from "../lib/eraCostScale";
 import { computeAvailableProduction } from "../lib/economy";
 import { loadCurrentTurnRecruitSpend } from "../lib/recruitSpend";
 import { pgErrorCode } from "../lib/playerValidation";
@@ -37,8 +38,9 @@ import {
 function scaledBuildingCost(
   level: number,
   multiplier: number,
+  eraScale = 1,
 ): { money: number; production: number } {
-  const base = buildingCost(level);
+  const base = buildingCost(level, eraScale);
   return {
     money: scaleConstructionCost(base.money, multiplier),
     production: scaleConstructionCost(base.production, multiplier),
@@ -85,6 +87,7 @@ function serializeBuilding(
   b: RegionBuilding,
   regionName: string | null,
   costMultiplier: number,
+  eraScale = 1,
 ) {
   const type = b.buildingType as BuildingType;
   const nextLevel = b.level + 1;
@@ -98,11 +101,11 @@ function serializeBuilding(
     level: b.level,
     outputPerTurn: buildingOutput(b.level),
     workers: buildingWorkers(b.level),
-    upkeepPerTurn: buildingUpkeep(b.level),
+    upkeepPerTurn: buildingUpkeep(b.level, eraScale),
     upgradeCost:
       b.level >= MAX_BUILDING_LEVEL
         ? null
-        : scaledBuildingCost(nextLevel, costMultiplier),
+        : scaledBuildingCost(nextLevel, costMultiplier, eraScale),
   };
 }
 
@@ -127,6 +130,7 @@ router.get("/player/buildings", async (req, res) => {
   const { nation } = auth;
   try {
     const { statsEra } = await getEraSlugs();
+    const eraScale = eraCostScale(statsEra);
     const stats = await computeAdjustedNationStats(nation, statsEra);
     // Task #523 — 資源建築成本倍率（顯示與扣款一致）。
     const costMult = (await getGameBalanceSettings()).constructionCosts
@@ -163,9 +167,9 @@ router.get("/player/buildings", async (req, res) => {
       .orderBy(regionControlsTable.regionId);
     res.json({
       buildings: rows.map((r) =>
-        serializeBuilding(r.building, r.regionName, costMult),
+        serializeBuilding(r.building, r.regionName, costMult, eraScale),
       ),
-      buildCost: scaledBuildingCost(1, costMult),
+      buildCost: scaledBuildingCost(1, costMult, eraScale),
       maxLevel: MAX_BUILDING_LEVEL,
       workers,
       workerCap: stats.population,
@@ -219,7 +223,7 @@ router.post("/player/buildings", async (req, res) => {
     // Task #523 — 資源建築成本倍率（與 GET /player/buildings 顯示一致）。
     const costMult = (await getGameBalanceSettings()).constructionCosts
       .resourceBuilding;
-    const cost = scaledBuildingCost(1, costMult);
+    const cost = scaledBuildingCost(1, costMult, eraCostScale(statsEra));
 
     // 需掌控該地區（percent ≥ 1）。
     const [control] = await db
@@ -352,7 +356,7 @@ router.post("/player/buildings/:id/upgrade", async (req, res) => {
         throw new HttpError(400, `已達等級上限（${MAX_BUILDING_LEVEL} 級）`);
       }
       const nextLevel = building.level + 1;
-      const cost = scaledBuildingCost(nextLevel, costMult);
+      const cost = scaledBuildingCost(nextLevel, costMult, eraCostScale(statsEra));
       const workers = await totalWorkers(tx, nation.id);
       if (workers + buildingWorkers(1) > stats.population) {
         throw new HttpError(

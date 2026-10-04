@@ -1,3 +1,4 @@
+import { eraCostScale, scaleByEra } from "../lib/eraCostScale";
 import { Router, type IRouter } from "express";
 import { z } from "zod";
 import { schemas } from "@workspace/api-zod";
@@ -581,6 +582,7 @@ router.post("/player/nation", async (req, res) => {
     }
   }
 
+  const foundingEraScale = eraCostScale(worldEra);
   try {
     const nation = await db.transaction(async (tx) => {
       // Serialize concurrent founding attempts — lock all regions in ascending
@@ -617,8 +619,17 @@ router.post("/player/nation", async (req, res) => {
           government,
           flagUrl: flag.value,
           emblemUrl: emblem.value,
-          techPoints: startingRow?.startingTechPoints ?? 200,
-          money: startingRow?.startingMoney ?? 5000,
+          // 設定值視為「古典基準」，建國時乘時代係數（與稅收同一把尺），
+          // 讓晚期開局的新國家起始資金與稅收成比例，不至於一回合就被維護費吃光。
+          // techPoints 是 int4：夾在 2^31-1 以內避免管理員高基準 × 晚期係數溢位。
+          techPoints: Math.min(
+            2_147_483_647,
+            scaleByEra(startingRow?.startingTechPoints ?? 200, foundingEraScale),
+          ),
+          money: Math.min(
+            Number.MAX_SAFE_INTEGER,
+            scaleByEra(startingRow?.startingMoney ?? 5000, foundingEraScale),
+          ),
         })
         .returning();
       // 批次插入所有 region_controls

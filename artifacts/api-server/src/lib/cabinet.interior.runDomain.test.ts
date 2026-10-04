@@ -27,6 +27,10 @@ import { runProductionMigrations } from "./productionMigrations";
 import { runTechTreeMigrations } from "./techTreeMigrations";
 import { runWallMigrations } from "./wallMigrations";
 import { getDomainModule, applyApproval } from "./cabinet";
+import { buildingByType } from "./production";
+import { getGameBalanceSettings, scaleConstructionCost } from "./gameBalance";
+import { getEraSlugs } from "./nationStats";
+import { eraCostScale } from "./eraCostScale";
 import type { AgencyLevel } from "./cabinet/types";
 import type { InteriorPlan } from "./cabinet/domains/interiorAi";
 
@@ -48,7 +52,11 @@ const TEST_TAG = "cabinet-interior-runDomain-test";
 // pid 後綴：lib glob 與 test-integration 併發跑同一檔時，各行程資料互不碰撞
 // （discord_user_id 有唯一約束，固定 ID 會 23505）。
 const TEST_USER_ID = `${TEST_TAG}-user-${process.pid}`;
-const GRANARY_COST = 800;
+// 造價隨世界時代與管理員建設倍率變動：before() 以與正式程式相同的公式算出，
+// 國庫（RICH/POOR）維持原測試比例（糧倉 800 : 富 100000 : 窮 1500）。
+let GRANARY_COST = 800;
+let RICH = 100000;
+let POOR = 1500;
 
 // ── 固定 AI 規劃覆寫（避免真實呼叫 Anthropic） ─────────────────────
 type MessagesCreate = typeof anthropic.messages.create;
@@ -217,6 +225,15 @@ async function approveLikeRoute(approvalId: number): Promise<number> {
 }
 
 before(async () => {
+  {
+    const def = buildingByType("granary");
+    GRANARY_COST = scaleConstructionCost(
+      (def?.buildCost ?? 800) * eraCostScale((await getEraSlugs()).statsEra),
+      (await getGameBalanceSettings()).constructionCosts.cityBuilding,
+    );
+    RICH = GRANARY_COST * 125;
+    POOR = Math.ceil(GRANARY_COST * 1.875);
+  }
   await runGameMigrations();
   await runMapRegionSync();
   await runRegionControlMigrations();
@@ -240,7 +257,7 @@ before(async () => {
       name: `${TEST_TAG}-國`,
       leaderName: TEST_TAG,
       discordUserId: TEST_USER_ID,
-      money: 100000,
+      money: RICH,
       techPoints: 100000,
     })
     .returning({ id: playerNationsTable.id });
@@ -288,7 +305,7 @@ beforeEach(async () => {
   await db
     .update(playerNationsTable)
     .set({
-      money: 100000,
+      money: RICH,
       techPoints: 100000,
     })
     .where(eq(playerNationsTable.id, nationId));
@@ -319,7 +336,7 @@ test("已授權且非重大：興建糧倉自動代理執行並扣除金錢", as
   const nation = await reloadNation();
   assert.equal(
     Number(nation.money),
-    100000 - GRANARY_COST,
+    RICH - GRANARY_COST,
     "自動興建應扣除糧倉造價",
   );
   const buildings = await db
@@ -341,7 +358,7 @@ test("已授權但重大：相對國庫的重大支出只進審批佇列，不�
   // 國庫壓到 1500：糧倉 800 > 1500 × 門檻(約0.4) → 重大支出。
   await db
     .update(playerNationsTable)
-    .set({ money: 1500 })
+    .set({ money: POOR })
     .where(eq(playerNationsTable.id, nationId));
   nextPlan = { ...emptyPlan(), building: { cityId, buildingType: "granary" } };
 
@@ -353,7 +370,7 @@ test("已授權但重大：相對國庫的重大支出只進審批佇列，不�
   });
 
   const nation = await reloadNation();
-  assert.equal(Number(nation.money), 1500, "重大支出不應自動扣款");
+  assert.equal(Number(nation.money), POOR, "重大支出不應自動扣款");
   const buildings = await db
     .select()
     .from(cityBuildingsTable)
@@ -376,7 +393,7 @@ test("越權大臣：未授權項目只提案、絕不自動執行（即使本�
   });
 
   const nation = await reloadNation();
-  assert.equal(Number(nation.money), 100000, "未授權項目絕不自動執行");
+  assert.equal(Number(nation.money), RICH, "未授權項目絕不自動執行");
   const buildings = await db
     .select()
     .from(cityBuildingsTable)
@@ -399,7 +416,7 @@ test("同一 actionKey 已有待審：不重複提案", async () => {
   // 本回合又想提出（重大）興建：國庫壓低使其成為重大支出。
   await db
     .update(playerNationsTable)
-    .set({ money: 1500 })
+    .set({ money: POOR })
     .where(eq(playerNationsTable.id, nationId));
   nextPlan = { ...emptyPlan(), building: { cityId, buildingType: "granary" } };
 

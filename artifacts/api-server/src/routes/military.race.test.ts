@@ -45,6 +45,7 @@ const {
   militaryPurchaseQuotasTable,
 } = await import("@workspace/db");
 const { createSession, SESSION_COOKIE_NAME } = await import("../lib/sessions");
+const { eraCostScale } = await import("../lib/eraCostScale");
 const {
   recruitCost,
   recruitProductionSpend,
@@ -274,7 +275,15 @@ before(async () => {
       prodUpkeepPerUnit: militaryUnitTemplatesTable.prodUpkeepPerUnit,
     });
   assert.ok(tpl, "custom test template must be inserted");
-  template = tpl!;
+  // 路由以 applyTechBonuses(template, researched, eraScale) 計價：金錢價與招募一次性
+  // 生產力花費隨世界時代膨脹；佔用型 prodUpkeepPerUnit 不縮放。測試改用同一個
+  // 縮放後的有效視圖推導預算，才會與路由一致。
+  const eraScale = eraCostScale((await getStatsEraSlug()));
+  template = {
+    ...tpl!,
+    prodCostPer100: Math.round(tpl!.prodCostPer100 * eraScale),
+    moneyCostPerUnit: Math.round(tpl!.moneyCostPerUnit * eraScale),
+  };
 
   // Task #549 守門測試用：無主模板（owner null，非本人 → 一律 404）。
   const [foreign] = await db

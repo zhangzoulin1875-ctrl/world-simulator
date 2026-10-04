@@ -156,6 +156,13 @@ overrides:
 importers:
 
   .:
+    dependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.5.8
+        version: 0.5.8
+      '@electric-sql/pglite-socket':
+        specifier: ^0.2.11
+        version: 0.2.11(@electric-sql/pglite@0.5.8)
     devDependencies:
       '@neondatabase/serverless':
         specifier: ^1.2.0
@@ -192,7 +199,7 @@ importers:
         version: 14.26.3
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.1(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0)
+        version: 0.45.1(@electric-sql/pglite@0.5.8)(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0)
       express:
         specifier: ^5
         version: 5.2.1
@@ -587,10 +594,10 @@ importers:
     dependencies:
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.1(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0)
+        version: 0.45.1(@electric-sql/pglite@0.5.8)(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0)
       drizzle-zod:
         specifier: ^0.8.3
-        version: 0.8.3(drizzle-orm@0.45.1(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0))(zod@3.25.76)
+        version: 0.8.3(drizzle-orm@0.45.1(@electric-sql/pglite@0.5.8)(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0))(zod@3.25.76)
       pg:
         specifier: ^8.20.0
         version: 8.20.0
@@ -789,6 +796,22 @@ packages:
 
   '@drizzle-team/brocli@0.10.2':
     resolution: {integrity: sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w==}
+
+  '@electric-sql/pglite-socket@0.2.11':
+    resolution: {integrity: sha512-DKnJBf7+5zFCXXGZAGUvGoWKetPPvaQ7fLSGVqP5onzgBhV9vvTcHigireMROMglgovvhoXHaMOKqt69/vts4A==}
+    hasBin: true
+    peerDependencies:
+      '@electric-sql/pglite': 0.5.8
+      '@electric-sql/pglite-age': 0.0.9
+      '@electric-sql/pglite-pg_hashids': 0.0.9
+      '@electric-sql/pglite-pg_ivm': 0.0.9
+      '@electric-sql/pglite-pg_textsearch': 0.0.10
+      '@electric-sql/pglite-pg_uuidv7': 0.0.9
+      '@electric-sql/pglite-pgtap': 0.0.9
+      '@electric-sql/pglite-pgvector': 0.0.9
+
+  '@electric-sql/pglite@0.5.8':
+    resolution: {integrity: sha512-n9tsbUOhwx2epK1V0ZG9Ar4SHWUju04dhmzZXiSBXwBoleOvIfals33NAaWgagQVAL4Rbvx/Ptsu3P+pA09f6Q==}
 
   '@esbuild/linux-x64@0.27.3':
     resolution: {integrity: sha512-Czi8yzXUWIQYAtL/2y6vogER8pvcsOsk5cpwL4Gk5nJqH5UZiVByIY8Eorm5R13gq+DQKYg0+JyQoytLQas4dA==}
@@ -4307,6 +4330,12 @@ snapshots:
 
   '@drizzle-team/brocli@0.10.2': {}
 
+  '@electric-sql/pglite-socket@0.2.11(@electric-sql/pglite@0.5.8)':
+    dependencies:
+      '@electric-sql/pglite': 0.5.8
+
+  '@electric-sql/pglite@0.5.8': {}
+
   '@esbuild/linux-x64@0.27.3':
     optional: true
 
@@ -6152,16 +6181,17 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.45.1(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0):
+  drizzle-orm@0.45.1(@electric-sql/pglite@0.5.8)(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0):
     optionalDependencies:
+      '@electric-sql/pglite': 0.5.8
       '@neondatabase/serverless': 1.2.0
       '@types/pg': 8.18.0
       better-sqlite3: 12.11.1
       pg: 8.20.0
 
-  drizzle-zod@0.8.3(drizzle-orm@0.45.1(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0))(zod@3.25.76):
+  drizzle-zod@0.8.3(drizzle-orm@0.45.1(@electric-sql/pglite@0.5.8)(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0))(zod@3.25.76):
     dependencies:
-      drizzle-orm: 0.45.1(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0)
+      drizzle-orm: 0.45.1(@electric-sql/pglite@0.5.8)(@neondatabase/serverless@1.2.0)(@types/pg@8.18.0)(better-sqlite3@12.11.1)(pg@8.20.0)
       zod: 3.25.76
 
   dunder-proto@1.0.1:

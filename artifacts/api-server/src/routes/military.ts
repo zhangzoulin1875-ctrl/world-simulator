@@ -1,3 +1,4 @@
+import { eraCostScale } from "../lib/eraCostScale";
 import { Router, type IRouter } from "express";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import {
@@ -181,8 +182,9 @@ function serializeTemplate(
   researchedKeySlugs: readonly string[],
   customName: string | null = null,
   equippedWeapon: MilitaryWeapon | null = null,
+  eraScale = 1,
 ) {
-  const effective = applyTechBonuses(template, researched);
+  const effective = applyTechBonuses(template, researched, eraScale);
   // 武器系統 — 裝備摘要（相容判定為伺服器純函式；不相容仍可裝備但受懲罰）。
   const weaponCompatible = equippedWeapon
     ? weaponCompatibleWith(equippedWeapon, template.category)
@@ -377,6 +379,7 @@ router.get("/military/overview", async (req, res) => {
         t.equippedWeaponId
           ? (weaponById.get(t.equippedWeaponId) ?? null)
           : null,
+        eraCostScale(statsEra),
       ),
     ),
     armies: armies.map((a) => ({ templateId: a.templateId, quantity: a.quantity })),
@@ -511,7 +514,7 @@ router.post("/military/recruit", async (req, res) => {
       researchedKeySlugs,
     );
     const researched = await loadResearchedTechs(userId);
-    const effective = applyTechBonuses(template, researched);
+    const effective = applyTechBonuses(template, researched, eraCostScale(statsEra));
     // Task #557 — 生產力佔用 = ⌈數量 × 有效生產力維護費 ÷ 100⌉（與金錢購買同公式）。
     const cost = recruitCost(effective, quantity);
     // Task #568 — 立即性花費 = ⌈數量 × 有效 prodCostPer100 ÷ 100⌉（一次性
@@ -647,7 +650,7 @@ router.post("/military/purchase", async (req, res) => {
       researchedKeySlugs,
     );
     const researched = await loadResearchedTechs(userId);
-    const effective = applyTechBonuses(template, researched);
+    const effective = applyTechBonuses(template, researched, eraCostScale(statsEra));
     const moneyCost = effective.moneyCostPerUnit * quantity;
     if (!Number.isSafeInteger(moneyCost)) {
       throw new HttpError(400, "購買金額過大");
@@ -925,6 +928,8 @@ router.post("/military/design-unit", aiRateLimit, async (req, res) => {
         eraSlug,
         researchedKeySlugs,
         null,
+        null,
+        eraCostScale((await getEraSlugs()).statsEra),
       ),
       unitDesignCharges: claimed[0].unitDesignCharges,
     });

@@ -62,6 +62,7 @@ const { aggregateSocialEffectsForUser } = await import("./socialTechData");
 const { loadBuildingUpkeepByUser } = await import("./productionTechData");
 const { buildingUpkeep } = await import("./regionBuildings");
 const { getEraSlugs } = await import("./nationStats");
+const { eraCostScale } = await import("./eraCostScale");
 const economyRouter = (await import("../routes/economy")).default;
 
 const TEST_TAG = "__upkrec446__";
@@ -168,7 +169,8 @@ before(async () => {
     { nationId, regionId: regionIds[1]!, percent: 100, populationBonus: 0 },
   ]);
 
-  // 兩個小數維護費兵種（合計 0.3×37 + 1.7×13 = 11.1 + 22.1 = 33.2 → 進位邊界）。
+  // 兩個小數維護費兵種（基準合計 0.37×37 + 1.73×13 = 13.69 + 22.49 = 36.18，
+  // 再乘時代係數 → 進位邊界）。
   const inserted = await db
     .insert(militaryUnitTemplatesTable)
     .values([
@@ -185,7 +187,7 @@ before(async () => {
         prodCostPer100: 1,
         popCostPerUnit: 1,
         moneyCostPerUnit: 10,
-        upkeepPerUnit: 0.3,
+        upkeepPerUnit: 0.37,
         prodUpkeepPerUnit: 0.25,
       },
       {
@@ -201,7 +203,7 @@ before(async () => {
         prodCostPer100: 1,
         popCostPerUnit: 1,
         moneyCostPerUnit: 12,
-        upkeepPerUnit: 1.7,
+        upkeepPerUnit: 1.73,
         prodUpkeepPerUnit: 0.9,
       },
     ])
@@ -261,6 +263,8 @@ after(async () => {
  * buildingUpkeep(Σ level)），未進位的原始合計。
  */
 async function composeTurnEngineUpkeep(): Promise<number> {
+  // 時代開銷縮放：回合引擎與財政頁都用 statsEra 的係數（與稅收同一把尺）。
+  const costScale = eraCostScale((await getEraSlugs()).statsEra);
   const [armyRow] = await db
     .select({
       upkeep: sql<string>`COALESCE(SUM(${playerArmiesTable.quantity} * ${militaryUnitTemplatesTable.upkeepPerUnit}), 0)`,
@@ -271,9 +275,9 @@ async function composeTurnEngineUpkeep(): Promise<number> {
       eq(militaryUnitTemplatesTable.id, playerArmiesTable.templateId),
     )
     .where(eq(playerArmiesTable.discordUserId, discordUserId));
-  const militaryUpkeep = Number(armyRow?.upkeep ?? 0);
+  const militaryUpkeep = Number(armyRow?.upkeep ?? 0) * costScale;
 
-  const buildingUpkeepByUser = await loadBuildingUpkeepByUser();
+  const buildingUpkeepByUser = await loadBuildingUpkeepByUser(costScale);
   const cityBuildingUpkeep = buildingUpkeepByUser.get(discordUserId) ?? 0;
 
   // 回合引擎按 buildingType 分組 SUM(level) 再 buildingUpkeep；維護費線性，
@@ -287,7 +291,7 @@ async function composeTurnEngineUpkeep(): Promise<number> {
     .where(eq(regionBuildingsTable.nationId, nationId))
     .groupBy(regionBuildingsTable.buildingType);
   const regionBuildingUpkeep = rbRows.reduce(
-    (s, r) => s + buildingUpkeep(Number(r.totalLevel)),
+    (s, r) => s + buildingUpkeep(Number(r.totalLevel), costScale),
     0,
   );
 
@@ -322,7 +326,7 @@ test("overview.upkeepPerTurn = 回合引擎 computeTurnFinance 同輸入的 upke
     if (eraBefore === statsEra) break;
   }
 
-  // 測試情境確為小數合計（0.3×37 + 1.7×13 = 33.2 + 建築 500），確保
+  // 測試情境確為小數合計（0.37×37 + 1.73×13 = 36.18 再乘時代係數 + 建築），確保
   // 進位規則真的被驗到。
   assert.ok(!Number.isInteger(upkeep), "測試維護費合計應為小數（驗進位）");
 
@@ -380,10 +384,13 @@ test("overview 維護費明細組成完整且與合計進位一致", async () =>
   const building = body["buildingUpkeepPerTurn"]!;
   const regionBuilding = body["regionBuildingUpkeepPerTurn"]!;
 
-  // 明細數值（round1 顯示）：軍隊 33.2、建築 0、地區資源建築 500。
-  assert.equal(military, 33.2);
+  // 明細數值（round1 顯示）：基準值 × 當前 statsEra 的時代係數。
+  //   軍隊 36.18 × 係數、建築 0、地區資源建築 100/級 × 5 級 × 係數。
+  // 這同時驗證縮放「真的生效」（晚期時代 ≫ 古典基準），而不只是兩邊互相一致。
+  const scale = eraCostScale((await getEraSlugs()).statsEra);
+  assert.equal(military, Math.round(36.18 * scale * 10) / 10);
   assert.equal(building, 0);
-  assert.equal(regionBuilding, 500);
+  assert.equal(regionBuilding, Math.round(500 * scale * 10) / 10);
 
   // 實扣 = ⌈Σ 組成⌉；netSurplus = 稅收 − 實扣。
   assert.equal(

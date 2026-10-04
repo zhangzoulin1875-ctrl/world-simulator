@@ -432,6 +432,12 @@ export function applyTechBonuses(
     | "oreCostPerUnit"
   >,
   techs: readonly { bonuses: MilitaryTechBonus[] }[],
+  /**
+   * 時代開銷係數（lib/eraCostScale.ts，預設 1 = 不縮放）。只縮放「金錢售價」
+   * 「金錢維護費」與「招募一次性生產力花費」；佔用型 prodUpkeepPerUnit 不縮放
+   * （它寫入 player_armies.production_reserved，受 production_spent 不變量約束）。
+   */
+  eraScale = 1,
 ): EffectiveUnitStats {
   const pctByTarget = new Map<BonusTarget, number>();
   for (const tech of techs) {
@@ -461,7 +467,7 @@ export function applyTechBonuses(
     accuracy: Math.max(0, Math.round(template.accuracy * factor("accuracy"))),
     prodCostPer100: Math.max(
       0,
-      Math.round(template.prodCostPer100 * factor("prodCost")),
+      Math.round(template.prodCostPer100 * factor("prodCost") * eraScale),
     ),
     // Task #382 — 每單位人口消耗硬下限 1（糧食系統口徑：軍人數 = Σ 數量 × 人口消耗）。
     popCostPerUnit: Math.max(
@@ -470,11 +476,11 @@ export function applyTechBonuses(
     ),
     moneyCostPerUnit: Math.max(
       0,
-      Math.round(template.moneyCostPerUnit * factor("moneyCost")),
+      Math.round(template.moneyCostPerUnit * factor("moneyCost") * eraScale),
     ),
     upkeepPerUnit: Math.max(
       MIN_UPKEEP_PER_UNIT,
-      Math.round(template.upkeepPerUnit * factor("upkeep") * 100) / 100,
+      Math.round(template.upkeepPerUnit * factor("upkeep") * eraScale * 100) / 100,
     ),
     prodUpkeepPerUnit: Math.max(
       MIN_UPKEEP_PER_UNIT,

@@ -358,7 +358,9 @@ export async function loadProductionModifiersByUser(): Promise<
  * 一次載入全部玩家的「已減免建築維護費」（回合引擎批次用）。
  * key = discord_user_id, value = 減免後的每回合維護費。
  */
-export async function loadBuildingUpkeepByUser(): Promise<Map<string, number>> {
+export async function loadBuildingUpkeepByUser(
+  eraScale = 1,
+): Promise<Map<string, number>> {
   const buildingRows = await db
     .select({
       userId: cityBuildingsTable.discordUserId,
@@ -379,7 +381,8 @@ export async function loadBuildingUpkeepByUser(): Promise<Map<string, number>> {
   const techByUser = await loadProductionInputsByUser();
 
   for (const [userId, types] of byUser) {
-    const upkeepTotal = aggregateBuildingEffects(types).upkeepTotal;
+    // 維護費隨時代膨脹（與稅收同一把尺）；減免百分比在縮放後套用。
+    const upkeepTotal = aggregateBuildingEffects(types).upkeepTotal * eraScale;
     const reductionPct = techByUser.has(userId)
       ? aggregateProductionEffects(techByUser.get(userId)!)
           .buildingUpkeepReductionPct

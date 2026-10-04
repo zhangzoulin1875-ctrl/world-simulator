@@ -42,7 +42,12 @@ const { createSession, SESSION_COOKIE_NAME } = await import("../lib/sessions");
 const { computeNationStats, getStatsEraSlug } = await import(
   "../lib/nationStats"
 );
-const { buildingCost } = await import("../lib/regionBuildings");
+const { buildingCost: baseBuildingCost } = await import("../lib/regionBuildings");
+const { eraCostScale } = await import("../lib/eraCostScale");
+const { getEraSlugs } = await import("../lib/nationStats");
+// 金錢軌隨世界時代膨脹（與正式路由同款係數）；生產力軌不縮放。
+const ERA_SCALE = eraCostScale((await getEraSlugs()).statsEra);
+const buildingCost = (level: number) => baseBuildingCost(level, ERA_SCALE);
 const { activateTreaty, HttpError } = await import(
   "../lib/treatyActivation"
 );
@@ -194,7 +199,7 @@ after(async () => {
 
 beforeEach(async () => {
   await resetBuildings();
-  await setNation({ money: 1_000_000, productionSpent: 0, wood: 0, ore: 0 });
+  await setNation({ money: 1_000_000 * ERA_SCALE, productionSpent: 0, wood: 0, ore: 0 });
 });
 
 test("併發建造同地區同型建築 → 一個 201、一個 409，只扣一次款", async () => {
@@ -275,7 +280,7 @@ test("工人上限：既有等級已占滿人口 → 400 建築工人不足，�
   assert.equal(afterRow.productionSpent, before.productionSpent);
 });
 
-test("升級：扣 level 2 成本（6000 金錢／240 生產力）且等級 +1", async () => {
+test("升級：扣 level 2 成本（6000×時代係數 金錢／240 生產力）且等級 +1", async () => {
   const created = await api("POST", "/api/player/buildings", {
     regionId: regionA,
     buildingType: "mine",
@@ -290,7 +295,7 @@ test("升級：扣 level 2 成本（6000 金錢／240 生產力）且等級 +1",
   assert.equal(res.status, 200, JSON.stringify(res.json));
   assert.equal(res.json.building.level, 2);
   const cost2 = buildingCost(2);
-  assert.equal(cost2.money, 6000);
+  assert.equal(cost2.money, 6000 * ERA_SCALE);
   assert.equal(cost2.production, 240);
   const afterRow = await nationRow();
   assert.equal(afterRow.money, before.money - cost2.money);

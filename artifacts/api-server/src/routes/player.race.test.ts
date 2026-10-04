@@ -48,6 +48,10 @@ const {
   regionBuildingsTable,
 } = await import("@workspace/db");
 const { createSession, SESSION_COOKIE_NAME } = await import("../lib/sessions");
+const { eraCostScale } = await import("../lib/eraCostScale");
+const { getEraSlugs } = await import("../lib/nationStats");
+// 建國開局資源 = 設定值（古典基準）× 建國當時世界時代（currentEra）的開銷係數。
+const FOUND_SCALE = eraCostScale((await getEraSlugs()).currentEra);
 const playerRouter = (await import("./player")).default;
 
 /** Marker prefixes so leftovers from any (even crashed) run are removable. */
@@ -558,8 +562,8 @@ test("founding applies world starting resources; claiming an unowned nation keep
       })
       .from(playerNationsTable)
       .where(eq(playerNationsTable.id, founded.json.nation.id as string));
-    assert.equal(created?.techPoints, 777, "founding must apply startingTechPoints");
-    assert.equal(created?.money, 98765, "founding must apply startingMoney");
+    assert.equal(created?.techPoints, 777 * FOUND_SCALE, "founding must apply startingTechPoints × 時代係數");
+    assert.equal(created?.money, 98765 * FOUND_SCALE, "founding must apply startingMoney × 時代係數");
 
     // 2) 接手無主國家 → 沿用該國既有資源，不套用開局設定。
     const [unowned] = await db

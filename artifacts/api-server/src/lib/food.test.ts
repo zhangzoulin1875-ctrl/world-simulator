@@ -93,30 +93,38 @@ test("regionFoodBase：土地項勝出時 = 面積 × 肥沃度 × 時代指數 
     50,
     0.1,
   );
-  // 1000 × 60 × 0.1 × 0.5 × 0.45 = 1350 > 保底項 100 × 0.1 × 12 × 0.5 = 60。
+  // 1000 × 60 × 0.1 × 0.5 × 0.45 = 1350 > 保底項 100 × 1.3 × 0.5 = 65。
   assert.equal(out, 1000 * 60 * 0.1 * 0.5 * FOOD_CALIBRATION);
 });
 
-test("regionFoodBase：人均保底項勝出時 = 人口 × 時代指數 × FOOD_PER_CAPITA_FLOOR × 農民比例", () => {
+test("regionFoodBase：人均保底項勝出時 = 人口 × FOOD_PER_CAPITA_FLOOR × 農民比例（固定倍數）", () => {
   // 地小人稠（土地項：10 × 60 × 0.1 × 0.5 × 0.45 = 13.5；
-  // 保底項：10000 × 0.1 × 12 × 0.5 = 6000）→ 保底勝出。
+  // 保底項：10000 × 1.3 × 0.5 = 6500）→ 保底勝出。
   const out = regionFoodBase(
     { fertility: 60, controlledAreaKm2: 10, controlledPopulation: 10_000 },
     50,
     0.1,
   );
-  assert.equal(out, 10_000 * 0.1 * FOOD_PER_CAPITA_FLOOR * 0.5);
-  // 平民保底自給：古典指數 0.1、農民 100% → 每人 1.2 > 消耗 1，不飢荒。
+  assert.equal(out, 10_000 * FOOD_PER_CAPITA_FLOOR * 0.5);
+  // 平民保底自給：農民 100% → 每人 1.3 > 消耗 1，不飢荒。
   const perCapita = regionFoodBase(
     { fertility: 0, controlledAreaKm2: 0, controlledPopulation: 1000 },
     100,
     foodEraIndexForEra("classical"),
   ) / 1000;
-  assert.ok(perCapita >= 1.2);
+  assert.ok(perCapita >= 1.3);
+});
+
+test("人均糧食保底不隨時代指數膨脹（古典與未來相同）", () => {
+  const input = { fertility: 0, controlledAreaKm2: 0, controlledPopulation: 1000 };
+  const early = regionFoodBase(input, 100, foodEraIndexForEra("classical"));
+  const late = regionFoodBase(input, 100, foodEraIndexForEra("future"));
+  assert.equal(early, late);
+  assert.equal(early, 1000 * FOOD_PER_CAPITA_FLOOR);
 });
 
 test("regionFoodBase：土地項勝出時人口不影響產出", () => {
-  // 500 × 60 × 1 × 1 × 0.45 = 13500；保底項 100 × 12 = 1200 < 13500。
+  // 500 × 60 × 1 × 1 × 0.45 = 13500；保底項 100 × 1.3 = 130 < 13500。
   const a = regionFoodBase(
     { fertility: 60, controlledAreaKm2: 500, controlledPopulation: 100 },
     100,
@@ -131,7 +139,7 @@ test("regionFoodBase：土地項勝出時人口不影響產出", () => {
 });
 
 test("regionFoodBase：null 肥沃度/面積視為 0（保底項接手）；負值/超界農民比例夾限", () => {
-  // 土地項歸零後仍有人均保底（1000 × 1 × 12 × 1 = 12000）。
+  // 土地項歸零後仍有人均保底（1000 × 1.3 = 1300）。
   assert.equal(
     regionFoodBase(
       { fertility: null, controlledAreaKm2: 1000, controlledPopulation: 1000 },

@@ -69,6 +69,7 @@ import {
   allocateRegionTax,
 } from "../lib/regionTax";
 import { buildingUpkeep } from "../lib/regionBuildings";
+import { eraCostScale, scaleByEra } from "../lib/eraCostScale";
 import {
   getGameBalanceSettings,
   scaleConstructionCost,
@@ -217,7 +218,7 @@ router.get("/economy/overview", async (req, res) => {
         )
         .where(eq(playerArmiesTable.discordUserId, userId)),
       // 建築每回合維護費（已含風車技術等減免）。沿用回合引擎的批次載入器。
-      loadBuildingUpkeepByUser(),
+      loadBuildingUpkeepByUser(eraCostScale(statsEra)),
       // 地區資源建築（木材廠／礦場）每回合金錢維護費（與回合引擎同組成）。
       db
         .select({
@@ -245,10 +246,14 @@ router.get("/economy/overview", async (req, res) => {
 
   // 軍隊維護費逐兵種明細 + 建築維護費 + 地區資源建築維護費
   // （與回合引擎一致的維護費組成，見 turnEngine 的 upkeep 合成）。
-  const militaryUpkeep = aggregateMilitaryUpkeep(armyRows);
+  const costScale = eraCostScale(statsEra);
+  const militaryUpkeep = aggregateMilitaryUpkeep(
+    armyRows.map((r) => ({ ...r, upkeepPerUnit: r.upkeepPerUnit * costScale })),
+  );
   const rawBuildingUpkeep = buildingUpkeepByUser.get(userId) ?? 0;
   const rawRegionBuildingUpkeep = buildingUpkeep(
     Number(regionBuildingRows[0]?.totalLevel ?? 0),
+    costScale,
   );
   const buildingUpkeepPerTurn = round1(rawBuildingUpkeep);
   const regionBuildingUpkeepPerTurn = round1(rawRegionBuildingUpkeep);
@@ -605,7 +610,7 @@ router.get("/economy/regions", async (req, res) => {
       defenseBonusPct: WALL_DEFENSE_BONUS_PCT[tier],
       nextTier: next,
       nextTierLabel: next ? WALL_TIER_LABELS[next] : null,
-      upgradeCost: next ? WALL_UPGRADE_COST[next] : null,
+      upgradeCost: next ? scaleByEra(WALL_UPGRADE_COST[next], eraCostScale(statsEra)) : null,
       nextTierUnlocked: next ? wallTierUnlocked(next, wallOpts) : false,
       canUpgrade: next ? canUpgradeWall(tier, next, wallOpts).ok : false,
     };
@@ -653,7 +658,7 @@ router.get("/economy/regions", async (req, res) => {
         label: WALL_TIER_LABELS[t],
         maxDurability: WALL_MAX_DURABILITY[t],
         defenseBonusPct: WALL_DEFENSE_BONUS_PCT[t],
-        upgradeCost: WALL_UPGRADE_COST[t],
+        upgradeCost: scaleByEra(WALL_UPGRADE_COST[t], eraCostScale(statsEra)),
       }),
     ),
     availableBuildings: BUILDINGS.map((b) => ({
@@ -662,10 +667,10 @@ router.get("/economy/regions", async (req, res) => {
       description: b.description,
       // Task #523 — 一般城市建築成本倍率（顯示與扣款一致）。
       buildCost: scaleConstructionCost(
-        b.buildCost,
+        b.buildCost * eraCostScale(statsEra),
         balance.constructionCosts.cityBuilding,
       ),
-      upkeep: b.upkeep,
+      upkeep: Math.round(b.upkeep * eraCostScale(statsEra)),
       unlocked: unlockedBuildingTypes.has(b.type),
       effects: b.effects.map((e) => ({
         target: e.target,
@@ -932,8 +937,9 @@ router.post("/economy/buildings", async (req, res) => {
   try {
     // Task #523 — 一般城市建築成本倍率（與 /economy/regions 顯示一致）。
     const balance = await getGameBalanceSettings();
+    const { statsEra: buildStatsEra } = await getEraSlugs();
     const buildCost = scaleConstructionCost(
-      def.buildCost,
+      def.buildCost * eraCostScale(buildStatsEra),
       balance.constructionCosts.cityBuilding,
     );
     const inserted = await db.transaction(async (tx) => {
@@ -1085,6 +1091,8 @@ router.post("/economy/walls/:cityId/upgrade", async (req, res) => {
     productionEraSlug,
   };
 
+  // 時代係數在進交易前取得（交易內不另開連線）。
+  const wallEraScale = eraCostScale((await getEraSlugs()).statsEra);
   try {
     const result = await db.transaction(async (tx) => {
       await tx.execute(
@@ -1098,7 +1106,7 @@ router.post("/economy/walls/:cityId/upgrade", async (req, res) => {
       const current: WallTier = wallRow?.tier ?? "wood";
       const check = canUpgradeWall(current, targetTier, wallOpts);
       if (!check.ok) throw new HttpError(400, check.error);
-      const cost = WALL_UPGRADE_COST[check.tier];
+      const cost = scaleByEra(WALL_UPGRADE_COST[check.tier], wallEraScale);
 
       const updated = await tx
         .update(playerNationsTable)
