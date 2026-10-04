@@ -420,3 +420,49 @@ export const recruitProductionSpendsTable = pgTable(
 
 export type RecruitProductionSpend =
   typeof recruitProductionSpendsTable.$inferSelect;
+
+/**
+ * 招募訓練佇列（2026-10-04）。下單當下已扣的資源／佔用都記在訂單上，
+ * 回合推進時依產能逐批完成並按比例併入 player_armies／npc_armies；
+ * 取消時按剩餘比例 100% 退還。
+ *
+ * 玩家與 NPC 共用：玩家以 nation_id 識別（同 player_nations.id），NPC 的
+ * 資源欄位皆為 0（NPC 招兵本來就不扣國家資源）。
+ */
+export const recruitQueueTable = pgTable(
+  "recruit_queue",
+  {
+    id: serial("id").primaryKey(),
+    nationId: uuid("nation_id")
+      .notNull()
+      .references(() => playerNationsTable.id, { onDelete: "cascade" }),
+    templateId: integer("template_id")
+      .notNull()
+      .references(() => militaryUnitTemplatesTable.id, { onDelete: "cascade" }),
+    /** 下單總量（不變，用來按比例退還／轉移佔用）。 */
+    totalQuantity: bigint("total_quantity", { mode: "number" }).notNull(),
+    /** 尚未完成的單位數。 */
+    remaining: bigint("remaining", { mode: "number" }).notNull(),
+    /** 每單位訓練點數（下單當下快照）。 */
+    tpPerUnit: integer("tp_per_unit").notNull().default(1),
+    /** 下單當下扣的佔用／人口／木礦（總量；按 remaining/total 比例退還）。 */
+    productionReserved: bigint("production_reserved", { mode: "number" })
+      .notNull()
+      .default(0),
+    populationReserved: bigint("population_reserved", { mode: "number" })
+      .notNull()
+      .default(0),
+    woodPaid: bigint("wood_paid", { mode: "number" }).notNull().default(0),
+    orePaid: bigint("ore_paid", { mode: "number" }).notNull().default(0),
+    /** 金錢直購付的錢（徵召為 0）；取消時退還。 */
+    moneyPaid: bigint("money_paid", { mode: "number" }).notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    nationIdx: index("recruit_queue_nation_idx").on(t.nationId),
+  }),
+);
+
+export type RecruitQueueRow = typeof recruitQueueTable.$inferSelect;

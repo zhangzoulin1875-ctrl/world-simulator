@@ -321,6 +321,26 @@ async function runMilitaryMigrationsInner(): Promise<void> {
     { templateCount: templates.length },
     "military migrations applied",
   );
+  // 招募訓練佇列（純新增表，永不 DROP）。
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS recruit_queue (
+      id serial PRIMARY KEY,
+      nation_id uuid NOT NULL REFERENCES player_nations(id) ON DELETE CASCADE,
+      template_id integer NOT NULL REFERENCES military_unit_templates(id) ON DELETE CASCADE,
+      total_quantity bigint NOT NULL,
+      remaining bigint NOT NULL,
+      tp_per_unit integer NOT NULL DEFAULT 1,
+      production_reserved bigint NOT NULL DEFAULT 0,
+      population_reserved bigint NOT NULL DEFAULT 0,
+      wood_paid bigint NOT NULL DEFAULT 0,
+      ore_paid bigint NOT NULL DEFAULT 0,
+      money_paid bigint NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS recruit_queue_nation_idx ON recruit_queue (nation_id)
+  `);
 }
 
 /**
