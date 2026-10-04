@@ -30,6 +30,7 @@ import type {
   BuildCityBuildingRequest,
   BuildCityBuildingResult,
   BuildRegionBuildingRequest,
+  CancelMilitaryQueueOrderBody,
   CancelTechTreeResearchBody,
   CeasefireStatus,
   ChangeGovernmentRequest,
@@ -90,6 +91,8 @@ import type {
   MilitaryOrderRequest,
   MilitaryOrderResult,
   MilitaryOverview,
+  MilitaryQueue,
+  MilitaryQueueCancelResult,
   MilitaryRenameResult,
   MyAllianceResponse,
   NationStatBreakdown,
@@ -2016,6 +2019,171 @@ export const useRecruitMilitaryUnits = <
   TContext
 > => {
   return useMutation(getRecruitMilitaryUnitsMutationOptions(options));
+};
+
+/**
+ * @summary Training queue — pending orders, per-turn capacity and estimated turns to finish
+ */
+export const getGetMilitaryQueueUrl = () => {
+  return `/api/military/queue`;
+};
+
+export const getMilitaryQueue = async (
+  options?: RequestInit,
+): Promise<MilitaryQueue> => {
+  return customFetch<MilitaryQueue>(getGetMilitaryQueueUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMilitaryQueueQueryKey = () => {
+  return [`/api/military/queue`] as const;
+};
+
+export const getGetMilitaryQueueQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMilitaryQueue>>,
+  TError = ErrorType<ErrorMessage>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMilitaryQueue>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMilitaryQueueQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getMilitaryQueue>>
+  > = ({ signal }) => getMilitaryQueue({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMilitaryQueue>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMilitaryQueueQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMilitaryQueue>>
+>;
+export type GetMilitaryQueueQueryError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary Training queue — pending orders, per-turn capacity and estimated turns to finish
+ */
+
+export function useGetMilitaryQueue<
+  TData = Awaited<ReturnType<typeof getMilitaryQueue>>,
+  TError = ErrorType<ErrorMessage>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMilitaryQueue>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMilitaryQueueQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Cancel the remaining part of a training order — 100% refund
+ */
+export const getCancelMilitaryQueueOrderUrl = () => {
+  return `/api/military/queue/cancel`;
+};
+
+export const cancelMilitaryQueueOrder = async (
+  cancelMilitaryQueueOrderBody: CancelMilitaryQueueOrderBody,
+  options?: RequestInit,
+): Promise<MilitaryQueueCancelResult> => {
+  return customFetch<MilitaryQueueCancelResult>(
+    getCancelMilitaryQueueOrderUrl(),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(cancelMilitaryQueueOrderBody),
+    },
+  );
+};
+
+export const getCancelMilitaryQueueOrderMutationOptions = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cancelMilitaryQueueOrder>>,
+    TError,
+    { data: BodyType<CancelMilitaryQueueOrderBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof cancelMilitaryQueueOrder>>,
+  TError,
+  { data: BodyType<CancelMilitaryQueueOrderBody> },
+  TContext
+> => {
+  const mutationKey = ["cancelMilitaryQueueOrder"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof cancelMilitaryQueueOrder>>,
+    { data: BodyType<CancelMilitaryQueueOrderBody> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return cancelMilitaryQueueOrder(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CancelMilitaryQueueOrderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof cancelMilitaryQueueOrder>>
+>;
+export type CancelMilitaryQueueOrderMutationBody =
+  BodyType<CancelMilitaryQueueOrderBody>;
+export type CancelMilitaryQueueOrderMutationError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary Cancel the remaining part of a training order — 100% refund
+ */
+export const useCancelMilitaryQueueOrder = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cancelMilitaryQueueOrder>>,
+    TError,
+    { data: BodyType<CancelMilitaryQueueOrderBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof cancelMilitaryQueueOrder>>,
+  TError,
+  { data: BodyType<CancelMilitaryQueueOrderBody> },
+  TContext
+> => {
+  return useMutation(getCancelMilitaryQueueOrderMutationOptions(options));
 };
 
 /**

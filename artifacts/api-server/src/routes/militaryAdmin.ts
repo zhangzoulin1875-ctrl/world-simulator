@@ -12,6 +12,10 @@ import {
 } from "@workspace/db";
 import { requireAdmin } from "../middlewares/requireAdmin";
 import { z } from "zod/v4";
+import {
+  isRecruitQueueEnabled,
+  setRecruitQueueEnabled,
+} from "../lib/recruitQueue";
 
 /**
  * Task #651 — 後台軍事管理 API（ADMIN_TOKEN raw-fetch，不進 OpenAPI spec）。
@@ -80,6 +84,25 @@ async function findNation(id: string) {
  * GET /api/military-admin/nations
  * 回傳所有國家（id / name / isNpc），供前端國家選擇下拉。
  */
+/**
+ * 招募訓練佇列功能開關（預設關閉）。開啟後新的招募／購買／NPC 生產改進佇列；
+ * 已在佇列中的訂單在關閉期間保留，重新開啟後繼續推進。
+ */
+router.get("/military-admin/recruit-queue", requireAdmin, async (_req, res) => {
+  res.json({ enabled: await isRecruitQueueEnabled() });
+});
+
+router.put("/military-admin/recruit-queue", requireAdmin, async (req, res) => {
+  const parsed = z.object({ enabled: z.boolean() }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "enabled 必須是布林值" });
+    return;
+  }
+  await setRecruitQueueEnabled(parsed.data.enabled);
+  req.log.info({ enabled: parsed.data.enabled }, "recruit queue flag changed");
+  res.json({ enabled: parsed.data.enabled });
+});
+
 router.get("/military-admin/nations", requireAdmin, async (_req, res) => {
   const nations = await db
     .select({

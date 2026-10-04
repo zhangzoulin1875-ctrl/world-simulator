@@ -108,6 +108,105 @@ async function readError(res: Response): Promise<string> {
 }
 
 /* ============================================================ */
+/*  招募訓練佇列開關                                              */
+/* ============================================================ */
+
+function RecruitQueueToggle() {
+  const { toast } = useToast();
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    authedFetch("/api/military-admin/recruit-queue")
+      .then(async (res) => {
+        if (!res.ok) throw new Error(await readError(res));
+        return (await res.json()) as { enabled: boolean };
+      })
+      .then((d) => alive && setEnabled(d.enabled))
+      .catch((e: unknown) =>
+        toast({
+          title: "讀取佇列開關失敗",
+          description: e instanceof Error ? e.message : String(e),
+          variant: "destructive",
+        }),
+      );
+    return () => {
+      alive = false;
+    };
+  }, [toast]);
+
+  const apply = async (next: boolean) => {
+    setSaving(true);
+    try {
+      const res = await authedFetch("/api/military-admin/recruit-queue", {
+        method: "PUT",
+        body: JSON.stringify({ enabled: next }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const d = (await res.json()) as { enabled: boolean };
+      setEnabled(d.enabled);
+      toast({ title: d.enabled ? "已啟用招募訓練佇列" : "已關閉招募訓練佇列" });
+    } catch (e) {
+      toast({
+        title: "切換失敗",
+        description: e instanceof Error ? e.message : String(e),
+        variant: "destructive",
+      });
+    } finally {
+      setSaving(false);
+      setConfirming(false);
+    }
+  };
+
+  return (
+    <div
+      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4"
+      data-testid="panel-recruit-queue-toggle"
+    >
+      <div className="space-y-1">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          招募訓練佇列
+          {enabled !== null && (
+            <Badge variant={enabled ? "default" : "secondary"}>
+              {enabled ? "已啟用" : "已關閉"}
+            </Badge>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          啟用後，徵召／購買／NPC 生產都改進訓練佇列，依人口產能逐回合完成（最多同時 3 種兵種，取消退 100%）。
+          關閉時排隊中的訂單會保留，重新啟用後繼續。
+        </p>
+      </div>
+      <Button
+        size="sm"
+        variant={enabled ? "outline" : "default"}
+        disabled={enabled === null || saving}
+        onClick={() => (enabled ? apply(false) : setConfirming(true))}
+        data-testid="button-toggle-recruit-queue"
+      >
+        {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : enabled ? "關閉" : "啟用"}
+      </Button>
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>啟用招募訓練佇列？</AlertDialogTitle>
+            <AlertDialogDescription>
+              這會立刻改變全服的招募方式：之後的徵召與購買不再即時生效，而是進訓練佇列慢慢完成。已持有的軍隊不受影響。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={() => apply(true)}>確認啟用</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+/* ============================================================ */
 /*  類別標籤                                                      */
 /* ============================================================ */
 
@@ -753,6 +852,8 @@ export default function MilitaryAdmin() {
           查看與編輯各國兵種模板的戰鬥數值、成本及持有數量
         </p>
       </div>
+
+      <RecruitQueueToggle />
 
       {/* 國家選擇 */}
       <div className="flex items-center gap-3">

@@ -10,8 +10,10 @@ import type { MilitaryResources } from "./militaryResources";
 
 export interface MilitaryOrderResult {
   templateId: number;
-  /** New total quantity of this template */
-  quantity: number;
+  /** New total quantity of this template. null when the order was queued for training (units are not an army yet). */
+  quantity: number | null;
+  /** true when the recruit queue is enabled and the order entered the training queue */
+  queued?: boolean;
   resources: MilitaryResources;
   purchase?: MilitaryPurchaseState;
 }

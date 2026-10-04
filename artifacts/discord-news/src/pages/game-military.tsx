@@ -16,6 +16,7 @@ import {
 import {
   getGetPlayerNationQueryKey,
   getGetMilitaryOverviewQueryKey,
+  getGetMilitaryQueueQueryKey,
   useRecruitMilitaryUnits,
   usePurchaseMilitaryUnits,
   useRenameMilitaryUnit,
@@ -37,6 +38,7 @@ import {
   formatBigNumber,
 } from "@/components/military-shared";
 import { GameNotifications } from "@/components/game-notifications";
+import { TrainingQueuePanel } from "@/components/training-queue-panel";
 import { HelpButton } from "@/components/help-button";
 import { WarHqTab } from "@/components/war-hq-tab";
 import { WarOrdersTab } from "@/components/war-orders-tab";
@@ -169,6 +171,7 @@ function BuildTab({ overview }: { overview: MilitaryOverview }) {
 
   return (
     <div className="space-y-6">
+      <TrainingQueuePanel templates={overview.templates} />
       {/* category chips */}
       <div className="flex flex-wrap gap-2">
         <button
@@ -434,6 +437,7 @@ function UnitCard({
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getGetMilitaryOverviewQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetMilitaryQueueQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetPlayerNationQueryKey() });
   };
 
@@ -462,8 +466,11 @@ function UnitCard({
       onSuccess: (res) => {
         invalidate();
         toast({
-          title: "徵召完成",
-          description: `${displayName} 現有 ${formatBigNumber(res.quantity)} 單位`,
+          title: res.queued ? "已加入訓練佇列" : "徵召完成",
+          description:
+            res.quantity === null
+              ? `${displayName} 開始訓練，完成後自動編入軍隊`
+              : `${displayName} 現有 ${formatBigNumber(res.quantity)} 單位`,
         });
       },
       onError: (err) =>
@@ -475,8 +482,11 @@ function UnitCard({
       onSuccess: (res) => {
         invalidate();
         toast({
-          title: "購買完成",
-          description: `${displayName} 現有 ${formatBigNumber(res.quantity)} 單位`,
+          title: res.queued ? "已加入訓練佇列" : "購買完成",
+          description:
+            res.quantity === null
+              ? `${displayName} 開始訓練，完成後自動編入軍隊`
+              : `${displayName} 現有 ${formatBigNumber(res.quantity)} 單位`,
         });
       },
       onError: (err) =>

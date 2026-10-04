@@ -1743,10 +1743,45 @@ export interface MilitaryOrderRequest {
 
 export interface MilitaryOrderResult {
   templateId: number;
-  /** New total quantity of this template */
-  quantity: number;
+  /** New total quantity of this template. null when the order was queued for training (units are not an army yet). */
+  quantity: number | null;
+  /** true when the recruit queue is enabled and the order entered the training queue */
+  queued?: boolean;
   resources: MilitaryResources;
   purchase?: MilitaryPurchaseState;
+}
+
+export interface MilitaryQueueOrder {
+  id: number;
+  templateId: number;
+  totalQuantity: number;
+  remaining: number;
+  /** Training points required per unit */
+  tpPerUnit: number;
+  /** Estimated turns until this order completes */
+  turnsToFinish: number | null;
+  createdAt: string;
+}
+
+export interface MilitaryQueue {
+  enabled: boolean;
+  maxTemplates: number;
+  /** Training points this nation can spend per turn */
+  capacityPerTurn: number;
+  orders: MilitaryQueueOrder[];
+}
+
+export type MilitaryQueueCancelResultRefund = {
+  refundedUnits: number;
+  production: number;
+  population: number;
+  wood: number;
+  ore: number;
+  money: number;
+};
+
+export interface MilitaryQueueCancelResult {
+  refund: MilitaryQueueCancelResultRefund;
 }
 
 export interface MilitaryDesignRequest {
@@ -3021,6 +3056,10 @@ export type ListGameNewsParams = {
    * @maximum 100
    */
   limit?: number;
+};
+
+export type CancelMilitaryQueueOrderBody = {
+  orderId: number;
 };
 
 export type StartTechTreeResearchBody = {

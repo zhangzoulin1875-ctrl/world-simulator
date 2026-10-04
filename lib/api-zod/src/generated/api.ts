@@ -1407,7 +1407,18 @@ export const RecruitMilitaryUnitsBody = zod.object({
 
 export const RecruitMilitaryUnitsResponse = zod.object({
   templateId: zod.number(),
-  quantity: zod.number().describe("New total quantity of this template"),
+  quantity: zod
+    .number()
+    .nullable()
+    .describe(
+      "New total quantity of this template. null when the order was queued for training (units are not an army yet).",
+    ),
+  queued: zod
+    .boolean()
+    .optional()
+    .describe(
+      "true when the recruit queue is enabled and the order entered the training queue",
+    ),
   resources: zod.object({
     techPoints: zod.number(),
     money: zod.number(),
@@ -1441,6 +1452,49 @@ export const RecruitMilitaryUnitsResponse = zod.object({
 });
 
 /**
+ * @summary Training queue — pending orders, per-turn capacity and estimated turns to finish
+ */
+export const GetMilitaryQueueResponse = zod.object({
+  enabled: zod.boolean(),
+  maxTemplates: zod.number(),
+  capacityPerTurn: zod
+    .number()
+    .describe("Training points this nation can spend per turn"),
+  orders: zod.array(
+    zod.object({
+      id: zod.number(),
+      templateId: zod.number(),
+      totalQuantity: zod.number(),
+      remaining: zod.number(),
+      tpPerUnit: zod.number().describe("Training points required per unit"),
+      turnsToFinish: zod
+        .number()
+        .nullable()
+        .describe("Estimated turns until this order completes"),
+      createdAt: zod.string(),
+    }),
+  ),
+});
+
+/**
+ * @summary Cancel the remaining part of a training order — 100% refund
+ */
+export const CancelMilitaryQueueOrderBody = zod.object({
+  orderId: zod.number(),
+});
+
+export const CancelMilitaryQueueOrderResponse = zod.object({
+  refund: zod.object({
+    refundedUnits: zod.number(),
+    production: zod.number(),
+    population: zod.number(),
+    wood: zod.number(),
+    ore: zod.number(),
+    money: zod.number(),
+  }),
+});
+
+/**
  * @summary Buy units with money — daily quota ≈ 1% of population, atomic money deduction
  */
 
@@ -1451,7 +1505,18 @@ export const PurchaseMilitaryUnitsBody = zod.object({
 
 export const PurchaseMilitaryUnitsResponse = zod.object({
   templateId: zod.number(),
-  quantity: zod.number().describe("New total quantity of this template"),
+  quantity: zod
+    .number()
+    .nullable()
+    .describe(
+      "New total quantity of this template. null when the order was queued for training (units are not an army yet).",
+    ),
+  queued: zod
+    .boolean()
+    .optional()
+    .describe(
+      "true when the recruit queue is enabled and the order entered the training queue",
+    ),
   resources: zod.object({
     techPoints: zod.number(),
     money: zod.number(),
