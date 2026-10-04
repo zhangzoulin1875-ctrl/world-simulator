@@ -247,27 +247,64 @@ export async function cancelQueueOrder(
       .for("update")
       .limit(1);
     if (!row) return null;
-    // 剩餘比例：佔用／人口在推進時已隨完成批次轉出，故訂單上剩下的就是
-    // 「尚未完成部分」的全額；木礦／金錢是下單總額，按 remaining/total 退。
-    const wood = share(row.woodPaid, row.remaining, row.totalQuantity);
-    const ore = share(row.orePaid, row.remaining, row.totalQuantity);
-    const money = share(row.moneyPaid, row.remaining, row.totalQuantity);
-    const production = row.productionReserved;
-    const population = row.populationReserved;
-
-    await tx
-      .update(playerNationsTable)
-      .set({
-        productionSpent: sql`GREATEST(0, ${playerNationsTable.productionSpent} - ${production})`,
-        populationSpent: sql`GREATEST(0, ${playerNationsTable.populationSpent} - ${population})`,
-        wood: sql`${playerNationsTable.wood} + ${wood}`,
-        ore: sql`${playerNationsTable.ore} + ${ore}`,
-        money: sql`${playerNationsTable.money} + ${money}`,
-      })
-      .where(eq(playerNationsTable.id, nationId));
-    await tx.delete(recruitQueueTable).where(eq(recruitQueueTable.id, row.id));
-    return { refundedUnits: row.remaining, production, population, wood, ore, money };
+    return refundAndDeleteQueueRow(tx, nationId, row);
   });
+}
+
+/** 退還單筆佇列訂單並刪除;在呼叫端的交易內執行。 */
+async function refundAndDeleteQueueRow(
+  tx: Tx,
+  nationId: string,
+  row: RecruitQueueRow,
+): Promise<CancelResult> {
+  // 已訓練完成的部分已進軍隊,不退;只退「尚未完成」的比例。
+  // 原料/金錢按 remaining/total 比例退;生產力與人口是預留量,全額退還。
+  const wood = share(row.woodPaid, row.remaining, row.totalQuantity);
+  const ore = share(row.orePaid, row.remaining, row.totalQuantity);
+  const money = share(row.moneyPaid, row.remaining, row.totalQuantity);
+  const production = row.productionReserved;
+  const population = row.populationReserved;
+
+  await tx
+    .update(playerNationsTable)
+    .set({
+      productionSpent: sql`GREATEST(0, ${playerNationsTable.productionSpent} - ${production})`,
+      populationSpent: sql`GREATEST(0, ${playerNationsTable.populationSpent} - ${population})`,
+      wood: sql`${playerNationsTable.wood} + ${wood}`,
+      ore: sql`${playerNationsTable.ore} + ${ore}`,
+      money: sql`${playerNationsTable.money} + ${money}`,
+    })
+    .where(eq(playerNationsTable.id, nationId));
+  await tx.delete(recruitQueueTable).where(eq(recruitQueueTable.id, row.id));
+  return { refundedUnits: row.remaining, production, population, wood, ore, money };
+}
+
+/**
+ * 取消某國全部佇列訂單並 100% 退還(解除武裝用)。
+ * 在呼叫端的交易內執行;回傳合計退還量。
+ */
+export async function cancelQueueOrdersForNation(
+  nationId: string,
+  tx: Tx,
+): Promise<CancelResult> {
+  const rows = await tx
+    .select()
+    .from(recruitQueueTable)
+    .where(eq(recruitQueueTable.nationId, nationId))
+    .for("update");
+  const total: CancelResult = {
+    refundedUnits: 0, production: 0, population: 0, wood: 0, ore: 0, money: 0,
+  };
+  for (const row of rows) {
+    const r = await refundAndDeleteQueueRow(tx, nationId, row);
+    total.refundedUnits += r.refundedUnits;
+    total.production += r.production;
+    total.population += r.population;
+    total.wood += r.wood;
+    total.ore += r.ore;
+    total.money += r.money;
+  }
+  return total;
 }
 
 /** 該國目前的佇列（依下單順序）。 */

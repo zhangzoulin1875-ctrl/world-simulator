@@ -1,3 +1,4 @@
+import { assertCanRecruit } from "../../mercenaryService";
 import { loadNationScales } from "../../nationScale";
 import { and, eq, sql } from "drizzle-orm";
 import {
@@ -115,6 +116,7 @@ export async function executeRecruit(
   }
   const nation = await loadNationByUser(userId);
   if (!nation) throw new Error("找不到國家");
+  await assertCanRecruit(nation.id);
   const { currentEra, statsEra } = await getEraSlugs();
   const cabScales = await loadNationScales(nation.id, statsEra);
   const researchedKeySlugs = await loadResearchedKeySlugs(userId);
@@ -230,6 +232,7 @@ export async function executePurchase(
   }
   const nation = await loadNationByUser(userId);
   if (!nation) throw new Error("找不到國家");
+  await assertCanRecruit(nation.id);
   const { currentEra, statsEra } = await getEraSlugs();
   const cabScales = await loadNationScales(nation.id, statsEra);
   const researchedKeySlugs = await loadResearchedKeySlugs(userId);

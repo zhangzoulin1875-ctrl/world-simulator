@@ -182,13 +182,16 @@ export interface SignCheckInput {
   disarmed: boolean;
   activeContractCompanyId: string | null;
   companyId: string;
+  /** 解除武裝後又重新建軍(有常備軍或佇列殘留)就不能簽約,避免「常備軍 + 僱傭兵」雙吃。 */
+  hasStandingForces?: boolean;
 }
 
-/** 可否簽約:僅玩家、需已解除武裝、同時只能一間、公司需存在。 */
+/** 可否簽約:僅玩家、需已解除武裝、同時只能一間、公司需存在、不可同時持有常備軍。 */
 export function canSignContract(input: SignCheckInput): DisarmCheck {
   if (input.isNpc) return { ok: false, reason: "NPC 國家不開放僱傭兵" };
   if (!getMercenaryCompany(input.companyId)) return { ok: false, reason: "找不到這間軍事公司" };
   if (!input.disarmed) return { ok: false, reason: "需先解除武裝才能簽訂軍事合約" };
   if (input.activeContractCompanyId) return { ok: false, reason: "已有生效中的合約,請先解約再換家" };
+  if (input.hasStandingForces) return { ok: false, reason: "仍持有常備軍或訓練中的單位,請先解除武裝" };
   return { ok: true };
 }

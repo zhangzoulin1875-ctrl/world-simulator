@@ -1,3 +1,4 @@
+import { assertCanRecruit, MercenaryError } from "../lib/mercenaryService";
 import { isPgInt4Id } from "../lib/pgInt";
 import { loadNationScales } from "../lib/nationScale";
 import { Router, type IRouter } from "express";
@@ -105,6 +106,16 @@ import {
 const router: IRouter = Router();
 
 /** Error that maps to an HTTP status inside a transaction (throw → rollback). */
+/** 僱傭兵合約期間不能建軍:把服務層錯誤轉成這支路由認得的 HttpError。 */
+async function gateRecruit(nationId: string): Promise<void> {
+  try {
+    await assertCanRecruit(nationId);
+  } catch (e) {
+    if (e instanceof MercenaryError) throw new HttpError(e.status, e.message);
+    throw e;
+  }
+}
+
 class HttpError extends Error {
   constructor(
     public status: number,
@@ -587,6 +598,7 @@ router.post("/military/recruit", async (req, res) => {
   const { nation, userId } = auth;
 
   try {
+    await gateRecruit(nation.id);
     const { templateId, quantity } = parseOrderBody(req.body);
     // 類別解鎖看已研發關鍵技術；可用生產力/人口用「數據時代」計算（與總覽一致）。
     const { currentEra: eraSlug, statsEra } = await getEraSlugs();
@@ -747,6 +759,7 @@ router.post("/military/purchase", async (req, res) => {
   const { nation, userId } = auth;
 
   try {
+    await gateRecruit(nation.id);
     const { templateId, quantity } = parseOrderBody(req.body);
     // 類別解鎖看已研發關鍵技術；每日額度（人口 1%）用「數據時代」計算。
     const { currentEra: eraSlug, statsEra } = await getEraSlugs();
