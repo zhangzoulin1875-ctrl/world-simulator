@@ -21,8 +21,11 @@ import { generateSuperEvent } from "../lib/superEventAi";
 import { buildRegionSetGeoCultureContext } from "../lib/nationGeoCulture";
 import { notifyNewSuperEvent } from "../lib/superEventSettlement";
 import { isSuperEventTargetStat } from "../lib/superEventImpact";
+import { uuidParam } from "../lib/uuidParam";
 
 const router: IRouter = Router();
+// 事件 id 是 uuid：畸形 id 直接 404，不打資料庫。
+router.param("id", uuidParam);
 
 const RESPONSE_MAX_LENGTH = 500;
 

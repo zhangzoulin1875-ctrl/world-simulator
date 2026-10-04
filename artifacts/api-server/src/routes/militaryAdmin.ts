@@ -16,6 +16,7 @@ import {
   isRecruitQueueEnabled,
   setRecruitQueueEnabled,
 } from "../lib/recruitQueue";
+import { uuidParam } from "../lib/uuidParam";
 
 /**
  * Task #651 — 後台軍事管理 API（ADMIN_TOKEN raw-fetch，不進 OpenAPI spec）。
@@ -132,6 +133,7 @@ router.get("/military-admin/nations", requireAdmin, async (_req, res) => {
 router.get(
   "/military-admin/nations/:id",
   requireAdmin,
+  (req, res, next) => uuidParam(req, res, next, req.params.id, "id"),
   async (req, res) => {
     const nationId = String(req.params.id);
     const nation = await findNation(nationId);

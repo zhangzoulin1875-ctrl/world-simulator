@@ -52,6 +52,7 @@ import { runGeneralsMigrations } from "./lib/generalsMigrations";
 import { runNationNameSanitizeMigration } from "./lib/nationNameSanitizeMigration";
 import { startRegionControlHealthLoop } from "./lib/regionControlHealth";
 import { startProductionSpentHealthLoop } from "./lib/productionSpentHealth";
+import { recoverStuckGeneratingGenerals } from "./lib/stuckGeneralRecovery";
 import { startDbKeepalive } from "./lib/dbKeepalive";
 import { startSessionCleanupLoop } from "./lib/sessions";
 import { startTurnLoop } from "./lib/turnEngine";
@@ -153,6 +154,11 @@ async function runStartupMigrations(): Promise<void> {
 // Bot watchdog + background loops. Started only after the migration chain
 // resolves so they never read/write a table before its schema/seed exists.
 function startBackgroundWork(): void {
+  // 上次程序被殺時留在「生成中」的武將卡：用備援卡補成候選（失敗不阻擋開機）。
+  recoverStuckGeneratingGenerals().catch((err) =>
+    logger.warn({ err }, "stuck generating generals recovery failed"),
+  );
+
   getStoredToken()
     .then((token) => {
       if (token) {
