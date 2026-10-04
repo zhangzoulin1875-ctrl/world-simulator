@@ -562,8 +562,10 @@ router.post("/player/nation", async (req, res) => {
       worldEra,
     );
 
+    // 兩欄皆為 int4：大航海時代之後 productivity × population 會超過 2^31，
+    // 必須在相乘前先轉 bigint，否則多地區建國會 500（numeric overflow）。
     const eraStats = await db.execute<{ production: string }>(sql`
-      SELECT FLOOR(productivity * population / 10000)::bigint AS production
+      SELECT FLOOR(productivity::bigint * population::bigint / 10000)::bigint AS production
       FROM map_region_era_stats
       WHERE region_id = ANY(ARRAY[${sql.join(regionIds.map((id) => sql`${id}`), sql`, `)}]::int[]) AND era = ${worldEra}
     `);
