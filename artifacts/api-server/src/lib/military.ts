@@ -438,6 +438,8 @@ export function applyTechBonuses(
    * （它寫入 player_armies.production_reserved，受 production_spent 不變量約束）。
    */
   eraScale = 1,
+  /** 維護費尺度（動態國家尺度的窄夾限版）；省略時沿用 eraScale。 */
+  upkeepScale: number = eraScale,
 ): EffectiveUnitStats {
   const pctByTarget = new Map<BonusTarget, number>();
   for (const tech of techs) {
@@ -480,7 +482,7 @@ export function applyTechBonuses(
     ),
     upkeepPerUnit: Math.max(
       MIN_UPKEEP_PER_UNIT,
-      Math.round(template.upkeepPerUnit * factor("upkeep") * eraScale * 100) / 100,
+      Math.round(template.upkeepPerUnit * factor("upkeep") * upkeepScale * 100) / 100,
     ),
     prodUpkeepPerUnit: Math.max(
       MIN_UPKEEP_PER_UNIT,

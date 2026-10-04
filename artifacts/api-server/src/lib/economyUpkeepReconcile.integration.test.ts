@@ -62,7 +62,7 @@ const { aggregateSocialEffectsForUser } = await import("./socialTechData");
 const { loadBuildingUpkeepByUser } = await import("./productionTechData");
 const { buildingUpkeep } = await import("./regionBuildings");
 const { getEraSlugs } = await import("./nationStats");
-const { eraCostScale } = await import("./eraCostScale");
+const { loadNationScales, loadAllNationScales } = await import("./nationScale");
 const economyRouter = (await import("../routes/economy")).default;
 
 const TEST_TAG = "__upkrec446__";
@@ -263,8 +263,10 @@ after(async () => {
  * buildingUpkeep(Σ level)），未進位的原始合計。
  */
 async function composeTurnEngineUpkeep(): Promise<number> {
-  // 時代開銷縮放：回合引擎與財政頁都用 statsEra 的係數（與稅收同一把尺）。
-  const costScale = eraCostScale((await getEraSlugs()).statsEra);
+  // 動態開銷：回合引擎用批次 loadAllNationScales、財政頁用單國 loadNationScales，
+  // 兩者必須同值（下方另有專測）。這裡取該國維護費尺度。
+  const statsEraSlug = (await getEraSlugs()).statsEra;
+  const costScale = (await loadNationScales(nationId, statsEraSlug)).upkeep;
   const [armyRow] = await db
     .select({
       upkeep: sql<string>`COALESCE(SUM(${playerArmiesTable.quantity} * ${militaryUnitTemplatesTable.upkeepPerUnit}), 0)`,
@@ -387,18 +389,33 @@ test("overview 維護費明細組成完整且與合計進位一致", async () =>
   // 明細數值（round1 顯示）：基準值 × 當前 statsEra 的時代係數。
   //   軍隊 36.18 × 係數、建築 0、地區資源建築 100/級 × 5 級 × 係數。
   // 這同時驗證縮放「真的生效」（晚期時代 ≫ 古典基準），而不只是兩邊互相一致。
-  const scale = eraCostScale((await getEraSlugs()).statsEra);
-  assert.equal(military, Math.round(36.18 * scale * 10) / 10);
+  const scale = (await loadNationScales(nationId, (await getEraSlugs()).statsEra)).upkeep;
+  assert.ok(Math.abs(military - 36.18 * scale) <= 0.05, `軍隊維護 ${military} ≈ ${36.18 * scale}`);
   assert.equal(building, 0);
-  assert.equal(regionBuilding, Math.round(500 * scale * 10) / 10);
+  assert.ok(Math.abs(regionBuilding - 500 * scale) <= 0.5, `區域建築維護 ${regionBuilding} ≈ ${500 * scale}`);
 
   // 實扣 = ⌈Σ 組成⌉；netSurplus = 稅收 − 實扣。
-  assert.equal(
-    body["upkeepPerTurn"],
-    Math.ceil(military + building + regionBuilding),
+  // 明細各自 round1 顯示，合計由未進位原值 ⌈Σ⌉ 得出：兩者最多差 3 項 × 0.05 的
+  // 四捨五入誤差（不變量本體「顯示 = 實扣」由上一個測試守住）。
+  const detailSum = military + building + regionBuilding;
+  const charged = body["upkeepPerTurn"]!;
+  assert.ok(
+    charged >= Math.floor(detailSum - 0.15) && charged <= Math.ceil(detailSum + 0.15),
+    `upkeepPerTurn ${charged} 應約等於明細合計 ${detailSum}（容許 round1 誤差）`,
   );
   assert.equal(
     body["netSurplusPerTurn"],
     body["taxIncomePerTurn"]! - body["upkeepPerTurn"]!,
   );
+});
+
+test("批次尺度 loadAllNationScales 與單國 loadNationScales 同值（引擎與財政頁不得分叉）", async () => {
+  const era = (await getEraSlugs()).statsEra;
+  const single = await loadNationScales(nationId, era);
+  const all = await loadAllNationScales(era);
+  const batched = all.get(nationId);
+  assert.ok(batched, "有掌控地區的國家必須出現在批次結果");
+  assert.equal(batched!.upkeep, single.upkeep);
+  assert.equal(batched!.price, single.price);
+  assert.equal(batched!.population, single.population);
 });

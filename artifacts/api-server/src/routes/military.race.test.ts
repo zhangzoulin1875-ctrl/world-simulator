@@ -20,6 +20,7 @@
  * after the run, so the test is repeatable:
  * `pnpm --filter @workspace/api-server run test:integration`.
  */
+import { loadNationScales } from "../lib/nationScale";
 import { strict as assert } from "node:assert";
 import test, { after, before } from "node:test";
 import http from "node:http";
@@ -45,7 +46,6 @@ const {
   militaryPurchaseQuotasTable,
 } = await import("@workspace/db");
 const { createSession, SESSION_COOKIE_NAME } = await import("../lib/sessions");
-const { eraCostScale } = await import("../lib/eraCostScale");
 const {
   recruitCost,
   recruitProductionSpend,
@@ -278,7 +278,7 @@ before(async () => {
   // 路由以 applyTechBonuses(template, researched, eraScale) 計價：金錢價與招募一次性
   // 生產力花費隨世界時代膨脹；佔用型 prodUpkeepPerUnit 不縮放。測試改用同一個
   // 縮放後的有效視圖推導預算，才會與路由一致。
-  const eraScale = eraCostScale((await getStatsEraSlug()));
+  const eraScale = (await loadNationScales(nationId, await getStatsEraSlug())).price;
   template = {
     ...tpl!,
     prodCostPer100: Math.round(tpl!.prodCostPer100 * eraScale),

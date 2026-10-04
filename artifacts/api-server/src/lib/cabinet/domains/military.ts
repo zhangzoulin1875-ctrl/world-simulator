@@ -1,4 +1,4 @@
-import { eraCostScale } from "../../eraCostScale";
+import { loadNationScales } from "../../nationScale";
 import { asc, eq } from "drizzle-orm";
 import {
   db,
@@ -162,6 +162,7 @@ export async function runDomain(ctx: RunDomainContext): Promise<void> {
   if (!resourceKeys.some((k) => enabled.has(k))) return;
 
   const { currentEra, statsEra } = await getEraSlugs();
+  const cabScales = await loadNationScales(nation.id, statsEra);
   const eraLabel = ERAS[getEraIndex(currentEra)]?.label ?? currentEra;
   const stats = await computeAdjustedNationStats(nation, statsEra);
   // Task #568 — 可用生產力 = 總量 − 已佔用 − 本回合招募花費（流量）。
@@ -232,7 +233,7 @@ export async function runDomain(ctx: RunDomainContext): Promise<void> {
         remainingPurchaseCap: remainingCap,
       },
       templates: unlockedTemplates.map((t) => {
-        const eff = applyTechBonuses(t, researched, eraCostScale(statsEra));
+        const eff = applyTechBonuses(t, researched, cabScales.price, cabScales.upkeep);
         return {
           id: t.id,
           name: t.name,
@@ -268,7 +269,7 @@ export async function runDomain(ctx: RunDomainContext): Promise<void> {
     for (const item of plan.recruit) {
       const template = templateById.get(item.templateId);
       if (!template) continue;
-      const eff = applyTechBonuses(template, researched, eraCostScale(statsEra));
+      const eff = applyTechBonuses(template, researched, cabScales.price, cabScales.upkeep);
       const cost = recruitCost(eff, item.quantity);
       const remaining = Math.max(0, availableProduction - usedProduction);
       const summary = `招募 ${template.name} ×${item.quantity.toLocaleString(
@@ -321,7 +322,7 @@ export async function runDomain(ctx: RunDomainContext): Promise<void> {
       const template = templateById.get(item.templateId);
       if (!template) continue;
       const remaining = Math.max(0, remainingCap - usedCap);
-      const eff = applyTechBonuses(template, researched, eraCostScale(statsEra));
+      const eff = applyTechBonuses(template, researched, cabScales.price, cabScales.upkeep);
       const moneyCost = eff.moneyCostPerUnit * item.quantity;
       const summary = `購買 ${template.name} ×${item.quantity.toLocaleString(
         "en-US",

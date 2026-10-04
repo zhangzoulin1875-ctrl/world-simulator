@@ -14,7 +14,7 @@ import {
   worldGameStateTable,
 } from "@workspace/db";
 import { buildingOutput, buildingUpkeep } from "./regionBuildings";
-import { eraCostScale } from "./eraCostScale";
+import { loadAllNationScales, scalesFromPopulation } from "./nationScale";
 import { UNIT_DESIGN_CHARGE_CAP } from "./military";
 import { WEAPON_DESIGN_CHARGE_CAP } from "./weapons";
 import { logger } from "./logger";
@@ -571,10 +571,25 @@ async function doRunTurn(
       eq(militaryUnitTemplatesTable.id, playerArmiesTable.templateId),
     )
     .groupBy(playerArmiesTable.discordUserId);
-  // 時代開銷縮放：與稅收同一把尺（statsEra），詳見 lib/eraCostScale.ts。
-  const costScale = eraCostScale(statsEra);
+  // 動態開銷：時代係數 × 國力倍率（詳見 lib/nationCostScale.ts）。維護費用窄夾限的
+  // 尺度，避免人口起伏讓維護費震盪。批次一次 SQL 取得全部國家人口。
+  const nationScales = await loadAllNationScales(statsEra);
+  const upkeepScaleOfNation = (nationId: string): number =>
+    (nationScales.get(nationId) ?? scalesFromPopulation(0, statsEra)).upkeep;
+  const nationsForScale = await db
+    .select({ id: playerNationsTable.id, userId: playerNationsTable.discordUserId })
+    .from(playerNationsTable);
+  const nationIdByUser = new Map<string, string>();
+  for (const n of nationsForScale) if (n.userId) nationIdByUser.set(n.userId, n.id);
+  const upkeepScaleOfUser = (userId: string): number => {
+    const nid = nationIdByUser.get(userId);
+    return nid ? upkeepScaleOfNation(nid) : scalesFromPopulation(0, statsEra).upkeep;
+  };
   const upkeepByUser = new Map(
-    upkeepRows.map((r) => [r.discordUserId, Number(r.upkeep) * costScale]),
+    upkeepRows.map((r) => [
+      r.discordUserId,
+      Number(r.upkeep) * upkeepScaleOfUser(r.discordUserId),
+    ]),
   );
 
   // Task #406 — 各國地區資源建築：每回合木材/礦石產出與金錢維護費
@@ -603,7 +618,7 @@ async function doRunTurn(
     } else if (row.buildingType === "mine") {
       entry.ore += buildingOutput(levels);
     }
-    entry.upkeep += buildingUpkeep(levels, costScale);
+    entry.upkeep += buildingUpkeep(levels, upkeepScaleOfNation(row.nationId));
     resourceByNation.set(row.nationId, entry);
   }
 
@@ -619,7 +634,7 @@ async function doRunTurn(
   const [productionModsByUser, buildingUpkeepByUser, treatyProdNetByNation] =
     await Promise.all([
       loadProductionModifiersByUser(),
-      loadBuildingUpkeepByUser(costScale),
+      loadBuildingUpkeepByUser(upkeepScaleOfUser),
       loadTreatyProductionNetByNation(now),
     ]);
 

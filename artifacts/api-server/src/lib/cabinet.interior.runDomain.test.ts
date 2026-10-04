@@ -30,7 +30,7 @@ import { getDomainModule, applyApproval } from "./cabinet";
 import { buildingByType } from "./production";
 import { getGameBalanceSettings, scaleConstructionCost } from "./gameBalance";
 import { getEraSlugs } from "./nationStats";
-import { eraCostScale } from "./eraCostScale";
+import { loadNationScales } from "./nationScale";
 import type { AgencyLevel } from "./cabinet/types";
 import type { InteriorPlan } from "./cabinet/domains/interiorAi";
 
@@ -225,15 +225,6 @@ async function approveLikeRoute(approvalId: number): Promise<number> {
 }
 
 before(async () => {
-  {
-    const def = buildingByType("granary");
-    GRANARY_COST = scaleConstructionCost(
-      (def?.buildCost ?? 800) * eraCostScale((await getEraSlugs()).statsEra),
-      (await getGameBalanceSettings()).constructionCosts.cityBuilding,
-    );
-    RICH = GRANARY_COST * 125;
-    POOR = Math.ceil(GRANARY_COST * 1.875);
-  }
   await runGameMigrations();
   await runMapRegionSync();
   await runRegionControlMigrations();
@@ -277,6 +268,19 @@ before(async () => {
     .insert(regionControlsTable)
     .values({ nationId, regionId, percent: 100 })
     .onConflictDoNothing();
+
+  // 造價隨該國人口的動態尺度而定（與正式程式同一來源 loadNationScales）：
+  // 地區控制建立後才能算；國庫（RICH/POOR）維持原測試比例。
+  {
+    const def = buildingByType("granary");
+    const scales = await loadNationScales(nationId, (await getEraSlugs()).statsEra);
+    GRANARY_COST = scaleConstructionCost(
+      (def?.buildCost ?? 800) * scales.price,
+      (await getGameBalanceSettings()).constructionCosts.cityBuilding,
+    );
+    RICH = GRANARY_COST * 125;
+    POOR = Math.ceil(GRANARY_COST * 1.875);
+  }
 
   // 研發前置：社會科技「部落革新」開啟建築槽、生產科技「灌溉農業」解鎖糧倉。
   // Task #469 起兩者皆為全球統一科技樹節點（tech_tree_nodes.key_slug）。

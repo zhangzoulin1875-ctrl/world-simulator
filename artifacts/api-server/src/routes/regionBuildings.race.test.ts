@@ -43,10 +43,11 @@ const { computeNationStats, getStatsEraSlug } = await import(
   "../lib/nationStats"
 );
 const { buildingCost: baseBuildingCost } = await import("../lib/regionBuildings");
-const { eraCostScale } = await import("../lib/eraCostScale");
+const { loadNationScales } = await import("../lib/nationScale");
 const { getEraSlugs } = await import("../lib/nationStats");
-// 金錢軌隨世界時代膨脹（與正式路由同款係數）；生產力軌不縮放。
-const ERA_SCALE = eraCostScale((await getEraSlugs()).statsEra);
+// 金錢軌隨國家動態價格尺度（與正式路由同款，依該國人口）；生產力軌不縮放。
+// 國家與地區控制建立後才算得出來，故為 let，於 before() 內重算。
+let ERA_SCALE = 1;
 const buildingCost = (level: number) => baseBuildingCost(level, ERA_SCALE);
 const { activateTreaty, HttpError } = await import(
   "../lib/treatyActivation"
@@ -160,6 +161,7 @@ before(async () => {
   ]);
 
   const eraSlug = await getStatsEraSlug();
+  ERA_SCALE = (await loadNationScales(nationId, eraSlug)).price;
   stats = await computeNationStats(nationId, eraSlug);
   assert.ok(
     stats.production > 0 && stats.population > 0,

@@ -359,7 +359,8 @@ export async function loadProductionModifiersByUser(): Promise<
  * key = discord_user_id, value = 減免後的每回合維護費。
  */
 export async function loadBuildingUpkeepByUser(
-  eraScale = 1,
+  /** 固定倍率，或依玩家（discord user id）回傳倍率的函式（動態國家尺度）。 */
+  eraScale: number | ((userId: string) => number) = 1,
 ): Promise<Map<string, number>> {
   const buildingRows = await db
     .select({
@@ -382,7 +383,8 @@ export async function loadBuildingUpkeepByUser(
 
   for (const [userId, types] of byUser) {
     // 維護費隨時代膨脹（與稅收同一把尺）；減免百分比在縮放後套用。
-    const upkeepTotal = aggregateBuildingEffects(types).upkeepTotal * eraScale;
+    const scaleForUser = typeof eraScale === "function" ? eraScale(userId) : eraScale;
+    const upkeepTotal = aggregateBuildingEffects(types).upkeepTotal * scaleForUser;
     const reductionPct = techByUser.has(userId)
       ? aggregateProductionEffects(techByUser.get(userId)!)
           .buildingUpkeepReductionPct

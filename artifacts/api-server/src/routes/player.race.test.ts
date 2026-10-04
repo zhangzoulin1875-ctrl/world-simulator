@@ -48,10 +48,16 @@ const {
   regionBuildingsTable,
 } = await import("@workspace/db");
 const { createSession, SESSION_COOKIE_NAME } = await import("../lib/sessions");
-const { eraCostScale } = await import("../lib/eraCostScale");
+const { scalesFromPopulation } = await import("../lib/nationScale");
 const { getEraSlugs } = await import("../lib/nationStats");
-// 建國開局資源 = 設定值（古典基準）× 建國當時世界時代（currentEra）的開銷係數。
-const FOUND_SCALE = eraCostScale((await getEraSlugs()).currentEra);
+// 建國開局資源 = 設定值（古典基準）× 建國當時世界時代與所選地區人口的動態價格尺度。
+async function foundingScale(regionId: number): Promise<number> {
+  const era = (await getEraSlugs()).currentEra;
+  const res = await db.execute<{ population: string }>(sql`
+    SELECT COALESCE(SUM(population::bigint), 0)::bigint AS population
+    FROM map_region_era_stats WHERE region_id = ${regionId} AND era = ${era}`);
+  return scalesFromPopulation(Number(res.rows[0]?.population ?? 0), era).price;
+}
 const playerRouter = (await import("./player")).default;
 
 /** Marker prefixes so leftovers from any (even crashed) run are removable. */
@@ -562,8 +568,8 @@ test("founding applies world starting resources; claiming an unowned nation keep
       })
       .from(playerNationsTable)
       .where(eq(playerNationsTable.id, founded.json.nation.id as string));
-    assert.equal(created?.techPoints, 777 * FOUND_SCALE, "founding must apply startingTechPoints × 時代係數");
-    assert.equal(created?.money, 98765 * FOUND_SCALE, "founding must apply startingMoney × 時代係數");
+    assert.equal(created?.techPoints, Math.round(777 * (await foundingScale(regionId!))), "founding must apply startingTechPoints × 時代係數");
+    assert.equal(created?.money, Math.round(98765 * (await foundingScale(regionId!))), "founding must apply startingMoney × 時代係數");
 
     // 2) 接手無主國家 → 沿用該國既有資源，不套用開局設定。
     const [unowned] = await db

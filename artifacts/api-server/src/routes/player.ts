@@ -1,4 +1,5 @@
-import { eraCostScale, scaleByEra } from "../lib/eraCostScale";
+import { scalesFromPopulation } from "../lib/nationScale";
+import { scaleByEra } from "../lib/eraCostScale";
 import { Router, type IRouter } from "express";
 import { z } from "zod";
 import { schemas } from "@workspace/api-zod";
@@ -582,7 +583,16 @@ router.post("/player/nation", async (req, res) => {
     }
   }
 
-  const foundingEraScale = eraCostScale(worldEra);
+  // 開局資源也依所選地區人口縮放（與之後的動態價格同一把尺，避免開局錢與價格錯位）。
+  const foundingPopRows = await db.execute<{ population: string }>(sql`
+    SELECT COALESCE(SUM(population::bigint), 0)::bigint AS population
+    FROM map_region_era_stats
+    WHERE region_id = ANY(ARRAY[${sql.join(regionIds.map((id) => sql`${id}`), sql`, `)}]::int[]) AND era = ${worldEra}
+  `);
+  const foundingEraScale = scalesFromPopulation(
+    Number(foundingPopRows.rows[0]?.population ?? 0),
+    worldEra,
+  ).price;
   try {
     const nation = await db.transaction(async (tx) => {
       // Serialize concurrent founding attempts — lock all regions in ascending

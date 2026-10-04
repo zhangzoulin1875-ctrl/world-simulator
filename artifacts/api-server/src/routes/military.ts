@@ -1,4 +1,4 @@
-import { eraCostScale } from "../lib/eraCostScale";
+import { loadNationScales } from "../lib/nationScale";
 import { Router, type IRouter } from "express";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import {
@@ -183,8 +183,9 @@ function serializeTemplate(
   customName: string | null = null,
   equippedWeapon: MilitaryWeapon | null = null,
   eraScale = 1,
+  upkeepScale: number = eraScale,
 ) {
-  const effective = applyTechBonuses(template, researched, eraScale);
+  const effective = applyTechBonuses(template, researched, eraScale, upkeepScale);
   // 武器系統 — 裝備摘要（相容判定為伺服器純函式；不相容仍可裝備但受懲罰）。
   const weaponCompatible = equippedWeapon
     ? weaponCompatibleWith(equippedWeapon, template.category)
@@ -305,6 +306,7 @@ router.get("/military/overview", async (req, res) => {
   const { nation, userId } = auth;
   // 解鎖/顯示用當前時代；資源數據用「數據時代」（與玩家首頁一致）。
   const { currentEra: eraSlug, statsEra } = await getEraSlugs();
+  const listScales = await loadNationScales(nation.id, statsEra);
   const era = ERAS[getEraIndex(eraSlug)]!;
 
   const [
@@ -379,7 +381,8 @@ router.get("/military/overview", async (req, res) => {
         t.equippedWeaponId
           ? (weaponById.get(t.equippedWeaponId) ?? null)
           : null,
-        eraCostScale(statsEra),
+        listScales.price,
+        listScales.upkeep,
       ),
     ),
     armies: armies.map((a) => ({ templateId: a.templateId, quantity: a.quantity })),
@@ -514,7 +517,8 @@ router.post("/military/recruit", async (req, res) => {
       researchedKeySlugs,
     );
     const researched = await loadResearchedTechs(userId);
-    const effective = applyTechBonuses(template, researched, eraCostScale(statsEra));
+    const orderScales = await loadNationScales(nation.id, statsEra);
+    const effective = applyTechBonuses(template, researched, orderScales.price, orderScales.upkeep);
     // Task #557 — 生產力佔用 = ⌈數量 × 有效生產力維護費 ÷ 100⌉（與金錢購買同公式）。
     const cost = recruitCost(effective, quantity);
     // Task #568 — 立即性花費 = ⌈數量 × 有效 prodCostPer100 ÷ 100⌉（一次性
@@ -650,7 +654,8 @@ router.post("/military/purchase", async (req, res) => {
       researchedKeySlugs,
     );
     const researched = await loadResearchedTechs(userId);
-    const effective = applyTechBonuses(template, researched, eraCostScale(statsEra));
+    const orderScales = await loadNationScales(nation.id, statsEra);
+    const effective = applyTechBonuses(template, researched, orderScales.price, orderScales.upkeep);
     const moneyCost = effective.moneyCostPerUnit * quantity;
     if (!Number.isSafeInteger(moneyCost)) {
       throw new HttpError(400, "購買金額過大");
@@ -921,6 +926,10 @@ router.post("/military/design-unit", aiRateLimit, async (req, res) => {
   );
   try {
     const researched = await loadResearchedTechs(userId);
+    const designScales = await loadNationScales(
+      nation.id,
+      (await getEraSlugs()).statsEra,
+    );
     res.json({
       template: serializeTemplate(
         template,
@@ -929,7 +938,8 @@ router.post("/military/design-unit", aiRateLimit, async (req, res) => {
         researchedKeySlugs,
         null,
         null,
-        eraCostScale((await getEraSlugs()).statsEra),
+        designScales.price,
+        designScales.upkeep,
       ),
       unitDesignCharges: claimed[0].unitDesignCharges,
     });
