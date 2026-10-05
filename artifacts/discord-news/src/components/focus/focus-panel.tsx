@@ -6,6 +6,7 @@ import {
   useCancelFocus, useFocus, useStartFocus,
   type ActiveFocus, type FocusCard, type FocusView,
 } from "@/lib/focus";
+import { FocusTree } from "./focus-tree";
 
 function Stat({ icon: Icon, label, value, hint, testId }: {
   icon: React.ElementType; label: string; value: string; hint?: string; testId: string;
@@ -209,6 +210,8 @@ export function FocusPanel() {
           {v.active.map((a) => <ActiveRow key={a.id} a={a} onCancel={onCancel} busy={busy} />)}
         </div>
       )}
+
+      <FocusTree view={v} busy={busy} onStart={onStart} />
 
       <div className="mt-4 space-y-4">
         {groups.length === 0 && (

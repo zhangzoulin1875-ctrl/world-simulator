@@ -34,6 +34,36 @@ export interface ActiveFocus {
   refundOnCancel: number;
 }
 
+export interface TreeNode {
+  slug: string;
+  label: string;
+  /** 全景欄位:0 建國起點 / 1 中繼 / 2 終點 */
+  stage: 0 | 1 | 2;
+  /** 終點所屬路線(只有 stage = 2 才有) */
+  line: "red" | "black" | "stable" | null;
+  layer: number | null;
+  isFounding: boolean;
+  isCurrent: boolean;
+  /** 以我為根:0 目前 / 1 我抽到的分支 / 2 再往下一步(預覽);範圍外為 null */
+  depth: 0 | 1 | 2 | null;
+}
+
+export interface TreeEdge {
+  from: string;
+  to: string;
+  track: FocusTrack;
+  focusId: string;
+  walkable: boolean;
+  notDrawn: boolean;
+}
+
+export interface FocusTreeData {
+  currentGovernment: string | null;
+  limited: boolean;
+  nodes: TreeNode[];
+  edges: TreeEdge[];
+}
+
 export interface FocusView {
   points: number;
   pointsPerTurn: number;
@@ -46,6 +76,7 @@ export interface FocusView {
   redLean: number;
   active: ActiveFocus[];
   focuses: FocusCard[];
+  tree: FocusTreeData;
 }
 
 export const FOCUS_QUERY_KEY = ["focus"] as const;
@@ -134,4 +165,57 @@ export function remainingText(remaining: number | null): string {
 /** 傾向值條的寬度(夾在 0-100)。 */
 export function leanPct(v: number): number {
   return Math.max(0, Math.min(100, Math.round(v)));
+}
+
+
+// ---------- 政體樹排版(純函式,不碰 DOM) ----------
+
+export type TreeMode = "rooted" | "full";
+
+export interface LaidNode extends TreeNode { col: number; row: number }
+export interface LaidEdge extends TreeEdge {
+  /** 回邊:指向同層或更前面的欄(有環時用虛線淡色畫,避免打亂層級) */
+  back: boolean;
+  /** 預覽邊:第 2 層往下的邊(換政體後會重抽,只是參考) */
+  preview: boolean;
+}
+export interface TreeLayout { cols: LaidNode[][]; nodes: LaidNode[]; edges: LaidEdge[] }
+
+/**
+ * 依模式排版:
+ *  - rooted:欄 = depth(0/1/2),只放 depth 非 null 的節點;邊只畫兩端都在範圍內的
+ *  - full:欄 = stage(0 建國起點 / 1 中繼 / 2 終點);畫全部邊
+ * 同欄內:rooted 目前政體優先;full 終點欄依路線(穩定 → 黑 → 紅)分組,其餘依名稱穩定排序。
+ */
+export function layoutTree(tree: FocusTreeData, mode: TreeMode): TreeLayout {
+  const colOf = (n: TreeNode): number | null => (mode === "rooted" ? n.depth : n.stage);
+  const picked = tree.nodes.filter((n) => colOf(n) !== null);
+  const colIds = [...new Set(picked.map((n) => colOf(n) as number))].sort((a, b) => a - b);
+  const colIndex = new Map(colIds.map((c, i) => [c, i]));
+  const cols: LaidNode[][] = colIds.map(() => []);
+  for (const n of picked) {
+    const col = colIndex.get(colOf(n) as number)!;
+    cols[col]!.push({ ...n, col, row: 0 });
+  }
+  const lineRank = (n: TreeNode) => (n.line === "stable" ? 0 : n.line === "black" ? 1 : n.line === "red" ? 2 : 3);
+  for (const c of cols) {
+    c.sort((a, b) =>
+      (mode === "rooted" ? Number(b.isCurrent) - Number(a.isCurrent) : lineRank(a) - lineRank(b))
+      || a.label.localeCompare(b.label, "zh-Hant"));
+    c.forEach((n, i) => { n.row = i; });
+  }
+  const nodes = cols.flat();
+  const bySlug = new Map(nodes.map((n) => [n.slug, n]));
+  const edges: LaidEdge[] = [];
+  for (const e of tree.edges) {
+    const a = bySlug.get(e.from), b = bySlug.get(e.to);
+    if (!a || !b) continue;
+    if (mode === "rooted") {
+      // 只畫往更深一層的邊;第 2 層出來的邊與回邊不畫,畫面才乾淨
+      if (b.col !== a.col + 1) continue;
+      if (a.col === 1 && !a.isCurrent && a.depth === 1 && b.depth !== 2) continue;
+    }
+    edges.push({ ...e, back: b.col <= a.col, preview: mode === "rooted" && a.col >= 1 });
+  }
+  return { cols, nodes, edges };
 }

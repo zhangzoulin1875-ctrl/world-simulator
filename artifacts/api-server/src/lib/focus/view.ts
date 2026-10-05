@@ -25,6 +25,7 @@ import { describeEffect } from "./describe";
 import { COMMUNIST_REVOLUTION_ID, REVOLUTION_EXCLUDED_GOVERNMENTS } from "./regimeFocuses";
 import { ensureBranches } from "./branchService";
 import { logger } from "../logger";
+import { buildFocusTree, type FocusTreeData } from "./treeView";
 
 type Nation = typeof playerNationsTable.$inferSelect;
 
@@ -73,6 +74,8 @@ export interface FocusView {
     refundOnCancel: number;
   }>;
   focuses: FocusCard[];
+  /** 政體樹畫面資料(以我為根 / 全景兩種視角共用) */
+  tree: FocusTreeData;
 }
 
 const describeAll = (effects: FocusEffect[]) => ({
@@ -184,5 +187,6 @@ export async function getFocusView(nation: Nation): Promise<FocusView> {
       refundOnCancel: Math.floor(a.spentPoints * 0.5),
     })),
     focuses,
+    tree: buildFocusTree(slugNow, branches),
   };
 }

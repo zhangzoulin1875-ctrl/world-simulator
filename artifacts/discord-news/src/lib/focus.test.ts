@@ -34,3 +34,59 @@ test("leanPct:夾在 0-100 並四捨五入", () => {
   assert.equal(leanPct(130), 100);
   assert.equal(leanPct(49.6), 50);
 });
+
+// ---------- 政體樹排版 ----------
+import { layoutTree, type FocusTreeData, type TreeNode } from "./focus";
+
+const N = (slug: string, p: Partial<TreeNode> = {}): TreeNode =>
+  ({ slug, label: slug, stage: 1, line: null, layer: null, isFounding: false, isCurrent: false, depth: null, ...p });
+const E = (from: string, to: string, p: Partial<FocusTreeData["edges"][number]> = {}) =>
+  ({ from, to, track: "stable" as const, focusId: `regime.${from}_to_${to}`, walkable: false, notDrawn: false, ...p });
+
+const sample: FocusTreeData = {
+  currentGovernment: "a",
+  limited: true,
+  nodes: [
+    N("a", { stage: 0, isFounding: true, isCurrent: true, depth: 0 }),
+    N("b", { stage: 1, depth: 1 }),
+    N("c", { stage: 1, depth: 1 }),
+    N("x", { stage: 1, depth: null }), // 沒抽到
+    N("d", { stage: 2, line: "stable", depth: 2 }),
+    N("y", { stage: 2, line: "red", depth: null }),
+  ],
+  edges: [
+    E("a", "b", { walkable: true }), E("a", "c", { walkable: true }), E("a", "x", { notDrawn: true }),
+    E("b", "d"), E("c", "a"), E("d", "a"), E("x", "y"),
+  ],
+};
+
+test("layoutTree rooted:只放範圍內節點;沒抽到的不出現;欄 = 深度", () => {
+  const l = layoutTree(sample, "rooted");
+  assert.deepEqual(l.cols.map((c) => c.map((n) => n.slug).sort()), [["a"], ["b", "c"], ["d"]]);
+  assert.ok(!l.nodes.some((n) => n.slug === "x" || n.slug === "y"));
+});
+
+test("layoutTree rooted:只畫往更深一層的邊;回邊(c->a、d->a)不畫;第 2 層的邊標為預覽", () => {
+  const l = layoutTree(sample, "rooted");
+  const key = (e: { from: string; to: string }) => `${e.from}>${e.to}`;
+  assert.deepEqual(l.edges.map(key).sort(), ["a>b", "a>c", "b>d"]);
+  assert.equal(l.edges.find((e) => key(e) === "a>b")!.preview, false);
+  assert.equal(l.edges.find((e) => key(e) === "b>d")!.preview, true);
+});
+
+test("layoutTree full:欄 = 建國起點/中繼/終點;全部邊都畫;回邊標 back(有環不打亂層級)", () => {
+  const l = layoutTree(sample, "full");
+  assert.deepEqual(l.cols.map((c) => c.map((n) => n.slug).sort()), [["a"], ["b", "c", "x"], ["d", "y"]]);
+  assert.equal(l.edges.length, sample.edges.length);
+  assert.equal(l.edges.find((e) => e.from === "c" && e.to === "a")!.back, true);
+  assert.equal(l.edges.find((e) => e.from === "a" && e.to === "b")!.back, false);
+});
+
+test("layoutTree:終點欄依路線分組(穩定→黑→紅)、row 連續、不會丟節點;rooted 目前政體排最前", () => {
+  const t: FocusTreeData = { ...sample, nodes: [...sample.nodes, N("z", { stage: 2, line: "black" })] };
+  const l = layoutTree(t, "full");
+  assert.equal(l.nodes.length, t.nodes.length);
+  assert.deepEqual(l.cols[2]!.map((n) => n.slug), ["d", "z", "y"]); // stable, black, red
+  for (const c of l.cols) assert.deepEqual(c.map((n) => n.row), c.map((_, i) => i));
+  assert.equal(layoutTree(sample, "rooted").cols[0]![0]!.isCurrent, true);
+});

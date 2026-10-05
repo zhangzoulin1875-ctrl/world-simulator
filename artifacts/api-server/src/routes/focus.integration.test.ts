@@ -150,6 +150,21 @@ test("分支表壞掉(例如線上 migration 落後)時,國策頁降級成不套
   }
 });
 
+test("GET /focus 帶 tree:14 個節點、目前政體唯一、邊的 walkable 與清單一致", async () => {
+  const { n, cookie } = await mk("君主專制", {}, false);
+  const only = ["constitutional_monarchy", "theocracy"];
+  await db.insert(focusBranchesTable).values(only.map((t) => ({ nationId: n.id, fromGovernment: "absolute_monarchy", toGovernment: t })));
+  const j: any = await (await get(cookie)).json();
+  assert.equal(j.tree.nodes.length, 14);
+  assert.equal(j.tree.currentGovernment, "absolute_monarchy");
+  assert.equal(j.tree.limited, true);
+  assert.deepEqual(j.tree.nodes.filter((x: any) => x.isCurrent).map((x: any) => x.slug), ["absolute_monarchy"]);
+  const walk = j.tree.edges.filter((e: any) => e.walkable).map((e: any) => e.to).sort();
+  assert.deepEqual(walk, only.slice().sort());
+  const listed = j.focuses.filter((f: any) => f.id !== "regime.communist_revolution").map((f: any) => f.id).sort();
+  assert.deepEqual(j.tree.edges.filter((e: any) => e.walkable).map((e: any) => e.focusId).sort(), listed, "樹上能走的 = 清單上看得到的");
+});
+
 test("共產革命對所有非紅線終點的政體都可見;紅線終點(委員會制/社會主義委員會)不顯示", async () => {
   const seen: Record<string, boolean> = {};
   for (const g of ["貴族制", "君主立憲制", "總統制民主", "議會內閣制", "君主專制", "神權制", "軍事獨裁", "財閥共和", "邦聯制", "議會共和制", "選舉君主制", "二元君主制", "委員會制", "社會主義委員會制"]) {
