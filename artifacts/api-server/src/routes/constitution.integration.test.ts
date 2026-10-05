@@ -33,6 +33,7 @@ const put = (c: string, t: unknown) => fetch(`${base}/api/constitution/draft`, {
 const submit = (c?: string) => fetch(`${base}/api/constitution/submit`, { method: "POST", headers: H(c), body: "{}" });
 
 before(async () => {
+  (await import("../lib/penaltyScaleLoad")).setPenaltyScaleForTest(1);
   await ensureParliamentTestSchema();
   setEventTextQueuerForTest(() => {});
   setConstitutionRunnerForTest((job) => { pending.push(job().catch(() => {})); });

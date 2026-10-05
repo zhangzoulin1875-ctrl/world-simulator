@@ -13,7 +13,7 @@ import { callGameAi } from "../gameAi";
 import { logger } from "../logger";
 import { STANCE_LABELS, clampSat, type ParliamentStance } from "../parliament/core";
 import {
-  canSubmit, validateSubmission, tallyVotes, SUBMIT_COST_MONEY,
+  canSubmit, validateSubmission, tallyVotes, SUBMIT_COST_MONEY, submitCostFor,
   type ReviewRecord, type ConstitutionStatus,
 } from "./core";
 import {
@@ -22,6 +22,7 @@ import {
   type NationBrief, type PartyBrief,
 } from "./review";
 import { loadConstitution, statusOf, currentParliamentTick } from "./service";
+import { loadPenaltyScale } from "../penaltyScaleLoad";
 
 /** 審議超過這麼久還沒結果,視為背景任務已死(重啟/當機),回收並退費。 */
 export const REVIEW_STALE_MS = 10 * 60 * 1000;
@@ -56,13 +57,18 @@ export function setConstitutionRunnerForTest(fn: ((job: () => Promise<void>) => 
 /** 退費並把 reviewing 還原成 draft(AI 失敗/卡死時用)。只動仍在 reviewing 的列,冪等。 */
 async function abortReview(nationId: string, reason: string): Promise<boolean> {
   return db.transaction(async (tx) => {
-    const back = await tx.update(constitutionsTable)
-      .set({ status: "draft", reviewStartedAt: null, lastSubmitTick: null })
+    // 先鎖住這一列並讀出「當時實際扣的金額」。舊版(尚未記錄扣款)送審中的列 submit_paid = 0,退舊的固定費用。
+    const [cur] = await tx.select({ paid: constitutionsTable.submitPaid })
+      .from(constitutionsTable)
       .where(and(eq(constitutionsTable.nationId, nationId), eq(constitutionsTable.status, "reviewing")))
-      .returning({ n: constitutionsTable.nationId });
-    if (back.length === 0) return false; // 已被別人處理(完成或已回收),不重複退費
+      .for("update");
+    if (!cur) return false; // 已被別人處理(完成或已回收),不重複退費
+    const refund = cur.paid > 0 ? cur.paid : SUBMIT_COST_MONEY;
+    await tx.update(constitutionsTable)
+      .set({ status: "draft", reviewStartedAt: null, lastSubmitTick: null, submitPaid: 0 })
+      .where(and(eq(constitutionsTable.nationId, nationId), eq(constitutionsTable.status, "reviewing")));
     await tx.update(playerNationsTable)
-      .set({ money: sql`${playerNationsTable.money} + ${SUBMIT_COST_MONEY}` })
+      .set({ money: sql`${playerNationsTable.money} + ${refund}` })
       .where(eq(playerNationsTable.id, nationId));
     await tx.update(constitutionsTable)
       .set({ submissions: sql`GREATEST(0, ${constitutionsTable.submissions} - 1)` })
@@ -108,25 +114,29 @@ export async function submitConstitution(nationId: string): Promise<SubmitResult
   const sv = validateSubmission(text);
   if (!sv.ok) return { ok: false, code: 400, error: sv.error };
 
+  // 送審費依時代與國力縮放(古典 = 基準價;中後期國庫大,固定 1000 毫無感覺)
+  const cost = submitCostFor(await loadPenaltyScale(nationId));
+
   const outcome = await db.transaction(async (tx) => {
     const claimed = await tx.update(constitutionsTable)
       .set({
         status: "reviewing", reviewStartedAt: new Date(), lastSubmitTick: tick,
         submissions: sql`${constitutionsTable.submissions} + 1`,
+        submitPaid: cost, // 記下實際扣的金額,審查失敗時退這個數
       })
       .where(and(eq(constitutionsTable.nationId, nationId), eq(constitutionsTable.status, "draft")))
       .returning({ n: constitutionsTable.nationId });
     if (claimed.length === 0) return "race" as const;
     const paid = await tx.update(playerNationsTable)
-      .set({ money: sql`${playerNationsTable.money} - ${SUBMIT_COST_MONEY}` })
-      .where(and(eq(playerNationsTable.id, nationId), gte(playerNationsTable.money, SUBMIT_COST_MONEY)))
+      .set({ money: sql`${playerNationsTable.money} - ${cost}` })
+      .where(and(eq(playerNationsTable.id, nationId), gte(playerNationsTable.money, cost)))
       .returning({ id: playerNationsTable.id });
     if (paid.length === 0) { tx.rollback(); }
     return "ok" as const;
   }).catch((e) => (e && (e as Error).message?.includes("Rollback") ? ("broke" as const) : Promise.reject(e)));
 
   if (outcome === "race") return { ok: false, code: 409, error: "憲法已在審議中" };
-  if (outcome === "broke") return { ok: false, code: 402, error: `國庫不足，送審需要 ${SUBMIT_COST_MONEY} 金錢` };
+  if (outcome === "broke") return { ok: false, code: 402, error: `國庫不足，送審需要 ${cost.toLocaleString("en-US")} 金錢` };
 
   runner(() => runReview(nationId, text, tick));
   return { ok: true };

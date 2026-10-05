@@ -16,7 +16,14 @@ export const CONSTITUTION_MIN_LEN = 300;
 /** 兩次送審至少間隔幾個議會回合（AI 審查成本高，防連續洗版）。 */
 export const SUBMIT_COOLDOWN_TICKS = 4;
 /** 送審費用（金錢）。 */
+/** 送審費的基準價(古典時代標準國的金額);實際金額依時代與國力縮放,見 submitCostFor。 */
 export const SUBMIT_COST_MONEY = 1000;
+
+/** 縮放後的送審費(四捨五入成整數,至少 1)。scale 來自 penaltyScale.penaltyScaleFor。 */
+export function submitCostFor(scale: number): number {
+  const v = Math.round(SUBMIT_COST_MONEY * (Number.isFinite(scale) && scale > 0 ? scale : 1));
+  return Math.max(1, v);
+}
 /** AI 品質分低於此值直接退回，不進入投票。 */
 export const QUALITY_PASS_SCORE = 40;
 /** 席次超過此比例才算通過。 */

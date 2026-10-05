@@ -22,6 +22,8 @@ import {
 import { isCostEffect, type FocusDef, type FocusEffect } from "./types";
 import { evaluateStart } from "./service";
 import { describeEffect } from "./describe";
+import { loadPenaltyScale } from "../penaltyScaleLoad";
+import { scaleFocusMoneyEffects } from "../penaltyScale";
 import { sumWiredModifiers } from "./effects";
 import { COMMUNIST_REVOLUTION_ID, REVOLUTION_EXCLUDED_GOVERNMENTS } from "./regimeFocuses";
 import { ensureBranches } from "./branchService";
@@ -82,10 +84,14 @@ export interface FocusView {
   stories: Record<string, { story: string; source: "ai" | "template" }>;
 }
 
-const describeAll = (effects: FocusEffect[]) => ({
-  benefits: effects.filter((e) => !isCostEffect(e)).map(describeEffect),
-  costs: effects.filter((e) => isCostEffect(e)).map(describeEffect),
-});
+const describeAll = (effects: FocusEffect[], penaltyScale: number) => {
+  // 金錢效果顯示的是「依時代與國力縮放後」的實際金額,與完成時實扣的一致
+  const scaled = scaleFocusMoneyEffects(effects, penaltyScale);
+  return {
+    benefits: scaled.filter((e) => !isCostEffect(e)).map(describeEffect),
+    costs: scaled.filter((e) => isCostEffect(e)).map(describeEffect),
+  };
+};
 
 /** 唯讀:組出畫面所需的全部資料。啟動規則與 startFocus 共用 evaluateStart,不會分叉。 */
 export async function getFocusView(nation: Nation): Promise<FocusView> {
@@ -98,6 +104,7 @@ export async function getFocusView(nation: Nation): Promise<FocusView> {
   const [par] = await db.select({ s: parliamentStateTable.satisfaction }).from(parliamentStateTable).where(eq(parliamentStateTable.nationId, n.id));
 
   const sat = par?.s ?? 60;
+  const penaltyScale = await loadPenaltyScale(n.id);
   const points = state?.points ?? 0;
   const blackLean = state?.blackLean ?? 0;
   const redLean = state?.redLean ?? 0;
@@ -149,7 +156,7 @@ export async function getFocusView(nation: Nation): Promise<FocusView> {
     else if (!verdict.ok) status = "locked";
 
     const permanentlyLocked = !verdict.ok && verdict.reason === "excluded_by_completed";
-    const { benefits, costs } = describeAll(def.effects.filter((e) => e.kind !== "transition"));
+    const { benefits, costs } = describeAll(def.effects.filter((e) => e.kind !== "transition"), penaltyScale);
     const tr = def.effects.find((e) => e.kind === "transition");
     focuses.push({
       id: def.id,

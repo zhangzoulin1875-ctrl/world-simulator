@@ -27,6 +27,8 @@ import {
 import { shiftParliament } from "./parliamentShift";
 import { queueEventRewrite } from "./text";
 import { maybeTriggerCrisis } from "../constitution/crisis";
+import { loadPenaltyScale } from "../penaltyScaleLoad";
+import { scaleEffectsMoney } from "../penaltyScale";
 
 type Nation = typeof playerNationsTable.$inferSelect;
 type EventRow = typeof domesticEventsTable.$inferSelect;
@@ -157,6 +159,8 @@ export async function resolveEvent(
   const tick = await currentTick(nation.id);
   let civilWar = false;
   let claimed = false;
+  // 金錢代價依時代與國力縮放(目錄裡的 money 是古典量級的基準價;中後期國庫大,不縮放就毫無感覺)
+  const effects = scaleEffectsMoney(choice.effects, await loadPenaltyScale(nation.id));
 
   await db.transaction(async (tx) => {
     // 搶占:只有仍是 pending 的那一次能往下走
@@ -171,7 +175,7 @@ export async function resolveEvent(
     // 1) 國家數值(以資料庫最新值為準)
     const [fresh] = await tx.select().from(playerNationsTable).where(eq(playerNationsTable.id, nation.id));
     const base = fresh ?? nation;
-    const next = applyEffects(base, choice.effects);
+    const next = applyEffects(base, effects);
     await tx
       .update(playerNationsTable)
       .set({

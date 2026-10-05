@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
-  pgTable, text, integer, serial, timestamp, jsonb, uuid, index, check, boolean,
+  pgTable, text, integer, serial, timestamp, jsonb, uuid, index, check, boolean, bigint,
 } from "drizzle-orm/pg-core";
 import { playerNationsTable } from "./playerNations";
 
@@ -129,6 +129,8 @@ export const constitutionsTable = pgTable(
     lastSubmitTick: integer("last_submit_tick"),
     /** 本次審議開始的時間;伺服器重啟讓背景審查消失時,靠它回收卡在 reviewing 的列。 */
     reviewStartedAt: timestamp("review_started_at", { withTimezone: true }),
+    /** 這次送審實際扣的金額(依時代與國力縮放後);審查失敗要退「這個數」,不能退重新計算的數字。0 = 沒有待退款項。 */
+    submitPaid: bigint("submit_paid", { mode: "number" }).notNull().default(0),
     /** 最近一次審查結果（品質分、缺陷、各黨投票），給玩家看。 */
     lastReview: jsonb("last_review").$type<Record<string, unknown> | null>(),
     /** 通過後 AI 掃出的憲法漏洞（3~6 個），觸發過的標記 triggered。玩家看不到清單，只看得到危機事件。 */

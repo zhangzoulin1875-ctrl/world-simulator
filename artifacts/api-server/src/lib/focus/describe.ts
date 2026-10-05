@@ -2,6 +2,8 @@ import { governmentLabel } from "../governments";
 import type { FocusEffect, FocusStat } from "./types";
 
 const sign = (v: number) => (v > 0 ? `+${v}` : `${v}`);
+/** 金額加千分位:縮放後常是 6~7 位數,不加逗號很難讀。 */
+const signMoney = (v: number) => (v > 0 ? `+${v.toLocaleString("en-US")}` : v.toLocaleString("en-US"));
 
 /** 窮盡 switch:日後新增 FocusStat 若沒補翻譯,編譯會失敗,不會悄悄顯示英文代碼。 */
 function statText(stat: FocusStat, v: number): string {
@@ -32,7 +34,7 @@ const GRANT_LABEL = {
 export function describeEffect(e: FocusEffect): string {
   switch (e.kind) {
     case "modifier": return statText(e.stat, e.value);
-    case "grant": return `${GRANT_LABEL[e.stat]} ${sign(e.value)}`;
+    case "grant": return `${GRANT_LABEL[e.stat]} ${e.stat === "money" ? signMoney(e.value) : sign(e.value)}`;
     case "lean": return `${e.side === "black" ? "黑線" : "紅線"}傾向值 ${sign(e.value)}`;
     case "parliamentSatisfaction": return `議會滿意度 ${sign(e.value)}`;
     case "militarySatisfaction": return `軍方滿意度 ${sign(e.value)}`;

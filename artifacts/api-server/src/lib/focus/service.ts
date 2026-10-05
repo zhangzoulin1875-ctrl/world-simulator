@@ -34,6 +34,8 @@ import { afterRegimeTransition, applyRegimeTransition, type RegimeTransitionResu
 import { describeCondition, eraReached, firstFailedCondition, type ConditionFacts } from "./conditions";
 import { ensureBranches } from "./branchService";
 import { queueFocusStory } from "./focusStory";
+import { loadPenaltyScale } from "../penaltyScaleLoad";
+import { scaleFocusMoneyEffects } from "../penaltyScale";
 
 type Nation = typeof playerNationsTable.$inferSelect;
 
@@ -103,6 +105,7 @@ export async function settleNationFocus(
   // 革命爆發後,國土被切走:進行中的戰役可能指向已不屬於該國的地區,提交後統一終止
   let revolutionStarted = false;
 
+  const penaltyScale = await loadPenaltyScale(nation.id);
   await db.transaction(async (tx) => {
     await lockNationFocus(tx, nation.id);
     // 在鎖內以 SQL 原子遞增(不用先前讀到的舊值回寫,否則會蓋掉同時發生的啟動扣點)。
@@ -176,7 +179,8 @@ export async function settleNationFocus(
         continue;
       }
       const [fresh] = await tx.select().from(playerNationsTable).where(eq(playerNationsTable.id, nation.id));
-      const eff = summarizeEffects(def.effects, {
+      // 金錢類效果(獎勵與代價)依時代與國力縮放;目錄裡的數字是古典量級的基準價
+      const eff = summarizeEffects(scaleFocusMoneyEffects(def.effects, penaltyScale), {
         money: fresh!.money,
         techPoints: fresh!.techPoints,
         stability: fresh!.stability,

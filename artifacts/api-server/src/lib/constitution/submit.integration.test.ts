@@ -38,6 +38,7 @@ async function submitAndWait(id: string) {
 }
 
 before(async () => {
+  (await import("../penaltyScaleLoad")).setPenaltyScaleForTest(1); // 固定倍率 1:這個檔案測的是流程,不是縮放
   await ensureParliamentTestSchema();
   await db.delete(playerNationsTable).where(like(playerNationsTable.name, `${MARK}%`));
   setConstitutionRunnerForTest((job) => { pending.push(job().catch(() => {})); });
@@ -223,4 +224,78 @@ test("憲法內文含操縱指令：AI 收到的 prompt 裡標籤邊界完好（
     if (feature === "constitution.quality") return qReply;
     return vReply([...user.matchAll(/^- (.+?)\(/gm)].map((m) => m[1]!));
   });
+});
+
+// ── 送審費依時代與國力縮放 ──────────────────────────────────────
+const { setPenaltyScaleForTest } = await import("../penaltyScaleLoad");
+const { submitCostFor } = await import("./core");
+
+test("縮放:送審扣縮放後的金額、記下實付額;國庫只夠基準價時被擋,訊息列出縮放後的數字", async () => {
+  setPenaltyScaleForTest(148); // 工業時代標準國
+  try {
+    const poor = await mkNation("議會內閣制", 5_000); await saveDraft(poor.id, text);
+    const r = await submitConstitution(poor.id);
+    assert.equal(r.ok, false); assert.equal((r as any).code, 402);
+    assert.match((r as any).error, /148,000/);
+    assert.equal(await moneyOf(poor.id), 5_000, "被擋不扣錢");
+    assert.equal((await loadConstitution(poor.id))!.status, "draft");
+
+    const rich = await mkNation("議會內閣制", 500_000); await saveDraft(rich.id, text);
+    setConstitutionRunnerForTest(() => {}); // 停在 reviewing,檢查實付額
+    assert.equal((await submitConstitution(rich.id)).ok, true);
+    assert.equal(await moneyOf(rich.id), 500_000 - 148_000);
+    assert.equal(Number((await loadConstitution(rich.id))!.submitPaid), 148_000, "記下實際扣的金額");
+    // 收尾:把這列退費回收,免得停在 reviewing 的列被後面測試的全域回收掃到
+    assert.equal(await recoverStaleReviews(new Date(Date.now() + REVIEW_STALE_MS + 1000)), 1);
+    assert.equal(await moneyOf(rich.id), 500_000);
+  } finally {
+    setConstitutionRunnerForTest((job) => { pending.push(job().catch(() => {})); });
+    setPenaltyScaleForTest(1);
+  }
+});
+
+test("縮放:送審後倍率變了(換時代),審查失敗退的仍是當初實付額,不多退也不少退", async () => {
+  const nat = await mkNation("議會內閣制", 2_000_000); await saveDraft(nat.id, text);
+  setPenaltyScaleForTest(148);
+  setConstitutionRunnerForTest(() => {});
+  try {
+    await submitConstitution(nat.id);
+    assert.equal(await moneyOf(nat.id), 2_000_000 - 148_000);
+    setPenaltyScaleForTest(3030); // 世界進到現代:同一筆現在要 303 萬
+    const later = new Date(Date.now() + REVIEW_STALE_MS + 1000);
+    assert.equal(await recoverStaleReviews(later), 1);
+    assert.equal(await moneyOf(nat.id), 2_000_000, "退回當初付的 148,000,不是現在的 3,030,000");
+    const row = (await loadConstitution(nat.id))!;
+    assert.equal(row.status, "draft"); assert.equal(Number(row.submitPaid), 0, "退費後清掉實付額");
+    assert.equal(await recoverStaleReviews(later), 0, "不重複退費");
+    assert.equal(await moneyOf(nat.id), 2_000_000);
+  } finally {
+    setConstitutionRunnerForTest((job) => { pending.push(job().catch(() => {})); });
+    setPenaltyScaleForTest(1);
+  }
+});
+
+test("升級相容:升級前就在審議中的列(沒有實付額記錄,submit_paid = 0)退舊的固定費用", async () => {
+  const nat = await mkNation("議會內閣制", 10_000); await saveDraft(nat.id, text);
+  setConstitutionRunnerForTest(() => {});
+  try {
+    await submitConstitution(nat.id);
+    // 模擬舊版資料:已扣款(基準價)但沒有 submit_paid
+    await db.update(constitutionsTable).set({ submitPaid: 0 }).where(eq(constitutionsTable.nationId, nat.id));
+    assert.equal(await moneyOf(nat.id), 10_000 - submitCostFor(1));
+    assert.equal(await recoverStaleReviews(new Date(Date.now() + REVIEW_STALE_MS + 1000)), 1);
+    assert.equal(await moneyOf(nat.id), 10_000, "退回舊的固定費用,不是 0");
+  } finally {
+    setConstitutionRunnerForTest((job) => { pending.push(job().catch(() => {})); });
+  }
+});
+
+test("縮放:審查通過/退回(非失敗)不退費,實付額留作紀錄", async () => {
+  setPenaltyScaleForTest(24);
+  try {
+    const nat = await mkNation("議會內閣制", 100_000); await saveDraft(nat.id, text);
+    assert.equal((await submitAndWait(nat.id)).ok, true);
+    assert.equal((await loadConstitution(nat.id))!.status, "ratified");
+    assert.equal(await moneyOf(nat.id), 100_000 - 24_000, "通過後不退費");
+  } finally { setPenaltyScaleForTest(1); }
 });

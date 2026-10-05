@@ -11,15 +11,16 @@ import {
   MAX_PENALTY, DEMAND_INTERVAL_TURNS, effectiveParliamentTier, type ParliamentStance,
 } from "../lib/parliament/core";
 import {
-  validateReportText, reportCooldownLeft, REPORT_COST_MONEY, REPORT_COOLDOWN_TICKS,
+  validateReportText, reportCooldownLeft, reportCostFor, REPORT_COOLDOWN_TICKS,
 } from "../lib/parliament/reportCore";
 import { scoreReport } from "../lib/parliament/report";
 import {
-  CONSTITUTION_MAX_LEN, CONSTITUTION_MIN_LEN, SUBMIT_COST_MONEY, SUBMIT_COOLDOWN_TICKS,
+  CONSTITUTION_MAX_LEN, CONSTITUTION_MIN_LEN, submitCostFor, SUBMIT_COOLDOWN_TICKS,
   constitutionRequired, submitCooldownLeft, NO_CONSTITUTION_PENALTY_PER_TICK, NO_CONSTITUTION_SAT_FLOOR,
 } from "../lib/constitution/core";
 import { loadConstitution, saveDraft, statusOf, currentParliamentTick } from "../lib/constitution/service";
 import { submitConstitution, recoverStaleReviews } from "../lib/constitution/submit";
+import { loadPenaltyScale } from "../lib/penaltyScaleLoad";
 
 const router: IRouter = Router();
 
@@ -71,7 +72,7 @@ async function buildView(nationId: string, govLabel: string | null) {
       allowed: canSubmitReport(tier),
       cooldownLeft: reportCooldownLeft(tick, state?.lastReportTick ?? null),
       cooldownTicks: REPORT_COOLDOWN_TICKS,
-      cost: REPORT_COST_MONEY,
+      cost: reportCostFor(await loadPenaltyScale(nationId)),
       lastFeedback: state?.lastReportFeedback ?? "",
     },
     log: log.map((l) => ({ id: l.id, tick: l.tick, kind: l.kind, summary: l.summary, satDelta: l.satDelta, createdAt: l.createdAt.toISOString() })),
@@ -116,7 +117,7 @@ router.get("/constitution", async (req, res) => {
       submissions: row?.submissions ?? 0,
       lastReview: publicReview(row?.lastReview ?? null),
       limits: { maxLen: CONSTITUTION_MAX_LEN, minSubmitLen: CONSTITUTION_MIN_LEN },
-      submit: { cost: SUBMIT_COST_MONEY, cooldownTicks: SUBMIT_COOLDOWN_TICKS, cooldownLeft: submitCooldownLeft(tick, row?.lastSubmitTick ?? null) },
+      submit: { cost: submitCostFor(await loadPenaltyScale(nation.id)), cooldownTicks: SUBMIT_COOLDOWN_TICKS, cooldownLeft: submitCooldownLeft(tick, row?.lastSubmitTick ?? null) },
       // 沒有憲法的代價,讓玩家知道為什麼議會越來越不滿。
       penalty: constitutionRequired(tier) && status !== "ratified"
         ? { perTick: NO_CONSTITUTION_PENALTY_PER_TICK, floor: NO_CONSTITUTION_SAT_FLOOR } : null,
@@ -163,6 +164,8 @@ router.post("/parliament/report", async (req, res) => {
     const left = reportCooldownLeft(state.tick, state.lastReportTick);
     if (left > 0) { res.status(429).json({ error: `國情報告冷卻中,還需 ${left} 個議會回合` }); return; }
 
+    const reportCost = reportCostFor(await loadPenaltyScale(nation.id));
+
     // 原子鎖定:同時扣錢 + 蓋冷卻戳記。並發雙擊時只有一個請求的條件更新會命中。
     const claimed = await db.transaction(async (tx) => {
       const stamp = await tx.update(parliamentStateTable)
@@ -174,14 +177,14 @@ router.post("/parliament/report", async (req, res) => {
         )).returning({ n: parliamentStateTable.nationId });
       if (stamp.length === 0) return "race" as const;
       const paid = await tx.update(playerNationsTable)
-        .set({ money: sql`${playerNationsTable.money} - ${REPORT_COST_MONEY}` })
-        .where(and(eq(playerNationsTable.id, nation.id), gte(playerNationsTable.money, REPORT_COST_MONEY)))
+        .set({ money: sql`${playerNationsTable.money} - ${reportCost}` })
+        .where(and(eq(playerNationsTable.id, nation.id), gte(playerNationsTable.money, reportCost)))
         .returning({ id: playerNationsTable.id });
       if (paid.length === 0) { tx.rollback(); }
       return "ok" as const;
     }).catch((e) => (e && (e as Error).message?.includes("Rollback") ? ("broke" as const) : Promise.reject(e)));
     if (claimed === "race") { res.status(409).json({ error: "你剛剛已提交過國情報告" }); return; }
-    if (claimed === "broke") { res.status(402).json({ error: `國庫不足,國情報告需要 ${REPORT_COST_MONEY} 金錢` }); return; }
+    if (claimed === "broke") { res.status(402).json({ error: `國庫不足,國情報告需要 ${reportCost.toLocaleString("en-US")} 金錢` }); return; }
 
     const parties = await db.select().from(parliamentPartiesTable).where(eq(parliamentPartiesTable.nationId, nation.id));
     const demand = (state.activeDemand ?? null) as { text: string } | null;

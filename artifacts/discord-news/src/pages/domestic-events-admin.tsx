@@ -237,7 +237,7 @@ export default function DomesticEventsAdmin() {
                   </div>
                 ))}
               </div>
-              <p className="text-xs text-muted-foreground">以上是模板文字;勾選「AI 改寫文字」時玩家會看到 AI 潤飾後的版本,效果數字不變。</p>
+              <p className="text-xs text-muted-foreground">以上是模板文字;勾選「AI 改寫文字」時玩家會看到 AI 潤飾後的版本,效果數字不變。國庫金額是古典時代的基準價,玩家實際扣的會依當前時代與國力縮放。</p>
             </div>
           )}
 

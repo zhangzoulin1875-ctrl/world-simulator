@@ -7,7 +7,13 @@ export const REPORT_MAX_LEN = 600;
 /** 冷卻:兩次國情報告至少間隔幾個議會 tick(一天 8 回合,3 tick ≈ 3/8 天)。 */
 export const REPORT_COOLDOWN_TICKS = 8;
 /** 代價:每次國情報告扣的金錢(不足則不能提交)。 */
+/** 國情報告費的基準價(古典時代標準國的金額);實際金額依時代與國力縮放,見 reportCostFor。 */
 export const REPORT_COST_MONEY = 500;
+
+/** 縮放後的國情報告費(四捨五入成整數,至少 1)。scale 來自 penaltyScale.penaltyScaleFor。 */
+export function reportCostFor(scale: number): number {
+  return Math.max(1, Math.round(REPORT_COST_MONEY * (Number.isFinite(scale) && scale > 0 ? scale : 1)));
+}
 
 export interface ReportContext {
   nationName: string;

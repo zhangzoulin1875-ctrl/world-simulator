@@ -17,6 +17,8 @@ import { runGameMigrations } from "../gameMigrations";
 import { runFocusMigrations } from "../focusMigrations";
 import { runParliamentMigrations } from "../parliamentMigrations";
 import { settleNationFocus, startFocus, cancelFocus, runFocusSettlement } from "./service";
+import { setPenaltyScaleForTest } from "../penaltyScaleLoad";
+import { getFocusView } from "./view";
 import { setCatalogForTest, FOCUS_CATALOG } from "./catalog";
 import { findEdge, edgesFrom } from "./regimeGraph";
 import { SAMPLE_CATALOG } from "./catalog.sample";
@@ -36,6 +38,7 @@ const setSat = (s: number) =>
     .onConflictDoUpdate({ target: parliamentStateTable.nationId, set: { satisfaction: s } });
 
 before(async () => {
+  setPenaltyScaleForTest(1); // 原有測試測流程,固定倍率 1
   setStoryQueuerForTest(() => {}); // 測試不該真的去打 AI、也不該在清理資料後還有背景寫入
   await runGameMigrations();
   await runParliamentMigrations();
@@ -431,4 +434,28 @@ test("傾向值:runFocusSettlement 批次版可正常跑完(含批次查戰爭/�
   await give(0);
   const r = await runFocusSettlement();
   assert.equal(r.failed, 0);
+});
+
+test("縮放:國策完成時的金錢效果(代價)依倍率放大,穩定度等百分點不變;國策頁顯示的金額 = 實扣", async () => {
+  setCatalogForTest(FOCUS_CATALOG);
+  setPenaltyScaleForTest(148);
+  try {
+    await give(100);
+    await db.update(focusStatesTable).set({ blackLean: 60 }).where(eq(focusStatesTable.nationId, nationId));
+    await db.update(playerNationsTable).set({ satisfactionMilitary: 70, stability: 60, money: 1_000_000 }).where(eq(playerNationsTable.id, nationId));
+    const id = edgeFocus("absolute_monarchy", "military_dictatorship");
+    // 啟動前,國策頁上的代價文字要是縮放後的金額
+    const view = await getFocusView(await load());
+    const card = view.focuses.find((f) => f.id === id);
+    assert.ok(card, "國策頁看得到這個國策");
+    assert.ok(card!.costs.some((c) => c.includes("177,600")), `代價應顯示 -177,600(1200×148),實際:${JSON.stringify(card!.costs)}`);
+
+    assert.equal((await startFocus(await load(), id)).ok, true);
+    await setSat(65);
+    for (let i = 0; i < 12; i++) await settleNationFocus(await load(), ERA);
+    const n = await load();
+    assert.equal(n.government, governmentLabel("military_dictatorship"));
+    assert.equal(n.stability, 48, "穩定度 -12 不隨倍率變");
+    assert.equal(n.money, 1_000_000 - 1200 * 148, "金錢 -1200 × 148");
+  } finally { setPenaltyScaleForTest(1); }
 });

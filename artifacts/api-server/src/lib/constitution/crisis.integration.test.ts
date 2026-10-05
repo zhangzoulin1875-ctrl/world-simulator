@@ -41,6 +41,7 @@ async function ratify(id: string) {
 }
 
 before(async () => {
+  (await import("../penaltyScaleLoad")).setPenaltyScaleForTest(1); // 這裡測流程,固定倍率 1
   await ensureParliamentTestSchema();
   await db.delete(playerNationsTable).where(like(playerNationsTable.name, `${MARK}%`));
   setEventTextQueuerForTest(() => {});

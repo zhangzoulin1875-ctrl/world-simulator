@@ -23,6 +23,7 @@ const post = (cookie: string, body: unknown) => fetch(`${base}/api/parliament/re
 const LONG = "我們將削減無謂開支,並優先回應議會提出的軍備與民生問題,同時公開預算。";
 
 before(async () => {
+  (await import("../lib/penaltyScaleLoad")).setPenaltyScaleForTest(1); // 原有測試測流程,固定倍率 1
   await runParliamentMigrations();
   await db.delete(playerNationsTable).where(like(playerNationsTable.name, `${MARK}%`));
   server = app.listen(0); base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -84,4 +85,27 @@ test("並發 5 次同時提交:只有 1 次成功、只扣 1 次錢", async () =
   assert.equal(codes.filter((c) => c === 200).length, 1, codes.join(","));
   const [after] = await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, n.id));
   assert.equal(after!.money, 9_500, "只能扣一次");
+});
+
+test("縮放:國情報告費用依時代與國力縮放,頁面顯示的金額 = 實扣金額;國庫不夠時 402 並列出縮放後的數字", async () => {
+  const { setPenaltyScaleForTest } = await import("../lib/penaltyScaleLoad");
+  setPenaltyScaleForTest(148);
+  try {
+    const poor = await mk("議會內閣制", 5_000);
+    await settleNationParliament(poor.n, null, 0);
+    const g0: any = await (await fetch(`${base}/api/parliament`, { headers: { cookie: poor.cookie } })).json();
+    assert.equal(g0.report.cost, 74_000, "顯示的是縮放後的費用(500 × 148)");
+    const r0 = await post(poor.cookie, { text: LONG });
+    assert.equal(r0.status, 402); assert.match(((await r0.json()) as any).error, /74,000/);
+    assert.equal(Number((await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, poor.n.id)))[0]!.money), 5_000, "被擋不扣錢");
+
+    const rich = await mk("議會內閣制", 1_000_000);
+    await settleNationParliament(rich.n, null, 0);
+    const shown = ((await (await fetch(`${base}/api/parliament`, { headers: { cookie: rich.cookie } })).json()) as any).report.cost;
+    const r1 = await post(rich.cookie, { text: LONG });
+    assert.equal(r1.status, 200);
+    const after = Number((await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, rich.n.id)))[0]!.money);
+    assert.equal(1_000_000 - after, shown, "實扣 = 畫面上顯示的費用");
+    assert.equal(shown, 74_000);
+  } finally { setPenaltyScaleForTest(1); }
 });

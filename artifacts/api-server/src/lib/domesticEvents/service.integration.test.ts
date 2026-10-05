@@ -36,6 +36,7 @@ const setGov = (slug: string) => db.update(playerNationsTable).set({ government:
 const open = async (kind: string, tick = 2) => (await createEvent(nationId, getEventDef(kind)!, tick))!;
 
 before(async () => {
+  (await import("../penaltyScaleLoad")).setPenaltyScaleForTest(1); // 固定倍率 1:這個檔案測的是流程,不是縮放
   setEventTextQueuerForTest(() => {}); // 測試不打真的 AI
   await runGameMigrations();
   await runParliamentMigrations();
@@ -365,4 +366,57 @@ test("冷卻歷史：窗口邊界——差 31 回合在內、差 32 回合已出
 test("冷卻歷史：只看這個國家的事件，別國的不影響", async () => {
   await pastEvent("recall_wave", 10);
   assert.equal((await listCooldownHistory("00000000-0000-0000-0000-000000000000", 12)).length, 0);
+});
+
+// ── 金錢代價依時代與國力縮放 ──────────────────────────────────────
+import { setPenaltyScaleForTest } from "../penaltyScaleLoad";
+
+test("縮放:同一事件選項,實扣金額 = 基準價 × 倍率;百分點類(穩定/政治支持)不縮放", async () => {
+  setPenaltyScaleForTest(148);
+  try {
+    await db.update(playerNationsTable).set({ money: 5_000_000 }).where(eq(playerNationsTable.id, nationId));
+    const ev = await open("economic_crisis");
+    const r = await resolveEvent(await load(), ev.id, "comply", { rand: () => 0.99 });
+    assert.equal(r.ok, true);
+    const n = await load();
+    assert.equal(n.money, 5_000_000 - 2500 * 148, "基準價 2500 × 148");
+    assert.equal(n.stability, 58, "穩定度是百分點,與倍率無關");
+  } finally { setPenaltyScaleForTest(1); }
+});
+
+test("縮放:倍率越大扣越多,國庫不夠時扣到 0 為止,不會變負數", async () => {
+  setPenaltyScaleForTest(3030);
+  try {
+    await db.update(playerNationsTable).set({ money: 1_000 }).where(eq(playerNationsTable.id, nationId));
+    const ev = await open("economic_crisis");
+    assert.equal((await resolveEvent(await load(), ev.id, "comply", { rand: () => 0.99 })).ok, true);
+    assert.equal((await load()).money, 0, "不會出現負數國庫");
+  } finally { setPenaltyScaleForTest(1); }
+});
+
+test("縮放:獎勵型金錢效果也同倍率放大(代價與獎勵不失衡)", async () => {
+  const gains = DOMESTIC_EVENTS.flatMap((d) => d.choices.filter((c) => (c.effects.money ?? 0) > 0).map((c) => ({ d, c })));
+  if (gains.length === 0) return; // 目錄目前沒有金錢獎勵選項:略過,但保留這個守門
+  const { d, c } = gains[0]!;
+  setPenaltyScaleForTest(24);
+  try {
+    await db.update(playerNationsTable).set({ money: 100 }).where(eq(playerNationsTable.id, nationId));
+    const ev = await open(d.kind);
+    assert.equal((await resolveEvent(await load(), ev.id, c.id, { rand: () => 0.99 })).ok, true);
+    assert.equal((await load()).money, 100 + c.effects.money! * 24);
+  } finally { setPenaltyScaleForTest(1); }
+});
+
+test("縮放:AI 改寫過的事件,實扣仍以程式目錄的基準價 × 倍率為準", async () => {
+  setPenaltyScaleForTest(40);
+  try {
+    await db.update(playerNationsTable).set({ money: 1_000_000 }).where(eq(playerNationsTable.id, nationId));
+    const ev = await open("economic_crisis");
+    await db.update(domesticEventsTable).set({
+      choices: [{ id: "comply", label: "免費發錢", hint: "完全不用花錢" }, { id: "crackdown", label: "x", hint: "x" }, { id: "delay", label: "y", hint: "y" }] as any,
+      aiRewritten: 1,
+    }).where(eq(domesticEventsTable.id, ev.id));
+    await resolveEvent(await load(), ev.id, "comply", { rand: () => 0.99 });
+    assert.equal((await load()).money, 1_000_000 - 2500 * 40, "文字說免費也沒用,扣多少由目錄與倍率決定");
+  } finally { setPenaltyScaleForTest(1); }
 });
