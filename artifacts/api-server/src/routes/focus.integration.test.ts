@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { readBranches } from "../lib/focus/branchService";
+import { setStoryQueuerForTest } from "../lib/focus/focusStory";
 const { eq, like } = await import("drizzle-orm");
 const { db, pool, playerNationsTable, focusStatesTable, focusBranchesTable } = await import("@workspace/db");
 const { runGameMigrations } = await import("../lib/gameMigrations");
@@ -42,11 +43,13 @@ const post = (path: string, cookie: string, body: unknown) =>
   fetch(`${base}/api/focus/${path}`, { method: "POST", headers: { "content-type": "application/json", cookie, origin: base }, body: JSON.stringify(body) });
 
 before(async () => {
+  setStoryQueuerForTest(() => {}); // 測試不該真的去打 AI、也不該在清理資料後還有背景寫入
   await runGameMigrations(); await runParliamentMigrations(); await runFocusMigrations();
   await db.delete(playerNationsTable).where(like(playerNationsTable.name, `${MARK}%`));
   server = app.listen(0); base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
 after(async () => {
+  setStoryQueuerForTest(null);
   server.close();
   await db.delete(playerNationsTable).where(like(playerNationsTable.name, `${MARK}%`));
   await pool.end();

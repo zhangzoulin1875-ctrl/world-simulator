@@ -7,6 +7,7 @@ import {
   type ActiveFocus, type FocusCard, type FocusView,
 } from "@/lib/focus";
 import { FocusTree } from "./focus-tree";
+import { FocusStoryBlock } from "./focus-story";
 
 function Stat({ icon: Icon, label, value, hint, testId }: {
   icon: React.ElementType; label: string; value: string; hint?: string; testId: string;
@@ -35,7 +36,7 @@ function LeanBar({ label, value, color, testId }: { label: string; value: number
   );
 }
 
-function ActiveRow({ a, onCancel, busy }: { a: ActiveFocus; onCancel: (a: ActiveFocus) => void; busy: boolean }) {
+function ActiveRow({ a, onCancel, busy, stories }: { a: ActiveFocus; onCancel: (a: ActiveFocus) => void; busy: boolean; stories: FocusView["stories"] }) {
   const pct = progressPct(a.progress, a.totalTurns);
   return (
     <div className="rounded-lg border border-amber-300/30 bg-amber-500/10 p-3" data-testid={`active-${a.id}`}>
@@ -57,11 +58,12 @@ function ActiveRow({ a, onCancel, busy }: { a: ActiveFocus; onCancel: (a: Active
       <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-white/10" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
         <div className="h-full bg-amber-400 transition-all" style={{ width: `${pct}%` }} />
       </div>
+      <FocusStoryBlock stories={stories} focusId={a.id} isActive />
     </div>
   );
 }
 
-function FocusCardView({ f, onStart, busy }: { f: FocusCard; onStart: (f: FocusCard) => void; busy: boolean }) {
+function FocusCardView({ f, onStart, busy, stories }: { f: FocusCard; onStart: (f: FocusCard) => void; busy: boolean; stories: FocusView["stories"] }) {
   const dim = f.status === "locked" || f.status === "completed";
   return (
     <div
@@ -92,6 +94,7 @@ function FocusCardView({ f, onStart, busy }: { f: FocusCard; onStart: (f: FocusC
       </div>
 
       <p className="mt-2 text-xs leading-relaxed text-white/70">{f.description}</p>
+      {f.status === "completed" && <FocusStoryBlock stories={stories} focusId={f.id} isActive={false} />}
 
       {f.transitionTo && (
         <div className="mt-2 flex items-center gap-1.5 rounded border border-sky-300/30 bg-sky-500/10 px-2 py-1 text-xs text-sky-100">
@@ -207,7 +210,7 @@ export function FocusPanel() {
       {v.active.length > 0 && (
         <div className="mt-4 space-y-2">
           <h3 className="text-xs font-bold text-amber-200">進行中</h3>
-          {v.active.map((a) => <ActiveRow key={a.id} a={a} onCancel={onCancel} busy={busy} />)}
+          {v.active.map((a) => <ActiveRow key={a.id} a={a} onCancel={onCancel} busy={busy} stories={v.stories} />)}
         </div>
       )}
 
@@ -223,7 +226,7 @@ export function FocusPanel() {
               <span className={`rounded border px-2 py-0.5 text-[11px] font-bold ${TRACK_STYLE[g.track]}`}>{TRACK_LABEL[g.track]}</span>
             </div>
             <div className="grid gap-2 lg:grid-cols-2">
-              {g.items.map((f) => <FocusCardView key={f.id} f={f} onStart={onStart} busy={busy} />)}
+              {g.items.map((f) => <FocusCardView key={f.id} f={f} onStart={onStart} busy={busy} stories={v.stories} />)}
             </div>
           </div>
         ))}

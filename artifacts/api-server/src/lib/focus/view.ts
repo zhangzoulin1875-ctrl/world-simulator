@@ -26,6 +26,7 @@ import { COMMUNIST_REVOLUTION_ID, REVOLUTION_EXCLUDED_GOVERNMENTS } from "./regi
 import { ensureBranches } from "./branchService";
 import { logger } from "../logger";
 import { buildFocusTree, type FocusTreeData } from "./treeView";
+import { getStoriesForNation } from "./focusStory";
 
 type Nation = typeof playerNationsTable.$inferSelect;
 
@@ -76,6 +77,8 @@ export interface FocusView {
   focuses: FocusCard[];
   /** 政體樹畫面資料(以我為根 / 全景兩種視角共用) */
   tree: FocusTreeData;
+  /** 已寫好的「發動背景故事」(focusId -> 故事);還沒寫好的不在裡面(前端顯示「編寫中」) */
+  stories: Record<string, { story: string; source: "ai" | "template" }>;
 }
 
 const describeAll = (effects: FocusEffect[]) => ({
@@ -188,5 +191,8 @@ export async function getFocusView(nation: Nation): Promise<FocusView> {
     })),
     focuses,
     tree: buildFocusTree(slugNow, branches),
+    stories: Object.fromEntries(
+      [...(await getStoriesForNation(n.id).catch(() => new Map()))].map(([id, r]) => [id, { story: r.story, source: r.source }]),
+    ),
   };
 }

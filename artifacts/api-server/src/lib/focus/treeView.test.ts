@@ -35,6 +35,26 @@ test("以我為根:目前=0、抽到的分支=1、沒抽到的不在範圍內;�
   assert.equal(t.limited, true);
 });
 
+test("預覽層不會出現「一步可達卻沒抽到」的政體(否則畫面掛著走不了的節點),也不會回到目前政體", () => {
+  for (const cur of ["absolute_monarchy", "aristocracy", "parliamentary_republic", "theocracy"]) {
+    const outs = edgesFrom(cur).map((e) => e.to);
+    for (let k = 0; k < outs.length; k++) {
+      const mine = new Set(outs.filter((_, i) => i !== k)); // 永遠有一條沒抽到
+      const t = buildFocusTree(cur, mine);
+      const dropped = outs[k]!;
+      const d = (s: string) => t.nodes.find((n) => n.slug === s)!.depth;
+      assert.equal(d(dropped), null, `${cur} 沒抽到的 ${dropped} 不該在畫面上`);
+      assert.equal(d(cur), 0);
+      // 第 2 層的每個政體,都必須真的能從某個「抽到的第 1 層」走到,而且不是沒抽到的那個
+      for (const n of t.nodes.filter((x) => x.depth === 2)) {
+        assert.notEqual(n.slug, dropped, `${cur}: 預覽層不該有沒抽到的 ${dropped}`);
+        assert.ok([...mine].some((m) => edgesFrom(m).some((e) => e.to === n.slug)), `${cur}: ${n.slug} 走不到`);
+      }
+      assert.ok(t.nodes.filter((n) => n.depth === 1).every((n) => mine.has(n.slug)), `${cur}: 第 1 層都是抽到的`);
+    }
+  }
+});
+
 test("邊的標記:只有從目前政體出發且抽到的 walkable;從目前出發但沒抽到的 notDrawn;其餘兩者皆 false", () => {
   const all = edgesFrom("absolute_monarchy").map((e) => e.to);
   const mine = new Set(all.slice(0, 3));

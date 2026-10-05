@@ -14,6 +14,7 @@ import { settleNationFocus, startFocus } from "./service";
 import { setCatalogForTest, FOCUS_CATALOG, getFocusDef } from "./catalog";
 import { governmentLabel } from "../governments";
 import { edgesFrom } from "./regimeGraph";
+import { setStoryQueuerForTest } from "./focusStory";
 
 const TAG = "revfocus-test";
 const ERA = "classical";
@@ -25,6 +26,7 @@ const land = async (id: string) =>
   (await db.select({ s: sql<number>`COALESCE(SUM(percent),0)::int` }).from(regionControlsTable).where(eq(regionControlsTable.nationId, id)))[0]!.s;
 
 before(async () => {
+  setStoryQueuerForTest(() => {}); // 測試不該真的去打 AI、也不該在清理資料後還有背景寫入
   await runGameMigrations(); await runRegionControlMigrations(); await runDiplomacyMigrations();
   await runWarMigrations(); await runParliamentMigrations(); await runFocusMigrations();
   await db.delete(playerNationsTable).where(eq(playerNationsTable.leaderName, TAG));
@@ -36,6 +38,7 @@ before(async () => {
   assert.ok(regionIds.length >= 3);
 });
 after(async () => {
+  setStoryQueuerForTest(null);
   setCatalogForTest(null);
   await db.delete(playerNationsTable).where(like(playerNationsTable.name, `${TAG}%`));
   await pool.end();

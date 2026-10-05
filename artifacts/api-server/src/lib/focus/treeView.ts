@@ -104,8 +104,12 @@ export function buildFocusTree(currentSlug: string | null, myBranches: ReadonlyS
     depth.set(currentSlug, 0);
     const firstStep = edgesFrom(currentSlug).filter((e) => !myBranches || myBranches.has(e.to));
     for (const e of firstStep) if (!depth.has(e.to)) depth.set(e.to, 1);
+    // 「從目前政體一步就能到、但這次沒抽到」的政體不該又出現在預覽層,不然畫面上掛著一個走不了的節點
+    const notDrawnNow = new Set(edgesFrom(currentSlug).filter((e) => myBranches && !myBranches.has(e.to)).map((e) => e.to));
     for (const e of firstStep) {
-      for (const e2 of edgesFrom(e.to)) if (!depth.has(e2.to)) depth.set(e2.to, 2);
+      for (const e2 of edgesFrom(e.to)) {
+        if (e2.to !== currentSlug && !notDrawnNow.has(e2.to) && !depth.has(e2.to)) depth.set(e2.to, 2);
+      }
     }
   }
   const nodes: TreeNode[] = GOVERNMENTS.map((g) => ({

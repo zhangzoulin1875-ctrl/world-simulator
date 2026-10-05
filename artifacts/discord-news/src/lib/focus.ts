@@ -84,6 +84,28 @@ export interface FocusView {
   active: ActiveFocus[];
   focuses: FocusCard[];
   tree: FocusTreeData;
+  /** 發動背景故事(focusId -> 故事);還沒寫好的不在裡面 */
+  stories: Record<string, FocusStory>;
+}
+
+export interface FocusStory {
+  story: string;
+  /** ai = AI 依國家處境寫的;template = AI 不可用時的固定句 */
+  source: "ai" | "template";
+}
+
+/**
+ * 故事區塊的顯示狀態:
+ *  - 有故事 -> ready
+ *  - 沒有,且這個國策正在進行 -> writing(背景還在寫,下次刷新就會出現)
+ *  - 其他 -> none(還沒推行過,不顯示)
+ */
+export function storyState(
+  stories: Record<string, FocusStory>, focusId: string, isActive: boolean,
+): { kind: "ready"; story: FocusStory } | { kind: "writing" } | { kind: "none" } {
+  const s = stories[focusId];
+  if (s) return { kind: "ready", story: s };
+  return isActive ? { kind: "writing" } : { kind: "none" };
 }
 
 export const FOCUS_QUERY_KEY = ["focus"] as const;
@@ -194,7 +216,7 @@ export interface TreeLayout { cols: LaidNode[][]; nodes: LaidNode[]; edges: Laid
  *  - full:欄 = stage(0 建國起點 / 1 中繼 / 2 終點);畫全部邊
  * 同欄內:rooted 目前政體優先;full 終點欄依路線(穩定 → 黑 → 紅)分組,其餘依名稱穩定排序。
  */
-export function layoutTree(tree: FocusTreeData, mode: TreeMode): TreeLayout {
+export function layoutTree(tree: FocusTreeData, mode: TreeMode, selected: string | null = null): TreeLayout {
   const colOf = (n: TreeNode): number | null => (mode === "rooted" ? n.depth : n.stage);
   const picked = tree.nodes.filter((n) => colOf(n) !== null);
   const colIds = [...new Set(picked.map((n) => colOf(n) as number))].sort((a, b) => a - b);
@@ -217,12 +239,16 @@ export function layoutTree(tree: FocusTreeData, mode: TreeMode): TreeLayout {
   for (const e of tree.edges) {
     const a = bySlug.get(e.from), b = bySlug.get(e.to);
     if (!a || !b) continue;
+    // 一律不畫回邊(同欄或往前):畫出來只會穿過其他節點變蜘蛛網,回頭的路改在明細文字列出
+    if (b.col <= a.col) continue;
     if (mode === "rooted") {
-      // 只畫往更深一層的邊;第 2 層出來的邊與回邊不畫,畫面才乾淨
       if (b.col !== a.col + 1) continue;
       if (a.col === 1 && !a.isCurrent && a.depth === 1 && b.depth !== 2) continue;
+    } else if (selected === null || (e.from !== selected && e.to !== selected)) {
+      // 全景:預設不畫任何線(43 條全畫就是蜘蛛網),點選某個政體才顯示它的進出線
+      continue;
     }
-    edges.push({ ...e, back: b.col <= a.col, preview: mode === "rooted" && a.col >= 1 });
+    edges.push({ ...e, back: false, preview: mode === "rooted" && a.col >= 1 });
   }
   return { cols, nodes, edges };
 }

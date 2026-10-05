@@ -1,5 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Flag, GitBranch, Lock, Map as MapIcon } from "lucide-react";
+import { FocusStoryBlock } from "./focus-story";
 import {
   TRACK_LABEL, TRACK_STYLE, layoutTree,
   type FocusCard, type FocusView, type LaidEdge, type LaidNode, type TreeMode,
@@ -19,7 +20,8 @@ interface Props {
 export function FocusTree({ view, busy, onStart }: Props) {
   const [mode, setMode] = useState<TreeMode>("rooted");
   const [picked, setPicked] = useState<string | null>(null);
-  const layout = useMemo(() => layoutTree(view.tree, mode), [view.tree, mode]);
+  const layout = useMemo(() => layoutTree(view.tree, mode, picked), [view.tree, mode, picked]);
+  const labelOfSlug = useMemo(() => new Map(view.tree.nodes.map((n) => [n.slug, n.label])), [view.tree.nodes]);
   const cardById = useMemo(() => new Map(view.focuses.map((f) => [f.id, f])), [view.focuses]);
 
   // 量測每個節點的位置,畫 SVG 連線
@@ -61,18 +63,31 @@ export function FocusTree({ view, busy, onStart }: Props) {
     return "border-white/20 bg-black/40 text-white/85";
   };
 
+  // 通道式折線:只在「欄與欄之間的空白通道」裡垂直移動,水平段貼著節點的中線進出,
+  // 所以不會穿過任何方塊。跨多欄時,在每個通道裡各轉一次,中間欄用「上下邊緣外」的空隙繞過。
   const path = (e: LaidEdge): string | null => {
     const a = geo.pos.get(e.from), b = geo.pos.get(e.to);
     if (!a || !b) return null;
-    if (e.back) {
-      // 回邊:從節點下緣繞出去再回到目標下緣,避免穿過其他節點
-      const x1 = a.x + a.w / 2, y1 = a.y + a.h, x2 = b.x + b.w / 2, y2 = b.y + b.h;
-      const dip = Math.max(y1, y2) + 18;
-      return `M${x1},${y1} C${x1},${dip} ${x2},${dip} ${x2},${y2}`;
+    const colRight = new Map<number, number>(), colLeft = new Map<number, number>();
+    for (const n of layout.nodes) {
+      const g = geo.pos.get(n.slug);
+      if (!g) continue;
+      colRight.set(n.col, Math.max(colRight.get(n.col) ?? 0, g.x + g.w));
+      colLeft.set(n.col, Math.min(colLeft.get(n.col) ?? Infinity, g.x));
     }
+    const fromCol = layout.nodes.find((n) => n.slug === e.from)!.col;
+    const toCol = layout.nodes.find((n) => n.slug === e.to)!.col;
     const x1 = a.x + a.w, y1 = a.y + a.h / 2, x2 = b.x, y2 = b.y + b.h / 2;
-    const mx = (x1 + x2) / 2;
-    return `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
+    // 相鄰欄:單一通道
+    if (toCol === fromCol + 1) {
+      const mx = ((colRight.get(fromCol) ?? x1) + (colLeft.get(toCol) ?? x2)) / 2;
+      return `M${x1},${y1} H${mx} V${y2} H${x2}`;
+    }
+    // 跨欄:在起點通道垂直移到「畫布上緣外」,橫跨中間欄,再在終點通道垂直降到目標列
+    const top = Math.min(...[...geo.pos.values()].map((g) => g.y)) - 10;
+    const mx1 = ((colRight.get(fromCol) ?? x1) + (colLeft.get(fromCol + 1) ?? x1)) / 2;
+    const mx2 = ((colRight.get(toCol - 1) ?? x2) + (colLeft.get(toCol) ?? x2)) / 2;
+    return `M${x1},${y1} H${mx1} V${top} H${mx2} V${y2} H${x2}`;
   };
 
   return (
@@ -98,7 +113,7 @@ export function FocusTree({ view, busy, onStart }: Props) {
           ? (view.tree.limited
             ? "實線是你這個國家抽到、現在就能走的路線(抽到後固定,不會重抽)。虛線是再往下一步的預覽:換政體後會以新政體為根重新抽,實際能走哪些還不確定。"
             : "目前無法確認你抽到的路線,先顯示所有出口。")
-          : "所有政體與它們之間的轉型路線(只是地圖,你實際能走的以「以我為根」為準)。亮框是你目前的位置;虛線彎到下方的是往回走的路。"}
+          : "所有政體的地圖:左邊是建國起點,中間是中繼,右邊是終點。點任一政體,才會顯示它的進出路線。這只是地圖,你實際能走的以「以我為根」為準。"}
       </p>
 
       <div ref={wrapRef} className="relative overflow-x-auto pb-2" data-testid="tree-canvas">
@@ -106,12 +121,12 @@ export function FocusTree({ view, busy, onStart }: Props) {
           {layout.edges.map((e) => {
             const d = path(e);
             if (!d) return null;
-            const faded = e.back || e.preview || (!e.walkable && mode === "rooted");
+            const faded = e.preview || (!e.walkable && mode === "rooted");
             return (
               <path
                 key={`${e.from}>${e.to}`} d={d} fill="none" stroke={TRACK_STROKE[e.track] ?? "#fff"}
                 strokeWidth={e.walkable ? 2.2 : 1.3} strokeOpacity={e.walkable ? 0.95 : faded ? 0.35 : 0.55}
-                strokeDasharray={e.back || e.preview ? "4 4" : undefined}
+                strokeDasharray={e.preview ? "4 4" : undefined}
                 data-testid={`tree-edge-${e.from}-${e.to}`}
               />
             );
@@ -168,6 +183,7 @@ export function FocusTree({ view, busy, onStart }: Props) {
             )}
             {revCard?.status === "active" && <span className="ml-auto text-[10px] text-amber-200">進行中</span>}
           </div>
+          {rev && <FocusStoryBlock stories={view.stories} focusId={rev.focusId} isActive={revCard?.status === "active"} />}
           {revCard?.status === "locked" && revCard.lockedReason && (
             <div className="mt-1.5 flex items-start gap-1 text-[11px] text-white/70" data-testid="tree-revolution-locked">
               <Lock className="mt-0.5 h-3 w-3 shrink-0" />{revCard.lockedReason}
@@ -197,7 +213,7 @@ export function FocusTree({ view, busy, onStart }: Props) {
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <span className={`mr-1.5 rounded border px-1.5 py-0.5 text-[10px] font-bold ${TRACK_STYLE[e.track]}`}>{TRACK_LABEL[e.track]}</span>
-                    <span className="text-xs font-bold">{card?.title ?? e.focusId}</span>
+                    <span className="text-xs font-bold">{labelOfSlug.get(e.from) ?? e.from} → {labelOfSlug.get(e.to) ?? e.to}</span>
                     {card && <div className="mt-0.5 text-[11px] text-white/60">{card.cost} 點 · {card.turns} 回合</div>}
                   </div>
                   {card?.status === "available" && (
@@ -212,10 +228,19 @@ export function FocusTree({ view, busy, onStart }: Props) {
                 {card?.status === "locked" && card.lockedReason && (
                   <div className="mt-1 flex items-start gap-1 text-[11px] text-white/70"><Lock className="mt-0.5 h-3 w-3 shrink-0" />{card.lockedReason}</div>
                 )}
-                {!card && <div className="mt-1 text-[11px] text-white/55">這條路線這次沒抽到,走不了。</div>}
+                <FocusStoryBlock stories={view.stories} focusId={e.focusId} isActive={card?.status === "active"} />
+                {!card && <div className="mt-1 text-[11px] text-white/55">這條路線這次沒抽到,目前走不了。</div>}
               </div>
             );
           })}
+          {pickedNode && !pickedNode.isCurrent && (() => {
+            const outs = view.tree.edges.filter((e) => e.from === pickedNode.slug).map((e) => labelOfSlug.get(e.to) ?? e.to);
+            return outs.length > 0 ? (
+              <p className="mt-2 text-[11px] leading-relaxed text-white/50" data-testid="tree-detail-outs">
+                從{pickedNode.label}之後可轉向:{outs.join("、")}
+              </p>
+            ) : null;
+          })()}
         </div>
       )}
     </div>

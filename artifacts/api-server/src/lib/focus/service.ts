@@ -33,6 +33,7 @@ import { endCampaignsForNation } from "../warEngine/endCampaign";
 import { afterRegimeTransition, applyRegimeTransition, type RegimeTransitionResult } from "../politicsSettlement";
 import { describeCondition, eraReached, firstFailedCondition, type ConditionFacts } from "./conditions";
 import { ensureBranches } from "./branchService";
+import { queueFocusStory } from "./focusStory";
 
 type Nation = typeof playerNationsTable.$inferSelect;
 
@@ -305,7 +306,11 @@ function isUniqueViolation(err: unknown): boolean {
 
 export async function startFocus(nation: Nation, focusId: string): Promise<StartResult> {
   try {
-    return await startFocusInner(nation, focusId);
+    const r = await startFocusInner(nation, focusId);
+    // 推行成功才排「發動背景故事」:背景、低優先、失敗寫模板,絕不影響推行本身。
+    // 只有玩家會走 startFocus(NPC 走 npcRunner),所以 NPC 不耗 AI 額度。
+    if (r.ok) queueFocusStory(nation.id, focusId);
+    return r;
   } catch (err) {
     // 縱深防禦:即使併發穿透了檢查,資料庫唯一索引(每槽位一條/同國策一次)仍會擋下,
     // 這裡把衝突轉成明確的業務訊息,而不是讓玩家看到 500。

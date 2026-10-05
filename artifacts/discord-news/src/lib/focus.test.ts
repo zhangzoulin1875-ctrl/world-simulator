@@ -74,12 +74,16 @@ test("layoutTree rooted:只畫往更深一層的邊;回邊(c->a、d->a)不畫;�
   assert.equal(l.edges.find((e) => key(e) === "b>d")!.preview, true);
 });
 
-test("layoutTree full:欄 = 建國起點/中繼/終點;全部邊都畫;回邊標 back(有環不打亂層級)", () => {
+test("layoutTree full:欄 = 建國起點/中繼/終點;預設不畫任何線(避免蜘蛛網),選取後只畫該節點的進出線,且不畫回邊", () => {
   const l = layoutTree(sample, "full");
   assert.deepEqual(l.cols.map((c) => c.map((n) => n.slug).sort()), [["a"], ["b", "c", "x"], ["d", "y"]]);
-  assert.equal(l.edges.length, sample.edges.length);
-  assert.equal(l.edges.find((e) => e.from === "c" && e.to === "a")!.back, true);
-  assert.equal(l.edges.find((e) => e.from === "a" && e.to === "b")!.back, false);
+  assert.equal(l.edges.length, 0, "沒選取時不畫線");
+  const sel = layoutTree(sample, "full", "b");
+  assert.deepEqual(sel.edges.map((e) => `${e.from}>${e.to}`).sort(), ["a>b", "b>d"]);
+  // c->a、d->a 是回邊:就算選取 a 也不畫
+  const selA = layoutTree(sample, "full", "a");
+  assert.deepEqual(selA.edges.map((e) => `${e.from}>${e.to}`).sort(), ["a>b", "a>c", "a>x"]);
+  assert.ok(selA.edges.every((e) => e.back === false));
 });
 
 test("layoutTree:終點欄依路線分組(穩定→黑→紅)、row 連續、不會丟節點;rooted 目前政體排最前", () => {
@@ -89,4 +93,15 @@ test("layoutTree:終點欄依路線分組(穩定→黑→紅)、row 連續、不
   assert.deepEqual(l.cols[2]!.map((n) => n.slug), ["d", "z", "y"]); // stable, black, red
   for (const c of l.cols) assert.deepEqual(c.map((n) => n.row), c.map((_, i) => i));
   assert.equal(layoutTree(sample, "rooted").cols[0]![0]!.isCurrent, true);
+});
+
+// ---------- 發動背景故事 ----------
+import { storyState } from "./focus";
+
+test("storyState:有故事=ready;沒有但進行中=writing;沒有且沒在進行=none", () => {
+  const stories = { a: { story: "故事", source: "ai" as const } };
+  assert.deepEqual(storyState(stories, "a", true), { kind: "ready", story: stories.a });
+  assert.deepEqual(storyState(stories, "a", false), { kind: "ready", story: stories.a });
+  assert.deepEqual(storyState(stories, "b", true), { kind: "writing" });
+  assert.deepEqual(storyState(stories, "b", false), { kind: "none" });
 });

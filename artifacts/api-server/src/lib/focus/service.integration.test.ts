@@ -22,6 +22,7 @@ import { findEdge, edgesFrom } from "./regimeGraph";
 import { SAMPLE_CATALOG } from "./catalog.sample";
 import type { FocusDef } from "./types";
 import { governmentLabel } from "../governments";
+import { setStoryQueuerForTest } from "./focusStory";
 
 const TAG = "focussvc-test";
 const ERA = "classical";
@@ -34,6 +35,7 @@ const setSat = (s: number) =>
     .onConflictDoUpdate({ target: parliamentStateTable.nationId, set: { satisfaction: s } });
 
 before(async () => {
+  setStoryQueuerForTest(() => {}); // 測試不該真的去打 AI、也不該在清理資料後還有背景寫入
   await runGameMigrations();
   await runParliamentMigrations();
   await runFocusMigrations();
@@ -52,6 +54,7 @@ before(async () => {
 });
 
 after(async () => {
+  setStoryQueuerForTest(null);
   setCatalogForTest(null);
   await db.delete(playerNationsTable).where(eq(playerNationsTable.leaderName, TAG));
   await pool.end();
