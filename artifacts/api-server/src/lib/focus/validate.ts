@@ -36,8 +36,8 @@ export function validateCatalog(defs: readonly FocusDef[]): string[] {
     if (!d.effects.some(isCostEffect)) problems.push(`${tag} 沒有任何代價(至少一項負面效果)`);
 
     // 規則 3:里程碑必須解鎖能力或轉型
-    if (d.milestone && !d.effects.some((e) => e.kind === "unlock" || e.kind === "transition")) {
-      problems.push(`${tag} 標為里程碑但沒有 unlock/transition 效果`);
+    if (d.milestone && !d.effects.some((e) => e.kind === "unlock" || e.kind === "transition" || e.kind === "revolution")) {
+      problems.push(`${tag} 標為里程碑但沒有 unlock/transition/revolution 效果`);
     }
 
     // 轉型國策必須在 regime 領域,且目標政體有效
@@ -46,6 +46,15 @@ export function validateCatalog(defs: readonly FocusDef[]): string[] {
         if (d.domain !== "regime") problems.push(`${tag} transition 只能出現在 regime 領域`);
         if (!govSlugs.has(e.toGovernment)) problems.push(`${tag} 轉型目標政體不存在:${e.toGovernment}`);
         if (!d.milestone) problems.push(`${tag} 轉型國策必須是里程碑`);
+      }
+    }
+
+    for (const e of d.effects) {
+      if (e.kind === "revolution") {
+        if (d.domain !== "regime") problems.push(`${tag} revolution 只能出現在 regime 領域`);
+        if (!d.milestone) problems.push(`${tag} 革命國策必須是里程碑`);
+        if (!(e.landShare > 0 && e.landShare < 1)) problems.push(`${tag} 革命 landShare 需介於 0~1`);
+        if (d.effects.some((x) => x.kind === "transition")) problems.push(`${tag} 不可同時有 transition 與 revolution`);
       }
     }
 

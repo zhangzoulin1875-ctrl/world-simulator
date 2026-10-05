@@ -54,21 +54,23 @@ beforeEach(async () => {
     .onConflictDoUpdate({ target: focusStatesTable.nationId, set: { points: 200, redLean: 80, blackLean: 0 } });
 });
 
-test("革命國策已不再鎖定(unavailableReason 已移除)", () => {
-  for (const id of ["regime.absolute_monarchy_red_revolution", "regime.military_dictatorship_red_revolution", "regime.theocracy_red_revolution"]) {
-    const def = getFocusDef(id)!;
-    assert.ok(def, id);
-    assert.equal(def.unavailableReason, undefined, id);
+test("共產革命是單一通用入口:未鎖定,且任何非紅線終點政體都可見", () => {
+  const def = getFocusDef("regime.communist_revolution")!;
+  assert.ok(def);
+  assert.equal(def.unavailableReason, undefined);
+  assert.equal(def.governments, undefined, "不限政體");
+  for (const old of ["regime.absolute_monarchy_red_revolution", "regime.military_dictatorship_red_revolution", "regime.theocracy_red_revolution"]) {
+    assert.equal(getFocusDef(old), undefined, `${old} 已被通用入口取代`);
   }
 });
 
 test("可以啟動革命國策(傾向與穩定度達標)", async () => {
-  const r = await startFocus(await load(), "regime.absolute_monarchy_red_revolution");
+  const r = await startFocus(await load(), "regime.communist_revolution");
   assert.equal(r.ok, true, JSON.stringify(r));
 });
 
 test("革命國策完成:開內戰、玩家是革命方只留 35% 土地、政體不變、代價生效", async () => {
-  const start = await startFocus(await load(), "regime.absolute_monarchy_red_revolution");
+  const start = await startFocus(await load(), "regime.communist_revolution");
   assert.equal(start.ok, true, JSON.stringify(start));
   const beforeN = await load();
   const total = (start as { totalTurns: number }).totalTurns;
@@ -83,7 +85,7 @@ test("革命國策完成:開內戰、玩家是革命方只留 35% 土地、政�
   assert.ok(after.stability <= beforeN.stability - 20 + 5, `穩定度被扣(含期間被動變動): ${beforeN.stability} -> ${after.stability}`);
   assert.ok(after.money <= beforeN.money - 2000 + 1, "金錢 -2000");
   const done = await db.select().from(focusCompletedTable).where(eq(focusCompletedTable.nationId, nationId));
-  assert.ok(done.some((d) => d.focusId === "regime.absolute_monarchy_red_revolution"));
+  assert.ok(done.some((d) => d.focusId === "regime.communist_revolution"));
 });
 
 test("革命爆發後,該國進行中的戰役被終止(國土被切走)", async () => {
@@ -102,7 +104,7 @@ test("革命爆發後,該國進行中的戰役被終止(國土被切走)", async
   } as never).returning({ id: warCampaignsTable.id });
   assert.ok(camp, "戰役建立成功");
 
-  const start = await startFocus(await load(), "regime.absolute_monarchy_red_revolution");
+  const start = await startFocus(await load(), "regime.communist_revolution");
   assert.equal(start.ok, true, JSON.stringify(start));
   const total = (start as { totalTurns: number }).totalTurns;
   for (let i = 0; i < total + 3; i++) await settleNationFocus(await load(), ERA, { rand: () => 0.99 });
@@ -112,7 +114,7 @@ test("革命爆發後,該國進行中的戰役被終止(國土被切走)", async
 
 test("沒有土地時革命國策完成:不爆發、退還點數、不扣代價", async () => {
   await db.delete(regionControlsTable).where(eq(regionControlsTable.nationId, nationId));
-  const start = await startFocus(await load(), "regime.absolute_monarchy_red_revolution");
+  const start = await startFocus(await load(), "regime.communist_revolution");
   assert.equal(start.ok, true, JSON.stringify(start));
   const beforeN = await load();
   const total = (start as { totalTurns: number }).totalTurns;
@@ -121,7 +123,7 @@ test("沒有土地時革命國策完成:不爆發、退還點數、不扣代價"
   assert.equal(wars.length, 0);
   assert.equal((await load()).money, beforeN.money, "沒扣錢");
   const done = await db.select().from(focusCompletedTable).where(eq(focusCompletedTable.nationId, nationId));
-  assert.ok(!done.some((d) => d.focusId === "regime.absolute_monarchy_red_revolution"), "不記為完成,可重選");
+  assert.ok(!done.some((d) => d.focusId === "regime.communist_revolution"), "不記為完成,可重選");
 });
 
 test("一般(非革命)轉型國策完成仍是直接換政體,不切地、不開內戰", async () => {

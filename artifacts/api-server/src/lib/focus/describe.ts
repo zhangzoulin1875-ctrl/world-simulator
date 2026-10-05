@@ -37,6 +37,7 @@ export function describeEffect(e: FocusEffect): string {
     case "parliamentSatisfaction": return `議會滿意度 ${sign(e.value)}`;
     case "militarySatisfaction": return `軍方滿意度 ${sign(e.value)}`;
     case "unlock": return `解鎖:${e.capability}`;
+    case "revolution": return `發動${e.ideology === "red" ? "共產" : "軍事"}革命:革命政權僅掌握約 ${Math.round(e.landShare * 100)}% 土地,與舊政權內戰至一方被消滅`;
     case "transition": return `政體轉變為「${governmentLabel(e.toGovernment) ?? e.toGovernment}」`;
     default: {
       const _never: never = e;

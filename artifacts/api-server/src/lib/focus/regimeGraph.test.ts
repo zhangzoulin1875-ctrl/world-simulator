@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { AUTOCRACY_RED_REVOLUTION_LAND_SHARE, REGIME_EDGES, edgesFrom, findEdge, reachableFrom, validateRegimeGraph } from "./regimeGraph";
-import { buildRegimeFocuses } from "./regimeFocuses";
+import { buildRegimeFocuses, COMMUNIST_REVOLUTION_ID, REVOLUTION_EXCLUDED_GOVERNMENTS } from "./regimeFocuses";
 import { FOCUS_CATALOG } from "./catalog";
 import { validateCatalog } from "./validate";
 import { FOUNDING_GOVERNMENT_SLUGS, GOVERNMENTS } from "../governments";
@@ -44,8 +44,9 @@ test("政體圖:驗證器能抓到「無法從建國政體抵達」的孤島", (
 
 test("轉型國策:每條邊恰好一個,id 與圖一致,正式目錄通過全部驗證", () => {
   const fs = buildRegimeFocuses();
-  assert.equal(fs.length, REGIME_EDGES.length);
+  assert.equal(fs.length, REGIME_EDGES.length + 1, "每條邊一個轉型國策,再加上獨立的共產革命");
   assert.equal(new Set(fs.map((f) => f.id)).size, fs.length);
+  assert.equal(fs.filter((f) => f.id !== COMMUNIST_REVOLUTION_ID).length, REGIME_EDGES.length);
   for (const e of REGIME_EDGES) {
     const f = fs.find((x) => x.id === e.focusId)!;
     assert.ok(f, e.focusId);
@@ -70,23 +71,29 @@ test("轉型國策:極端路線比穩定路線更貴更慢,且黑/紅線要求�
   assert.ok(red.conditions!.some((c) => c.kind === "leanAtLeast" && c.side === "red"));
 });
 
-test("獨裁國家可發動共產革命:三個獨裁政體都有,革命方只佔 35% 土地", () => {
+test("共產革命是獨立於政體圖的單一入口:圖上沒有任何革命邊,革命方只佔 35% 土地", () => {
   assert.equal(AUTOCRACY_RED_REVOLUTION_LAND_SHARE, 0.35);
-  const revs = REGIME_EDGES.filter((e) => e.revolution);
-  assert.deepEqual(revs.map((e) => e.from).sort(), ["absolute_monarchy", "military_dictatorship", "theocracy"]);
-  for (const e of revs) {
-    assert.equal(e.to, "council_system");
-    assert.equal(e.track, "red");
-    assert.equal(e.revolution!.landShare, 0.35);
-    assert.equal(e.focusId, `regime.${e.from}_red_revolution`);
-  }
+  assert.ok(!REGIME_EDGES.some((e) => (e as { revolution?: unknown }).revolution), "圖上不應再有革命邊");
+  assert.ok(!REGIME_EDGES.some((e) => e.focusId.endsWith("_red_revolution")));
+  const all = buildRegimeFocuses();
+  const revs = all.filter((f) => f.effects.some((e) => e.kind === "revolution"));
+  assert.equal(revs.length, 1, "全系統只有一條革命國策");
+  const rev = revs[0]!;
+  assert.equal(rev.id, COMMUNIST_REVOLUTION_ID);
+  assert.equal(rev.governments, undefined, "不限政體:任何政體的樹上都看得到");
+  const eff = rev.effects.find((e) => e.kind === "revolution") as { ideology: string; landShare: number };
+  assert.equal(eff.ideology, "red");
+  assert.equal(eff.landShare, 0.35);
+  assert.ok(!rev.effects.some((e) => e.kind === "transition"), "革命不是和平轉型,沒有 transition 效果");
 });
 
-test("共產革命比民主國家的紅線轉型更貴更慢、門檻更高、代價更重", () => {
+test("共產革命比任何和平轉型都更貴更慢、門檻更高、代價更重", () => {
   const fs = buildRegimeFocuses();
+  const rev = fs.find((f) => f.id === COMMUNIST_REVOLUTION_ID)!;
   const dem = fs.find((f) => f.id === findEdge("parliamentary", "council_system")!.focusId)!;
-  const rev = fs.find((f) => f.id === "regime.absolute_monarchy_red_revolution")!;
-  assert.ok(rev.cost > dem.cost && rev.turns > dem.turns);
+  for (const f of fs.filter((x) => x.id !== rev.id)) {
+    assert.ok(rev.cost > f.cost && rev.turns > f.turns, `${f.id} 應比革命便宜且快`);
+  }
   const lean = (f: typeof rev) => (f.conditions!.find((c) => c.kind === "leanAtLeast") as any).value;
   assert.ok(lean(rev) > lean(dem), "紅線傾向門檻更高");
   const loss = (f: typeof rev, stat: string) =>
@@ -96,12 +103,11 @@ test("共產革命比民主國家的紅線轉型更貴更慢、門檻更高、�
   assert.ok(rev.description.includes("35%") && rev.description.includes("內戰"));
 });
 
-test("民主國家沒有革命邊(他們用議會式轉型);獨裁國家的革命國策已開放推行", () => {
-  for (const g of ["parliamentary", "parliamentary_republic", "presidential_democracy", "constitutional_monarchy"]) {
-    assert.ok(!REGIME_EDGES.some((e) => e.from === g && e.revolution), g);
+test("革命與和平轉型分開:革命國策已開放推行;紅線終點不顯示革命", () => {
+  assert.ok(buildRegimeFocuses().every((f) => !f.unavailableReason), "全部已開放");
+  assert.deepEqual([...REVOLUTION_EXCLUDED_GOVERNMENTS].sort(), ["council_system", "socialist_council"]);
+  // 革命國策不佔政體圖的出邊名額:每個政體的轉型出邊都沒有被革命擠掉
+  for (const g of ["absolute_monarchy", "military_dictatorship", "theocracy"]) {
+    assert.ok(edgesFrom(g).every((e) => e.to !== "council_system" || e.track !== "red"), g);
   }
-  const revs = buildRegimeFocuses().filter((f) => f.id.endsWith("_red_revolution"));
-  assert.equal(revs.length, 3, "君主專制/軍事獨裁/神權制各一條");
-  assert.ok(revs.every((f) => !f.unavailableReason), "全部已開放");
-  assert.ok(buildRegimeFocuses().every((f) => !f.unavailableReason));
 });

@@ -1,3 +1,4 @@
+import { governmentSlugByLabel } from "../lib/governments";
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
@@ -66,16 +67,33 @@ test("GET /focus:只列出該政體看得到的國策(君主專制只看到自�
   const expected = [
     ...["constitutional_monarchy", "military_dictatorship", "theocracy", "elective_monarchy", "dual_monarchy"]
       .map((to) => findEdge("absolute_monarchy", to)!.focusId),
-    "regime.absolute_monarchy_red_revolution",
+    "regime.communist_revolution",
   ].sort();
   assert.deepEqual(ids.slice().sort(), expected, "只看得到 6 條出口(5 條轉型 + 1 條紅色革命)");
   for (const f of j.focuses) {
-    assert.ok(f.transitionTo, "轉型國策要標示目標政體");
-    assert.ok(f.costs.length > 0, "每個轉型都要列出代價");
+    if (f.id === "regime.communist_revolution") {
+      assert.equal(f.transitionTo, null, "革命不是和平轉型:沒有目標政體,打贏才改制");
+    } else {
+      assert.ok(f.transitionTo, "轉型國策要標示目標政體");
+    }
+    assert.ok(f.costs.length > 0, "每個國策都要列出代價");
     assert.ok(f.title && f.description);
   }
   assert.ok(j.pointsPerTurn >= 1); assert.ok(j.pointsCap >= j.pointsPerTurn);
   assert.deepEqual(j.active, []);
+});
+
+test("共產革命對所有非紅線終點的政體都可見;紅線終點(委員會制/社會主義委員會)不顯示", async () => {
+  const seen: Record<string, boolean> = {};
+  for (const g of ["貴族制", "君主立憲制", "總統制民主", "議會內閣制", "君主專制", "神權制", "軍事獨裁", "財閥共和", "邦聯制", "議會共和制", "選舉君主制", "二元君主制", "委員會制", "社會主義委員會制"]) {
+    assert.ok(governmentSlugByLabel(g), `測試用的政體標籤必須有效:${g}`);
+    const { cookie } = await mk(g);
+    const r = await get(cookie); assert.equal(r.status, 200, g);
+    const j: any = await r.json();
+    seen[g] = j.focuses.some((f: any) => f.id === "regime.communist_revolution");
+  }
+  for (const g of Object.keys(seen).filter((k) => k !== "委員會制" && k !== "社會主義委員會制")) assert.equal(seen[g], true, `${g} 應看得到共產革命`);
+  for (const g of ["委員會制", "社會主義委員會制"]) assert.equal(seen[g], false, `${g} 已是紅線終點,不該再看到`);
 });
 
 test("點數不足/條件未達:標為 locked 並給原因;達標後變 available", async () => {

@@ -25,7 +25,9 @@ export type FocusEffect =
   // 能力解鎖:新兵種/新外交動作/新建築/新政策欄位等,由 key 指定
   | { kind: "unlock"; capability: string }
   // 政體轉型:完成即改政體(轉型國策專用)
-  | { kind: "transition"; toGovernment: string };
+  | { kind: "transition"; toGovernment: string }
+  // 革命奪權(與和平轉型分開):完成後不換政體,而是由玩家當革命方開內戰,只留 landShare 的土地;打贏才改制
+  | { kind: "revolution"; ideology: "red" | "black"; landShare: number };
 
 /** 可被 modifier 調整的統計欄位(白名單;新增前先確認下游系統有讀取)。 */
 export type FocusStat =
@@ -108,6 +110,7 @@ export function isCostEffect(e: FocusEffect): boolean {
       return false;
     case "unlock":
     case "transition":
+    case "revolution":
       return false;
   }
 }

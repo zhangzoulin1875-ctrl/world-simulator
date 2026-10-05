@@ -25,11 +25,11 @@ import {
   type StartBlockReason,
 } from "./core";
 import { getCatalog, getFocusDef } from "./catalog";
+import { COMMUNIST_REVOLUTION_ID, REVOLUTION_EXCLUDED_GOVERNMENTS } from "./regimeFocuses";
 import type { FocusDef } from "./types";
 import { summarizeEffects } from "./effects";
 import { startCivilWar } from "../civilWarEngine";
 import { endCampaignsForNation } from "../warEngine/endCampaign";
-import { findEdge } from "./regimeGraph";
 import { afterRegimeTransition, applyRegimeTransition, type RegimeTransitionResult } from "../politicsSettlement";
 import { describeCondition, eraReached, firstFailedCondition, type ConditionFacts } from "./conditions";
 
@@ -178,7 +178,28 @@ export async function settleNationFocus(
         politicalSupport: fresh!.politicalSupport,
         satisfactionMilitary: fresh!.satisfactionMilitary,
       });
-      if (eff.transitionTo) {
+      if (eff.revolution) {
+        // 革命奪權(獨立於政體圖):玩家是革命方,只留下 X% 土地,與新建的 NPC 舊政權開內戰;
+        // 政體維持原樣,打贏才改制(見 civilWarEngine.settleCivilWars)
+        const [ps] = await tx.select({ tick: parliamentStateTable.tick }).from(parliamentStateTable).where(eq(parliamentStateTable.nationId, nation.id));
+        const started = await startCivilWar(
+          tx, fresh!, eff.revolution.ideology, ps?.tick ?? 0,
+          eff.revolution.ideology === "red" ? "共產革命" : "軍事革命", "rebel",
+        );
+        if (!started.started) {
+          // 無法開戰(沒有土地,或已在內戰中):不扣代價,退還預扣點數,讓玩家之後重選
+          await tx
+            .update(focusStatesTable)
+            .set({ points: sql`${focusStatesTable.points} + ${a.spentPoints}` })
+            .where(eq(focusStatesTable.nationId, nation.id));
+          await tx.delete(focusCompletedTable).where(and(eq(focusCompletedTable.nationId, nation.id), eq(focusCompletedTable.focusId, a.focusId)));
+          result.completed.pop();
+          logger.warn({ nationId: nation.id, focusId: a.focusId, reason: started.reason }, "revolution focus skipped: civil war could not start");
+          continue;
+        }
+        revolutionStarted = true;
+        // 政體沒變,其他轉型國策仍有效,不作廢
+      } else if (eff.transitionTo) {
         // 起點政體必須仍是目錄指定的那個(啟動後可能因革命等被改掉)
         const fromOk = !def.governments || def.governments.includes(governmentSlugByLabel(fresh!.government) ?? "");
         const targetLabel = governmentLabel(eff.transitionTo);
@@ -193,39 +214,18 @@ export async function settleNationFocus(
           logger.warn({ nationId: nation.id, focusId: a.focusId, government: fresh!.government }, "regime transition skipped: origin government changed");
           continue;
         }
-        const edge = findEdge(governmentSlugByLabel(fresh!.government) ?? "", eff.transitionTo);
-        if (edge?.revolution) {
-          // 革命奪權:不是政府自己轉型。玩家是革命方,只留下 X% 土地,與新建的 NPC 舊政權開內戰;
-          // 政體維持原樣,打贏才改制(見 civilWarEngine.settleCivilWars)。
-          const [ps] = await tx.select({ tick: parliamentStateTable.tick }).from(parliamentStateTable).where(eq(parliamentStateTable.nationId, nation.id));
-          const started = await startCivilWar(tx, fresh!, "red", ps?.tick ?? 0, "共產革命", "rebel");
-          if (!started.started) {
-            // 無法開戰(沒有土地,或已在內戰中):不扣代價,退還預扣點數,讓玩家之後重選
+        const tr = await applyRegimeTransition(tx, fresh!, targetLabel, def.title);
+        afterCommit.push(tr);
+        // 政體變了:其他進行中的轉型國策(起點已不成立)一併作廢並退點
+        const others = await tx.select().from(focusActiveTable).where(eq(focusActiveTable.nationId, nation.id));
+        for (const o of others) {
+          const od = getFocusDef(o.focusId);
+          if (od && od.domain === "regime" && od.id !== def.id) {
+            await tx.delete(focusActiveTable).where(eq(focusActiveTable.id, o.id));
             await tx
               .update(focusStatesTable)
-              .set({ points: sql`${focusStatesTable.points} + ${a.spentPoints}` })
+              .set({ points: sql`${focusStatesTable.points} + ${o.spentPoints}` })
               .where(eq(focusStatesTable.nationId, nation.id));
-            await tx.delete(focusCompletedTable).where(and(eq(focusCompletedTable.nationId, nation.id), eq(focusCompletedTable.focusId, a.focusId)));
-            result.completed.pop();
-            logger.warn({ nationId: nation.id, focusId: a.focusId, reason: started.reason }, "revolution focus skipped: civil war could not start");
-            continue;
-          }
-          revolutionStarted = true;
-          // 政體沒變,其他轉型國策仍有效,不作廢
-        } else {
-          const tr = await applyRegimeTransition(tx, fresh!, targetLabel, def.title);
-          afterCommit.push(tr);
-          // 政體變了:其他進行中的轉型國策(起點已不成立)一併作廢並退點
-          const others = await tx.select().from(focusActiveTable).where(eq(focusActiveTable.nationId, nation.id));
-          for (const o of others) {
-            const od = getFocusDef(o.focusId);
-            if (od && od.domain === "regime" && od.id !== def.id) {
-              await tx.delete(focusActiveTable).where(eq(focusActiveTable.id, o.id));
-              await tx
-                .update(focusStatesTable)
-                .set({ points: sql`${focusStatesTable.points} + ${o.spentPoints}` })
-                .where(eq(focusStatesTable.nationId, nation.id));
-            }
           }
         }
       }
@@ -343,6 +343,9 @@ export function evaluateStart(def: FocusDef, f: StartFacts): StartVerdict {
     return { ok: false, reason: "era_locked", message: "世界尚未進入可推行此國策的時代" };
   }
   if (def.unavailableReason) return { ok: false, reason: "not_yet_available", message: def.unavailableReason };
+  if (def.id === COMMUNIST_REVOLUTION_ID && REVOLUTION_EXCLUDED_GOVERNMENTS.includes(slug ?? "")) {
+    return { ok: false, reason: "government_not_allowed", message: "目前政體已是紅線終點,無需再發動共產革命" };
+  }
   const siblingIds = new Set<string>(def.excludes ?? []);
   if (def.exclusiveGroup) {
     for (const d of getCatalog()) if (d.exclusiveGroup === def.exclusiveGroup && d.id !== def.id) siblingIds.add(d.id);

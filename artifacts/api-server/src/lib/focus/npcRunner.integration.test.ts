@@ -85,7 +85,7 @@ test("已有進行中轉型的 NPC 不會再開第二條;點數不足不動", as
 
 test("全域奪權上限:即使所有 NPC 都符合紅線革命條件,同時進行的不超過上限", async () => {
   // 只保留三條革命國策,逼每個 NPC 的唯一候選就是革命(奪權線)
-  setCatalogForTest(FOCUS_CATALOG.filter((f) => f.id.endsWith("_red_revolution")));
+  setCatalogForTest(FOCUS_CATALOG.filter((f) => f.id === "regime.communist_revolution"));
   const made = [];
   for (let i = 0; i < 12; i++) made.push(await mkNpc("absolute_monarchy", { stability: 20, politicalSupport: 20 }, { points: 200, redLean: 90 }));
   await runNpcFocusDecisions(ALWAYS);
@@ -97,7 +97,7 @@ test("全域奪權上限:即使所有 NPC 都符合紅線革命條件,同時進�
 });
 
 test("端到端:NPC 完成革命國策 → 開內戰(NPC 當革命方留 35%)→ 政體不變", async () => {
-  setCatalogForTest(FOCUS_CATALOG.filter((f) => f.id === "regime.absolute_monarchy_red_revolution"));
+  setCatalogForTest(FOCUS_CATALOG.filter((f) => f.id === "regime.communist_revolution"));
   const npc = await mkNpc("absolute_monarchy", { stability: 20, politicalSupport: 20 }, { points: 200, redLean: 90 });
   for (const r of regionIds.slice(0, 2)) await db.insert(regionControlsTable).values({ regionId: r, nationId: npc.id, percent: 100 });
   const run = await runNpcFocusDecisions(ALWAYS);

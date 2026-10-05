@@ -20,6 +20,8 @@ export function isEffectWired(e: FocusEffect): boolean {
       return WIRED_UNLOCKS.has(e.capability);
     case "transition":
       return true; // 政體轉型:由 service.ts 的轉型執行器處理(applyRegimeTransition)
+    case "revolution":
+      return true; // 革命奪權:由 service.ts 開內戰(startCivilWar)
     default:
       return true; // grant / lean / 議會 / 軍方 滿意度:一次性,直接寫欄位
   }
@@ -55,6 +57,7 @@ export function summarizeEffects(
   parliamentDelta: number;
   unwired: FocusEffect[];
   transitionTo: string | null;
+  revolution: { ideology: "red" | "black"; landShare: number } | null;
 } {
   const patch: NationPatch = {};
   let blackLeanDelta = 0;
@@ -62,6 +65,7 @@ export function summarizeEffects(
   let parliamentDelta = 0;
   const unwired: FocusEffect[] = [];
   let transitionTo: string | null = null;
+  let revolution: { ideology: "red" | "black"; landShare: number } | null = null;
 
   for (const e of effects) {
     if (!isEffectWired(e)) {
@@ -84,6 +88,9 @@ export function summarizeEffects(
       case "transition":
         transitionTo = e.toGovernment;
         break;
+      case "revolution":
+        revolution = { ideology: e.ideology, landShare: e.landShare };
+        break;
       case "lean":
         if (e.side === "black") blackLeanDelta += e.value;
         else redLeanDelta += e.value;
@@ -92,5 +99,5 @@ export function summarizeEffects(
         break;
     }
   }
-  return { patch, blackLeanDelta, redLeanDelta, parliamentDelta, unwired, transitionTo };
+  return { patch, blackLeanDelta, redLeanDelta, parliamentDelta, unwired, transitionTo, revolution };
 }

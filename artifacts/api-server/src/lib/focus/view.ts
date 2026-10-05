@@ -22,6 +22,7 @@ import {
 import { isCostEffect, type FocusDef, type FocusEffect } from "./types";
 import { evaluateStart } from "./service";
 import { describeEffect } from "./describe";
+import { COMMUNIST_REVOLUTION_ID, REVOLUTION_EXCLUDED_GOVERNMENTS } from "./regimeFocuses";
 
 type Nation = typeof playerNationsTable.$inferSelect;
 
@@ -120,6 +121,8 @@ export async function getFocusView(nation: Nation): Promise<FocusView> {
     const verdict = evaluateStart(def, facts);
     // 政體不符 / 時代未到:對這個國家不可見,直接略過(否則 43 個轉型國策全是雜訊)
     if (!verdict.ok && (verdict.reason === "government_not_allowed" || verdict.reason === "era_locked")) continue;
+    // 共產革命是通用入口;已經是紅線終點的政體不需要(也不該)再看到它
+    if (def.id === COMMUNIST_REVOLUTION_ID && REVOLUTION_EXCLUDED_GOVERNMENTS.includes(governmentSlugByLabel(n.government) ?? "")) continue;
 
     let status: FocusCardStatus = "available";
     if (completed.has(def.id)) status = "completed";

@@ -17,11 +17,6 @@ export interface RegimeEdge {
   track: FocusTrack;
   /** 轉型國策 id(對應 catalog 中 regime 領域、含 transition 效果的國策)。 */
   focusId: string;
-  /**
-   * 革命奪權(人民推翻獨裁政權):完成後由革命方以 `revolutionLandShare` 的土地開內戰,
-   * 而不是政府自己轉型。只用在獨裁國家走紅線。
-   */
-  revolution?: { landShare: number };
 }
 
 const e = (from: string, to: string, track: FocusTrack): RegimeEdge => ({
@@ -33,11 +28,6 @@ const e = (from: string, to: string, track: FocusTrack): RegimeEdge => ({
 
 /** 獨裁國家發動共產革命:革命政權只佔 35% 土地(民主國家的議會式革命是 40%)。 */
 export const AUTOCRACY_RED_REVOLUTION_LAND_SHARE = 0.35;
-const rev = (from: string): RegimeEdge => ({
-  ...e(from, "council_system", "red"),
-  focusId: `regime.${from}_red_revolution`,
-  revolution: { landShare: AUTOCRACY_RED_REVOLUTION_LAND_SHARE },
-});
 
 export const REGIME_EDGES: readonly RegimeEdge[] = [
   // ── 君主專制(建國起點)──────────────────────────────
@@ -61,10 +51,6 @@ export const REGIME_EDGES: readonly RegimeEdge[] = [
   e("parliamentary_republic", "council_system", "red"),
   e("parliamentary_republic", "military_dictatorship", "black"),
 
-  // ── 獨裁國家的共產革命(代價比民主國家更高,革命方只佔 35% 土地)──
-  rev("absolute_monarchy"),
-  rev("military_dictatorship"),
-  rev("theocracy"),
 
   // ── 君主立憲 ──────────────────────────────────────
   e("constitutional_monarchy", "parliamentary", "reform"), // 虛君議會化

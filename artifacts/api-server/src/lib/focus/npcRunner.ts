@@ -10,6 +10,7 @@ import {
 import { logger } from "../logger";
 import { governmentSlugByLabel } from "../governments";
 import { edgesFrom } from "./regimeGraph";
+import { COMMUNIST_REVOLUTION_ID, REVOLUTION_EXCLUDED_GOVERNMENTS } from "./regimeFocuses";
 import { getFocusDef } from "./catalog";
 import { startFocus } from "./service";
 import { decideNpcFocus, isRadicalFocus, npcRadicalCap, type NpcCandidate } from "./npcDecision";
@@ -72,8 +73,11 @@ export async function runNpcFocusDecisions(rand: () => number = Math.random): Pr
       const candidates: NpcCandidate[] = [];
       for (const e of edgesFrom(slug)) {
         const def = getFocusDef(e.focusId);
-        if (def) candidates.push({ def, isRevolution: !!e.revolution });
+        if (def) candidates.push({ def, isRevolution: false });
       }
+      // 共產革命是獨立入口(不在政體圖裡):紅線終點以外的政體都有這個選項,權重最低、受全域奪權上限管
+      const rev = getFocusDef(COMMUNIST_REVOLUTION_ID);
+      if (rev && !REVOLUTION_EXCLUDED_GOVERNMENTS.includes(slug)) candidates.push({ def: rev, isRevolution: true });
       const myActive = activeBy.get(n.id) ?? [];
       const hasActiveRegime = myActive.some((id) => getFocusDef(id)?.domain === "regime");
       const picked = decideNpcFocus({
@@ -110,5 +114,5 @@ export async function runNpcFocusDecisions(rand: () => number = Math.random): Pr
 }
 
 function isRevolutionId(d: FocusDef): boolean {
-  return d.id.endsWith("_red_revolution");
+  return d.id === COMMUNIST_REVOLUTION_ID;
 }
