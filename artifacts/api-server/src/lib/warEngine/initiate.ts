@@ -241,6 +241,45 @@ async function foundOrPromoteUnownedDefender(params: {
   });
 }
 
+/**
+ * 防重複開戰:同一攻擊方、同一組(出發地→目標地)同時只能有一場進行中戰役。
+ * 先用交易級 advisory lock 序列化(雙擊/並發請求會排隊),再查是否已有 active 戰役,
+ * 有就丟 409。沒有這道檢查時,連點兩次「發動戰役」會建出兩場一模一樣的戰役(軍團重複出動)。
+ * 不同攻擊方(多國混戰同一塊地)不受影響。必須在交易內、抽兵/建軍團之前呼叫。
+ */
+export async function assertNoDuplicateActiveCampaign(
+  tx: Pick<typeof db, "execute" | "select">,
+  p: {
+    attackerNationId: string;
+    attackerRegionId: number;
+    defenderRegionId: number;
+    attackerRegionName: string;
+    defenderRegionName: string;
+  },
+): Promise<void> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${`campaign-init:${p.attackerNationId}:${p.attackerRegionId}:${p.defenderRegionId}`}))`,
+  );
+  const [dup] = await tx
+    .select({ id: warCampaignsTable.id })
+    .from(warCampaignsTable)
+    .where(
+      and(
+        eq(warCampaignsTable.attackerNationId, p.attackerNationId),
+        eq(warCampaignsTable.attackerRegionId, p.attackerRegionId),
+        eq(warCampaignsTable.defenderRegionId, p.defenderRegionId),
+        eq(warCampaignsTable.status, "active"),
+      ),
+    )
+    .limit(1);
+  if (dup) {
+    throw new WarActionError(
+      409,
+      `你已經對「${p.defenderRegionName}」發動了一場進行中的戰役(從「${p.attackerRegionName}」出發),請先結束它再開新戰役`,
+    );
+  }
+}
+
 export async function initiateCampaign(params: {
   attackerNationId: string;
   attackerRegionId: number;
@@ -615,6 +654,13 @@ export async function initiateCampaign(params: {
   const warId = warByEnemy.get(defender.id)!;
 
   const campaign = await db.transaction(async (tx) => {
+      await assertNoDuplicateActiveCampaign(tx, {
+        attackerNationId: attacker.id,
+        attackerRegionId,
+        defenderRegionId,
+        attackerRegionName: attackerRegion.name,
+        defenderRegionName: defenderRegion.name,
+      });
       const npcDefends = defender.isNpc;
       const [row] = await tx
         .insert(warCampaignsTable)

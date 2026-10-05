@@ -419,3 +419,32 @@ test("批次尺度 loadAllNationScales 與單國 loadNationScales 同值（引�
   assert.equal(batched!.price, single.price);
   assert.equal(batched!.population, single.population);
 });
+
+// 元帥財政守衛用的 loadFiscalSnapshot 必須與回合引擎 / 財政頁同口徑,
+// 否則守衛會用錯的數字放行或誤擋招募。
+test("元帥 loadFiscalSnapshot.currentUpkeep = 回合引擎維護費;taxIncome = overview 稅收", async () => {
+  const { loadFiscalSnapshot } = await import("./cabinet/domains/military");
+  const { computeAdjustedNationStats } = await import("./nationStats");
+  const { statsEra } = await getEraSlugs();
+  const scales = await loadNationScales(nationId, statsEra);
+  const [nation] = await db
+    .select()
+    .from(playerNationsTable)
+    .where(eq(playerNationsTable.id, nationId));
+  assert.ok(nation);
+  const stats = await computeAdjustedNationStats(nation, statsEra);
+  const snap = await loadFiscalSnapshot(
+    nation,
+    discordUserId,
+    statsEra,
+    stats.population,
+    scales.upkeep,
+  );
+  const engineUpkeep = await composeTurnEngineUpkeep();
+  assert.ok(
+    Math.abs(snap.currentUpkeep - engineUpkeep) < 1e-6,
+    `snapshot upkeep ${snap.currentUpkeep} != engine upkeep ${engineUpkeep}`,
+  );
+  const { body } = await getOverview();
+  assert.equal(snap.taxIncome, body["taxIncomePerTurn"]);
+});

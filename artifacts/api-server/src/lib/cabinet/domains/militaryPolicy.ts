@@ -73,6 +73,49 @@ export function recruitNeedsApproval(params: {
   return params.productionCost > budget;
 }
 
+/**
+ * 財政可持續性守衛(玩家回報:元帥無視國內財政瘋狂爆兵,讓稅收赤字)。
+ *
+ * 自動招募前估算:招募後「每回合盈餘 = 稅收 − (現有維護費 + 本次新增維護費)」。
+ *  - 招募後盈餘 ≥ 0                       → 可自動招募。
+ *  - 招募後盈餘 < 0,但國庫撐得過緩衝回合 → 仍可自動招募(短期可承受)。
+ *  - 其餘(會讓國庫在緩衝回合內見底)     → 不自動招募,改提報請玩家批准並標明財政風險。
+ * 玩家仍可手動批准,權力不被剝奪;只是元帥不能擅自把國家拖進赤字。
+ */
+export const FISCAL_BUFFER_TURNS = 8; // 一天 8 回合
+
+export interface FiscalGuardInput {
+  /** 目前國庫。 */
+  money: number;
+  /** 每回合稅收。 */
+  taxIncome: number;
+  /** 目前每回合總維護費(軍隊 + 建築 + 資源建築 + 僱傭兵租金)。 */
+  currentUpkeep: number;
+  /** 本回合已自動招募、尚未反映在 currentUpkeep 的新增維護費(累計)。 */
+  pendingUpkeep: number;
+  /** 本次招募預計新增的每回合維護費。 */
+  addedUpkeep: number;
+}
+
+export interface FiscalGuardResult {
+  ok: boolean;
+  /** 招募後每回合盈餘(可為負)。 */
+  surplusAfter: number;
+  /** 國庫撐得過幾回合(盈餘 ≥ 0 時為 Infinity)。 */
+  turnsOfRunway: number;
+}
+
+export function fiscalRecruitGuard(p: FiscalGuardInput): FiscalGuardResult {
+  const upkeepAfter =
+    Math.max(0, p.currentUpkeep) + Math.max(0, p.pendingUpkeep) + Math.max(0, p.addedUpkeep);
+  const surplusAfter = Math.floor(p.taxIncome) - Math.ceil(upkeepAfter);
+  if (surplusAfter >= 0) {
+    return { ok: true, surplusAfter, turnsOfRunway: Infinity };
+  }
+  const turnsOfRunway = Math.max(0, p.money) / -surplusAfter;
+  return { ok: turnsOfRunway >= FISCAL_BUFFER_TURNS, surplusAfter, turnsOfRunway };
+}
+
 /** 金錢購買：數量超過「今日剩餘配額 × 允許比例」→ 需玩家批准。 */
 export function purchaseNeedsApproval(params: {
   quantity: number;

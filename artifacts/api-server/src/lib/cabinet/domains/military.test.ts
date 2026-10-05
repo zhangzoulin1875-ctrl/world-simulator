@@ -7,6 +7,8 @@ import {
   militaryAgentAggression,
   militaryAutoBudget,
   recruitNeedsApproval,
+  fiscalRecruitGuard,
+  FISCAL_BUFFER_TURNS,
   purchaseNeedsApproval,
   techSpendNeedsApproval,
   listDesignableCategories,
@@ -231,4 +233,45 @@ test("techSpendNeedsApproval 以目前科技點數 × 比例為門檻", () => {
     techSpendNeedsApproval({ costPoints: 1, techPoints: 0, fraction: 0.9 }),
     true,
   );
+});
+
+// 財政守衛:元帥不可擅自把國家拖進赤字。
+test("fiscalRecruitGuard 招募後仍有盈餘 → 可自動招募", () => {
+  const r = fiscalRecruitGuard({ money: 0, taxIncome: 1000, currentUpkeep: 400, pendingUpkeep: 0, addedUpkeep: 500 });
+  assert.equal(r.ok, true);
+  assert.equal(r.surplusAfter, 100);
+});
+
+test("fiscalRecruitGuard 招募後盈餘剛好 0 → 可自動招募", () => {
+  assert.equal(fiscalRecruitGuard({ money: 0, taxIncome: 1000, currentUpkeep: 500, pendingUpkeep: 0, addedUpkeep: 500 }).ok, true);
+});
+
+test("fiscalRecruitGuard 招募後赤字且國庫撐不過緩衝 → 拒絕自動招募", () => {
+  // 盈餘 -200/回合,國庫 1000 只撐 5 回合 < 8
+  const r = fiscalRecruitGuard({ money: 1000, taxIncome: 1000, currentUpkeep: 700, pendingUpkeep: 0, addedUpkeep: 500 });
+  assert.equal(r.surplusAfter, -200);
+  assert.equal(r.ok, false);
+  assert.equal(r.turnsOfRunway, 5);
+});
+
+test("fiscalRecruitGuard 赤字但國庫夠撐緩衝回合 → 允許", () => {
+  // 盈餘 -100/回合,國庫 1000 撐 10 回合 ≥ 8
+  const r = fiscalRecruitGuard({ money: 1000, taxIncome: 1000, currentUpkeep: 600, pendingUpkeep: 0, addedUpkeep: 500 });
+  assert.equal(r.ok, true);
+  assert.equal(r.turnsOfRunway, 10);
+});
+
+test("fiscalRecruitGuard 累計本回合先前已招募的維護費", () => {
+  const base = { money: 0, taxIncome: 1000, currentUpkeep: 400 };
+  assert.equal(fiscalRecruitGuard({ ...base, pendingUpkeep: 0, addedUpkeep: 500 }).ok, true);
+  // 前一項已自動招募 300 維護費,這一項 500 就超出 → 拒絕
+  assert.equal(fiscalRecruitGuard({ ...base, pendingUpkeep: 300, addedUpkeep: 500 }).ok, false);
+});
+
+test("fiscalRecruitGuard 稅收為 0 的國家一加維護費就拒絕", () => {
+  assert.equal(fiscalRecruitGuard({ money: 0, taxIncome: 0, currentUpkeep: 0, pendingUpkeep: 0, addedUpkeep: 1 }).ok, false);
+});
+
+test("fiscalRecruitGuard 緩衝回合數 = 8(一天)", () => {
+  assert.equal(FISCAL_BUFFER_TURNS, 8);
 });

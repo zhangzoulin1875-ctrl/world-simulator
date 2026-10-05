@@ -2,9 +2,9 @@
  * Task #105 — integration tests (real DB) for the war-campaign concurrency
  * protections:
  *
- *  1. Two concurrent initiateCampaign() for the same region pair → Task #648:
- *     BOTH campaigns are created（composite PK (campaign_id, region_id) allows
- *     multiple campaigns per region）. The engagement table records both.
+ *  1. Two concurrent initiateCampaign() for the same attacker + region pair →
+ *     exactly ONE campaign is created, the duplicate gets WarActionError 409
+ *     （Task #648 的複合主鍵仍允許「不同戰役」同地區多對多攻打)。
  *  2. Two concurrent PUT /api/war/campaigns/:id/legions on two different
  *     campaigns of the same player, each requesting the full national army →
  *     one 200 and one 400 可用兵力不足（pg_advisory_xact_lock serializes the
@@ -372,9 +372,10 @@ after(async () => {
   await pool.end();
 });
 
-// Task #648 — 複合主鍵（campaign_id, region_id）允許同地區多對多攻打：
-// 兩個并發發起同一地區對應戰役都應成功，不再互相阻擋。
-test("concurrent initiate on the same region pair → both succeed, two campaigns created (Task #648 composite PK)", async () => {
+// Task #648 — 複合主鍵（campaign_id, region_id）允許「不同戰役」同地區多對多攻打
+// （多國混戰同一塊地)。但「同一攻擊方、同一組出發→目標地區」不可重複開戰:
+// 玩家連點/並發請求兩次只能建出一場(第二次 409),否則同一支軍隊會重複出動。
+test("concurrent initiate on the same attacker+region pair → exactly one campaign, the other is rejected 409", async () => {
   const initiate = () =>
     initiateCampaign({
       attackerNationId: attackerId,
@@ -383,19 +384,27 @@ test("concurrent initiate on the same region pair → both succeed, two campaign
     });
   const results = await Promise.allSettled([initiate(), initiate()]);
   const fulfilled = results.filter((r) => r.status === "fulfilled");
+  const rejected = results.filter(
+    (r): r is PromiseRejectedResult => r.status === "rejected",
+  );
   assert.equal(
     fulfilled.length,
-    2,
-    `expected both campaigns to succeed (composite PK allows multi-campaign per region), ` +
-      `got ${fulfilled.length}: ` +
+    1,
+    `expected exactly one campaign to be created, got ${fulfilled.length}: ` +
       JSON.stringify(
         results.map((r) =>
           r.status === "rejected" ? String(r.reason) : "ok",
         ),
       ),
   );
+  assert.equal(rejected.length, 1);
+  assert.ok(
+    rejected[0]!.reason instanceof WarActionError &&
+      (rejected[0]!.reason as InstanceType<typeof WarActionError>).status === 409,
+    `the duplicate must be rejected with WarActionError 409, got ${String(rejected[0]!.reason)}`,
+  );
 
-  // Both campaigns created; pick the first as campaign1 for downstream tests.
+  // DB 只有一場 active 戰役;後續測試以它為 campaign1。
   const campaigns = await db
     .select({ id: warCampaignsTable.id })
     .from(warCampaignsTable)
@@ -408,15 +417,34 @@ test("concurrent initiate on the same region pair → both succeed, two campaign
       ),
     )
     .orderBy(warCampaignsTable.id);
-  assert.ok(campaigns.length >= 2, `expected ≥2 campaigns, got ${campaigns.length}`);
+  assert.equal(campaigns.length, 1, `expected 1 active campaign, got ${campaigns.length}`);
   campaign1Id = campaigns[0]!.id;
 
-  // Each campaign contributes one engagement row per region → ≥4 rows total.
+  // 一場戰役對每個地區各一列交戰鎖 → 恰 2 列。
   const engagements = await db
     .select({ regionId: warRegionEngagementsTable.regionId, campaignId: warRegionEngagementsTable.campaignId })
     .from(warRegionEngagementsTable)
     .where(inArray(warRegionEngagementsTable.regionId, [r1, r2]));
-  assert.ok(engagements.length >= 4, `expected ≥4 engagement rows (2 per campaign × ≥2 campaigns), got ${engagements.length}`);
+  assert.ok(engagements.length >= 2, `expected ≥2 engagement rows, got ${engagements.length}`);
+});
+
+// 回歸(玩家回報):依序(非並發)再開一次同一組出發→目標也要被擋下。
+test("sequential duplicate initiate on the same attacker+region pair is rejected 409", async () => {
+  await assert.rejects(
+    () =>
+      initiateCampaign({
+        attackerNationId: attackerId,
+        attackerRegionId: r1,
+        defenderRegionId: r2,
+      }),
+    (err: unknown) =>
+      err instanceof WarActionError &&
+      (err as InstanceType<typeof WarActionError>).status === 409,
+  );
+  const [{ n }] = (await db.execute(
+    sql`select count(*)::int as n from war_campaigns where attacker_nation_id = ${attackerId} and attacker_region_id = ${r1} and defender_region_id = ${r2} and status = 'active'`,
+  )).rows as { n: number }[];
+  assert.equal(n, 1);
 });
 
 /**

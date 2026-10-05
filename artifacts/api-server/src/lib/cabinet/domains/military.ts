@@ -1,9 +1,10 @@
 import { loadNationScales } from "../../nationScale";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import {
   db,
   playerArmiesTable,
   militaryUnitTemplatesTable,
+  regionBuildingsTable,
 } from "@workspace/db";
 import type {
   CabinetDomainModule,
@@ -29,7 +30,10 @@ import {
   loadResearchedMilitaryTechs,
 } from "../../militaryTechData";
 import { localDateString } from "../../time";
-import { computeAvailableProduction } from "../../economy";
+import { computeAvailableProduction, computeTaxIncome, effectiveTaxEfficiencyPct } from "../../economy";
+import { loadBuildingUpkeepByUser } from "../../productionTechData";
+import { aggregateSocialEffectsByUser } from "../../socialTechData";
+import { buildingUpkeep } from "../../regionBuildings";
 import { loadCurrentTurnRecruitSpend } from "../../recruitSpend";
 import { listTechTreeResearchCandidates } from "../../techTreeResearch";
 import {
@@ -37,6 +41,7 @@ import {
   militaryAutoBudget,
   purchaseNeedsApproval,
   recruitNeedsApproval,
+  fiscalRecruitGuard,
 } from "./militaryPolicy";
 import { decideMilitaryActions, type MilitaryPlan } from "./militaryPlanning";
 import {
@@ -122,6 +127,52 @@ export const actionKeys: DomainActionKey[] = [
 ];
 
 // ── 每回合自動代理 ─────────────────────────────────────────────
+
+/**
+ * 財政快照(供元帥招募前的財政可持續性守衛):目前每回合稅收與總維護費。
+ * 口徑與回合引擎(turnEngine.ts 財政結算)一致:軍隊維護(數量×模板維護費×國力維護尺度)
+ * + 建築維護 + 地區資源建築維護。僱傭兵租金不計(簽約期間本來就不能招兵)。
+ */
+export async function loadFiscalSnapshot(
+  nation: { id: string; taxRatePct: number; taxEfficiencyBonus: number },
+  userId: string,
+  statsEra: string,
+  population: number,
+  upkeepScale: number,
+): Promise<{ taxIncome: number; currentUpkeep: number }> {
+  const social = (await aggregateSocialEffectsByUser()).get(userId);
+  const taxIncome = computeTaxIncome({
+    population,
+    taxRatePct: nation.taxRatePct,
+    taxEfficiencyPct: effectiveTaxEfficiencyPct(
+      statsEra,
+      nation.taxEfficiencyBonus + (social?.taxEfficiencyBonusPct ?? 0),
+    ),
+  });
+  const [armyRow] = await db
+    .select({
+      upkeep: sql<string>`COALESCE(SUM(${playerArmiesTable.quantity} * ${militaryUnitTemplatesTable.upkeepPerUnit}), 0)`,
+    })
+    .from(playerArmiesTable)
+    .innerJoin(
+      militaryUnitTemplatesTable,
+      eq(militaryUnitTemplatesTable.id, playerArmiesTable.templateId),
+    )
+    .where(eq(playerArmiesTable.discordUserId, userId));
+  const armyUpkeep = Number(armyRow?.upkeep ?? 0) * upkeepScale;
+  const buildingUpkeepTotal =
+    (await loadBuildingUpkeepByUser((uid) => (uid === userId ? upkeepScale : 1))).get(userId) ?? 0;
+  const resRows = await db
+    .select({ totalLevel: sql<string>`COALESCE(SUM(${regionBuildingsTable.level}), 0)` })
+    .from(regionBuildingsTable)
+    .where(eq(regionBuildingsTable.nationId, nation.id))
+    .groupBy(regionBuildingsTable.buildingType);
+  const resUpkeep = resRows.reduce(
+    (sum, r) => sum + buildingUpkeep(Number(r.totalLevel), upkeepScale),
+    0,
+  );
+  return { taxIncome, currentUpkeep: armyUpkeep + buildingUpkeepTotal + resUpkeep };
+}
 
 export async function runDomain(ctx: RunDomainContext): Promise<void> {
   const { nation, minister, enabledActionKeys, directive, agencyLevel, era } = ctx;
@@ -266,6 +317,18 @@ export async function runDomain(ctx: RunDomainContext): Promise<void> {
   // 執行招募（自動或提報）。
   if (enabled.has("recruit_units")) {
     let usedProduction = 0;
+    // 財政守衛:元帥不可無視國內財政爆兵。快照一次,迴圈內累計本回合已自動招募的新增維護費。
+    const fiscal = await loadFiscalSnapshot(
+      nation,
+      userId,
+      statsEra,
+      stats.population,
+      cabScales.upkeep,
+    ).catch((err) => {
+      logger.warn({ err, nationId: nation.id }, "cabinet fiscal snapshot failed; recruits need approval");
+      return null;
+    });
+    let pendingUpkeep = 0;
     for (const item of plan.recruit) {
       const template = templateById.get(item.templateId);
       if (!template) continue;
@@ -275,7 +338,24 @@ export async function runDomain(ctx: RunDomainContext): Promise<void> {
       const summary = `招募 ${template.name} ×${item.quantity.toLocaleString(
         "en-US",
       )}（需生產力 ${cost.production.toLocaleString("en-US")}、人口 ${cost.population.toLocaleString("en-US")}）`;
+      const addedUpkeep = eff.upkeepPerUnit * item.quantity;
+      // 財政快照失敗時保守處理:一律提報,不自動招。
+      const fiscalCheck = fiscal
+        ? fiscalRecruitGuard({
+            money: nation.money,
+            taxIncome: fiscal.taxIncome,
+            currentUpkeep: fiscal.currentUpkeep,
+            pendingUpkeep,
+            addedUpkeep,
+          })
+        : null;
+      const fiscalBlocked = fiscalCheck === null || !fiscalCheck.ok;
+      const fiscalNote =
+        fiscalCheck && !fiscalCheck.ok
+          ? `【財政警告】招募後每回合盈餘約 ${fiscalCheck.surplusAfter.toLocaleString("en-US")}，國庫約可支撐 ${Math.floor(fiscalCheck.turnsOfRunway)} 回合`
+          : "";
       if (
+        fiscalBlocked ||
         recruitNeedsApproval({
           productionCost: cost.production,
           availableProduction: remaining,
@@ -287,7 +367,7 @@ export async function runDomain(ctx: RunDomainContext): Promise<void> {
           domain: "military",
           ministerName,
           actionKey: "recruit_units",
-          summary,
+          summary: fiscalNote ? `${summary} ${fiscalNote}` : summary,
           params: { templateId: item.templateId, quantity: item.quantity },
           cost: { amount: cost.production, kind: "production" },
         }).catch((err) =>
@@ -297,6 +377,7 @@ export async function runDomain(ctx: RunDomainContext): Promise<void> {
         try {
           await executeRecruit(userId, item.templateId, item.quantity);
           usedProduction += cost.production;
+          pendingUpkeep += addedUpkeep;
           await recordCabinetAction({
             nationId: nation.id,
             domain: "military",
