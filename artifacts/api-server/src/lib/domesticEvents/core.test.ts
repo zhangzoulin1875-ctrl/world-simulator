@@ -4,10 +4,29 @@ import {
   DOMESTIC_EVENTS, EVENT_CHANCE, EVENT_EVERY_TURNS, CIVIL_WAR_STABILITY_BELOW, CIVIL_WAR_CHANCE,
   isRollTurn, rollsEvent, pickEventKind, eventKindsOnCooldown, pickEventKindWithCooldown, EVENT_REPEAT_COOLDOWN_TURNS, triggersCivilWar, applyEffects, validateEventCatalog, getEventDef,
 } from "./core";
+import { EVENT_CATEGORIES, EVENT_CATEGORY_META } from "./categories";
 
-test("目錄:5 個事件、通過自檢;每個事件恰好 順應/鎮壓/拖延 各一", () => {
-  assert.equal(DOMESTIC_EVENTS.length, 5);
+test("目錄:100 個事件、10 個分類各 10 個、通過自檢;每個事件恰好 順應/鎮壓/拖延 各一", () => {
+  assert.equal(DOMESTIC_EVENTS.length, 100);
   assert.deepEqual(validateEventCatalog(), []);
+  for (const m of EVENT_CATEGORY_META) {
+    assert.equal(DOMESTIC_EVENTS.filter((e) => e.category === m.id).length, 10, `${m.id} 應有 10 個`);
+  }
+  assert.equal(EVENT_CATEGORY_META.length, EVENT_CATEGORIES.length);
+});
+
+test("舊事件 id 與數值保持不變（資料庫裡已存在的事件仍能解析）", () => {
+  const expect: Record<string, string> = {
+    recall_wave: "politics", socialist_majority: "politics", military_petition: "military",
+    economic_crisis: "economy", religious_revival: "religion",
+  };
+  for (const [k, cat] of Object.entries(expect)) {
+    const d = getEventDef(k)!;
+    assert.ok(d, k); assert.equal(d.category, cat);
+    assert.deepEqual(d.choices.map((c) => c.id), ["comply", "crackdown", "delay"]);
+  }
+  assert.deepEqual(getEventDef("recall_wave")!.choices[0]!.effects, { stability: 8, parliamentSatisfaction: 10, militarySatisfaction: -5 });
+  assert.deepEqual(getEventDef("economic_crisis")!.choices[1]!.effects, { money: 1500, stability: -8, parliamentSatisfaction: -6 });
 });
 
 test("目錄自檢真的會抓錯(預設選項不存在、缺風格、非鎮壓帶內戰風險)", () => {
@@ -42,15 +61,41 @@ test("機率:大量模擬命中率接近 30%", () => {
   assert.ok(rate > 0.28 && rate < 0.32, `rate=${rate}`);
 });
 
-test("抽事件:依權重、可排除、排除光時退回全部、永遠回傳合法種類", () => {
+test("抽事件:兩段式（先分類再事件）、可排除、排除光時退回全部、永遠回傳合法種類", () => {
   const kinds = new Set(DOMESTIC_EVENTS.map((e) => e.kind));
-  assert.equal(pickEventKind(() => 0), DOMESTIC_EVENTS[0]!.kind);
-  assert.equal(pickEventKind(() => 0.999999), DOMESTIC_EVENTS[DOMESTIC_EVENTS.length - 1]!.kind);
+  assert.equal(pickEventKind(() => 0), DOMESTIC_EVENTS[0]!.kind, "rand=0：第一個分類的第一個事件");
+  const last = EVENT_CATEGORY_META[EVENT_CATEGORY_META.length - 1]!.id;
+  const lastOfLast = DOMESTIC_EVENTS.filter((e) => e.category === last).at(-1)!.kind;
+  assert.equal(pickEventKind(() => 0.999999), lastOfLast, "rand≈1：最後一個分類的最後一個事件");
   assert.notEqual(pickEventKind(() => 0, ["recall_wave"]), "recall_wave");
-  assert.ok(kinds.has(pickEventKind(() => 0, [...kinds])));
+  assert.ok(kinds.has(pickEventKind(() => 0, [...kinds])), "全被排除時退回全池");
+  for (let i = 0; i < 2000; i++) assert.ok(kinds.has(pickEventKind(Math.random)));
+});
+
+test("抽事件:各分類被抽到的比例貼近分類權重（不會因某類事件多而壓過其他類）", () => {
+  const N = 60000; const byCat: Record<string, number> = {};
+  const cat = new Map(DOMESTIC_EVENTS.map((e) => [e.kind, e.category]));
+  for (let i = 0; i < N; i++) { const c = cat.get(pickEventKind(Math.random))!; byCat[c] = (byCat[c] ?? 0) + 1; }
+  const totalW = EVENT_CATEGORY_META.reduce((a, m) => a + m.weight, 0);
+  for (const m of EVENT_CATEGORY_META) {
+    const want = m.weight / totalW; const got = (byCat[m.id] ?? 0) / N;
+    assert.ok(Math.abs(got - want) < 0.015, `${m.id} 期望 ${want.toFixed(3)} 實際 ${got.toFixed(3)}`);
+  }
+});
+
+test("抽事件:某分類整類都在冷卻時，不會抽到該類，其餘分類照常", () => {
+  const politics = DOMESTIC_EVENTS.filter((e) => e.category === "politics").map((e) => e.kind);
+  const cat = new Map(DOMESTIC_EVENTS.map((e) => [e.kind, e.category]));
+  for (let i = 0; i < 3000; i++) assert.notEqual(cat.get(pickEventKind(Math.random, politics)), "politics");
+});
+
+test("抽事件:同分類內依事件權重，權重大的較常出現", () => {
+  const cat = DOMESTIC_EVENTS.filter((e) => e.category === "politics");
+  const hi = cat.reduce((a, b) => (b.weight > a.weight ? b : a)); const lo = cat.reduce((a, b) => (b.weight < a.weight ? b : a));
+  assert.ok(hi.weight > lo.weight);
   const counts: Record<string, number> = {};
-  for (let i = 0; i < 20000; i++) { const k = pickEventKind(Math.random); counts[k] = (counts[k] ?? 0) + 1; }
-  assert.ok(counts["recall_wave"]! > counts["religious_revival"]!, "權重大的較常出現");
+  for (let i = 0; i < 80000; i++) { const k = pickEventKind(Math.random); counts[k] = (counts[k] ?? 0) + 1; }
+  assert.ok((counts[hi.kind] ?? 0) > (counts[lo.kind] ?? 0), `${hi.kind}(${hi.weight}) 應多於 ${lo.kind}(${lo.weight})`);
 });
 
 test("內戰風險:只有鎮壓(civilWarRisk)+穩定低於門檻+擲中才爆發", () => {

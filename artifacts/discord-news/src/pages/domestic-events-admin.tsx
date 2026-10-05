@@ -18,13 +18,15 @@ interface ChoiceEffects {
   parliamentShift?: "socialists_in" | "socialists_out";
 }
 interface CatalogChoice { id: string; style: string; label: string; hint: string; effects: ChoiceEffects }
-interface CatalogEvent { kind: string; title: string; body: string; weight: number; defaultChoiceId: string; choices: CatalogChoice[] }
+interface CatalogEvent { kind: string; category: string; title: string; body: string; weight: number; defaultChoiceId: string; choices: CatalogChoice[] }
 interface RecentRow {
   id: string; nationId: string; nationName: string | null; kind: string; title: string;
   status: "pending" | "resolved" | "expired"; chosenId: string | null; outcome: string | null; createdAt: string;
 }
+interface CategoryRow { id: string; label: string; weight: number; count: number }
 interface Overview {
   settings: { everyTurns: number; chance: number; deadlineTurns: number };
+  categories: CategoryRow[];
   catalog: CatalogEvent[];
   recent: RecentRow[];
 }
@@ -85,6 +87,7 @@ export default function DomesticEventsAdmin() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [kind, setKind] = useState("");
+  const [category, setCategory] = useState("");
   const [target, setTarget] = useState<string>("all"); // "all" 或某個國家 id
   const [rewrite, setRewrite] = useState(true);
   const [sending, setSending] = useState(false);
@@ -102,6 +105,7 @@ export default function DomesticEventsAdmin() {
       setData(ov);
       setPlayers(((await b.json()) as { players: NationRow[] }).players ?? []);
       setKind((k) => k || ov.catalog[0]?.kind || "");
+      setCategory((c) => c || ov.catalog[0]?.category || "");
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "載入失敗");
     } finally {
@@ -112,6 +116,14 @@ export default function DomesticEventsAdmin() {
   useEffect(() => { void load(); }, [load]);
 
   const selected = data?.catalog.find((c) => c.kind === kind);
+  const inCategory = (data?.catalog ?? []).filter((c) => c.category === category);
+  // 換分類時事件跟著換成該類第一個,避免「分類是 A、事件還停在 B」
+  const pickCategory = (id: string) => {
+    setCategory(id);
+    const first = (data?.catalog ?? []).find((c) => c.category === id);
+    if (first) setKind(first.kind);
+    setConfirming(false);
+  };
   const targetLabel = target === "all" ? `所有玩家(${players.length} 個國家)` : (players.find((p) => p.id === target)?.name ?? "這個國家");
 
   const send = async () => {
@@ -180,13 +192,22 @@ export default function DomesticEventsAdmin() {
           <CardDescription>事件會立刻出現在玩家的畫面上(強制彈窗)。對方已有待處理事件時會略過,不會覆蓋。</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label>分類</Label>
+              <Select value={category} onValueChange={pickCategory}>
+                <SelectTrigger data-testid="select-event-category"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {data.categories.map((m) => <SelectItem key={m.id} value={m.id}>{m.label}({m.count})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-1.5">
               <Label>事件</Label>
               <Select value={kind} onValueChange={(v) => { setKind(v); setConfirming(false); }}>
                 <SelectTrigger data-testid="select-event-kind"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {data.catalog.map((c) => <SelectItem key={c.kind} value={c.kind}>{c.title}</SelectItem>)}
+                  {inCategory.map((c) => <SelectItem key={c.kind} value={c.kind}>{c.title}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

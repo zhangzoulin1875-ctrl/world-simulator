@@ -13,7 +13,7 @@ import { runGameMigrations } from "../gameMigrations";
 import { runParliamentMigrations } from "../parliamentMigrations";
 import { runDomesticEventMigrations } from "./migrations";
 import { governmentLabel } from "../governments";
-import { createEvent, getPendingEvent, resolveEvent, runDomesticEventSettlement } from "./service";
+import { createEvent, getPendingEvent, resolveEvent, runDomesticEventSettlement, listCooldownHistory } from "./service";
 import { getEventDef, EVENT_DEADLINE_TURNS, EVENT_REPEAT_COOLDOWN_TURNS, DOMESTIC_EVENTS } from "./core";
 import { SOCIALIST_PARTY_NAME } from "./parliamentShift";
 import { setEventTextQueuerForTest, rewriteEventText } from "./text";
@@ -346,4 +346,23 @@ test("重複冷卻：管理員手動投放不受冷卻限制", async () => {
   const { sendEventToNations } = await import("./service");
   const r = await sendEventToNations("recall_wave", [nationId]);
   assert.equal(r.sent.length, 1, "管理員刻意投放照常生效");
+});
+
+test("冷卻歷史依「回合窗口」查，不是最近 N 筆：100 種事件全在冷卻內也不會漏掉任何一種", async () => {
+  // 舊做法只取最近 50 筆，100 個種類時會把較早的 50 種當成「沒發生過」而重發。
+  for (const [i, e] of DOMESTIC_EVENTS.entries()) await pastEvent(e.kind, 40 + (i % 8));
+  const hist = await listCooldownHistory(nationId, 60);
+  assert.equal(new Set(hist.map((h) => h.kind)).size, DOMESTIC_EVENTS.length, "窗口內 100 種都要查得到");
+  assert.ok(hist.length >= 100);
+});
+
+test("冷卻歷史：窗口邊界——差 31 回合在內、差 32 回合已出窗口", async () => {
+  await pastEvent("recall_wave", 10);
+  assert.equal((await listCooldownHistory(nationId, 10 + EVENT_REPEAT_COOLDOWN_TURNS - 1)).some((h) => h.kind === "recall_wave"), true, "差 31 回合仍在冷卻");
+  assert.equal((await listCooldownHistory(nationId, 10 + EVENT_REPEAT_COOLDOWN_TURNS)).some((h) => h.kind === "recall_wave"), false, "差 32 回合解禁");
+});
+
+test("冷卻歷史：只看這個國家的事件，別國的不影響", async () => {
+  await pastEvent("recall_wave", 10);
+  assert.equal((await listCooldownHistory("00000000-0000-0000-0000-000000000000", 12)).length, 0);
 });

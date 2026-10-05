@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import {
   db,
   playerNationsTable,
@@ -13,6 +13,7 @@ import { partyColor } from "../parliament/parties";
 import { rulingParty, clampSat, PARLIAMENT_SATISFACTION_START, effectiveParliamentTier, type ParliamentStance, type SeatedParty } from "../parliament/core";
 import {
   EVENT_DEADLINE_TURNS,
+  EVENT_REPEAT_COOLDOWN_TURNS,
   CONSTITUTION_ONLY_KINDS,
   getEventDef,
   isRollTurn,
@@ -72,6 +73,22 @@ export async function listRecentEvents(nationId: string, limit = 10): Promise<Ev
     .where(eq(domesticEventsTable.nationId, nationId))
     .orderBy(sql`${domesticEventsTable.createdAt} desc`)
     .limit(limit);
+}
+
+/**
+ * 冷卻窗口內發生過的事件(只取 kind 與 createdTick)。
+ * 不用「最近 N 筆」:事件種類增加或冷卻變長時,固定筆數會悄悄截掉仍在冷卻的事件,冷卻就失效。
+ * 窗口 = 現在往前 cooldown 個回合內(createdTick > currentTick - cooldown)。
+ */
+export async function listCooldownHistory(
+  nationId: string,
+  currentTick: number,
+  cooldown: number = EVENT_REPEAT_COOLDOWN_TURNS,
+): Promise<{ kind: string; createdTick: number }[]> {
+  return db
+    .select({ kind: domesticEventsTable.kind, createdTick: domesticEventsTable.createdTick })
+    .from(domesticEventsTable)
+    .where(and(eq(domesticEventsTable.nationId, nationId), gt(domesticEventsTable.createdTick, currentTick - cooldown)));
 }
 
 /** 建立事件(模板文字先上線;唯一索引保證同一國不會同時有兩個 pending) */
@@ -253,7 +270,7 @@ export async function runDomesticEventSettlement(rand: () => number = Math.rando
       if (!rollsEvent(rand)) continue;
 
       // 同一種事件 EVENT_REPEAT_COOLDOWN_TURNS 回合內不重發;全部種類都在冷卻就這回合不發事件。
-      const history = await listRecentEvents(n.id, 50);
+      const history = await listCooldownHistory(n.id, tick);
       const kind = pickEventKindWithCooldown(rand, history, tick);
       if (!kind) continue;
       const def = getEventDef(kind);

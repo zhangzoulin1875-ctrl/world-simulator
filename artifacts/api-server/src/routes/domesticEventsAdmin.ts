@@ -5,6 +5,7 @@ import { db, playerNationsTable } from "@workspace/db";
 import { requireAdmin } from "../middlewares/requireAdmin";
 import { logger } from "../lib/logger";
 import { DOMESTIC_EVENTS, EVENT_CHANCE, EVENT_DEADLINE_TURNS, EVENT_EVERY_TURNS } from "../lib/domesticEvents/core";
+import { EVENT_CATEGORY_META } from "../lib/domesticEvents/categories";
 import { adminOverview, cancelPendingEvent, sendEventToNations } from "../lib/domesticEvents/service";
 
 /**
@@ -26,8 +27,13 @@ router.get("/admin/domestic-events", requireAdmin, async (_req, res) => {
   try {
     res.json({
       settings: { everyTurns: EVENT_EVERY_TURNS, chance: EVENT_CHANCE, deadlineTurns: EVENT_DEADLINE_TURNS },
+      // 分類(2026-10-06):管理頁先選分類再選事件;count 是該類實際的事件數
+      categories: EVENT_CATEGORY_META.map((m) => ({
+        id: m.id, label: m.label, weight: m.weight, count: DOMESTIC_EVENTS.filter((d) => d.category === m.id).length,
+      })),
       catalog: DOMESTIC_EVENTS.map((d) => ({
         kind: d.kind,
+        category: d.category,
         title: d.title,
         body: d.body,
         weight: d.weight,

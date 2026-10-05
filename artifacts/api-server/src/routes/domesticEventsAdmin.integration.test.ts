@@ -58,8 +58,15 @@ test("沒有管理員 token 或 token 錯誤:三個介面都拒絕,玩家的登�
 
 test("總覽:回傳事件目錄(含效果數字)、設定與最近紀錄", async () => {
   const j = (await (await fetch(`${base}/api/admin/domestic-events`, { headers: ADMIN })).json()) as any;
-  assert.equal(j.catalog.length, 5);
+  assert.equal(j.catalog.length, 100);
   assert.deepEqual(j.settings, { everyTurns: 2, chance: 0.3, deadlineTurns: 3 });
+  // 分類(管理頁先選分類再選事件):10 類各 10 個,且每個事件的 category 都在分類表裡
+  assert.equal(j.categories.length, 10);
+  assert.ok(j.categories.every((c: any) => c.count === 10 && c.weight > 0 && typeof c.label === "string"));
+  const ids = new Set(j.categories.map((c: any) => c.id));
+  assert.ok(j.catalog.every((c: any) => ids.has(c.category)), "每個事件都有合法分類");
+  assert.equal(j.categories.reduce((a: number, c: any) => a + c.count, 0), 100);
+  assert.ok(!j.catalog.some((c: any) => c.kind === "constitutional_crisis"), "憲法危機不進管理員目錄");
   const soc = j.catalog.find((c: any) => c.kind === "socialist_majority");
   assert.ok(soc.choices.find((c: any) => c.id === "crackdown").effects.stability < 0);
   assert.ok(Array.isArray(j.recent));

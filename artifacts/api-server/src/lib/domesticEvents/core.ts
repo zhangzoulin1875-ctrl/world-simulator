@@ -8,6 +8,9 @@
  *  - 君主制(獨裁層級)也會發生:社會黨多數事件會臨時插入一個福利派席次。
  */
 
+import { EVENT_CATEGORY_META, isEventCategory } from "./categories";
+import { ALL_CATALOG_EVENTS } from "./catalog";
+
 export const EVENT_EVERY_TURNS = 2;
 export const EVENT_CHANCE = 0.3;
 export const EVENT_DEADLINE_TURNS = 3;
@@ -18,115 +21,20 @@ export const EVENT_REPEAT_COOLDOWN_TURNS = 32;
 export const CIVIL_WAR_STABILITY_BELOW = 25;
 export const CIVIL_WAR_CHANCE = 0.35;
 
-export type DomesticEventKind =
-  | "recall_wave"
-  | "socialist_majority"
-  | "military_petition"
-  | "economic_crisis"
-  | "religious_revival"
-  | "constitutional_crisis";
+/**
+ * 事件種類 id(資料庫存的就是這個字串)。100 個事件不再用寫死的聯集型別,
+ * 改由目錄驗證保證 id 唯一、格式正確(見 validateEventCatalog)。
+ */
+export type DomesticEventKind = string;
 
 /** 只能由憲法漏洞觸發的事件種類:不進隨機抽選、不進管理員投放目錄。 */
 export const CONSTITUTION_ONLY_KINDS: readonly DomesticEventKind[] = ["constitutional_crisis"];
 
-export type ChoiceStyle = "comply" | "crackdown" | "delay";
+export type { ChoiceStyle, ChoiceEffects, EventChoiceDef, DomesticEventDef } from "./types";
+import type { ChoiceEffects, DomesticEventDef } from "./types";
 
-/** 一個選項對國家造成的固定效果 */
-export interface ChoiceEffects {
-  stability?: number;
-  money?: number;
-  politicalSupport?: number;
-  militarySatisfaction?: number;
-  parliamentSatisfaction?: number;
-  /** 鎮壓類選項:穩定度低於門檻時有機率爆發內戰 */
-  civilWarRisk?: boolean;
-  /** 社會黨多數事件專用:順應 = 議會被福利派掌握;鎮壓 = 福利派被逐出議會 */
-  parliamentShift?: "socialists_in" | "socialists_out";
-}
-
-export interface EventChoiceDef {
-  id: string;
-  style: ChoiceStyle;
-  /** 模板文字(沒有 AI 或 AI 失敗時使用) */
-  label: string;
-  hint: string;
-  effects: ChoiceEffects;
-}
-
-export interface DomesticEventDef {
-  kind: DomesticEventKind;
-  title: string;
-  /** 模板敘述 */
-  body: string;
-  choices: readonly EventChoiceDef[];
-  /** 逾時自動套用的選項 id */
-  defaultChoiceId: string;
-  /** 抽到的相對權重 */
-  weight: number;
-}
-
-export const DOMESTIC_EVENTS: readonly DomesticEventDef[] = [
-  {
-    kind: "recall_wave",
-    title: "國內爆發罷免潮",
-    body: "街頭的連署與集會一波接一波,民眾要求罷免現任官員,議會內也有人附和。",
-    weight: 10,
-    defaultChoiceId: "delay",
-    choices: [
-      { id: "comply", style: "comply", label: "接受罷免,改組內閣", hint: "穩定與議會回升,軍方不滿", effects: { stability: 8, parliamentSatisfaction: 10, militarySatisfaction: -5 } },
-      { id: "crackdown", style: "crackdown", label: "宣布戒嚴,取締集會", hint: "軍方支持,但穩定大降且有內戰風險", effects: { stability: -20, militarySatisfaction: 12, civilWarRisk: true } },
-      { id: "delay", style: "delay", label: "拖延,等風頭過去", hint: "穩定與議會都受損", effects: { stability: -6, parliamentSatisfaction: -8 } },
-    ],
-  },
-  {
-    kind: "socialist_majority",
-    title: "社會黨人取得議會多數",
-    body: "選舉與補選之後,社會黨人成為議會最大勢力,議會要求政府推動他們的政策。",
-    weight: 10,
-    defaultChoiceId: "delay",
-    choices: [
-      { id: "comply", style: "comply", label: "順應議會,推動社會政策", hint: "議會大幅回升,但國庫吃緊、軍方不安", effects: { parliamentSatisfaction: 15, money: -1500, militarySatisfaction: -8, parliamentShift: "socialists_in" } },
-      { id: "crackdown", style: "crackdown", label: "宣布戒嚴,將社會黨人逐出議會", hint: "軍方支持,但穩定暴跌且有內戰風險", effects: { stability: -25, militarySatisfaction: 15, parliamentSatisfaction: -15, civilWarRisk: true, parliamentShift: "socialists_out" } },
-      { id: "delay", style: "delay", label: "折衷讓步,只採納部分主張", hint: "議會略升,花一點錢", effects: { parliamentSatisfaction: 4, money: -600 } },
-    ],
-  },
-  {
-    kind: "military_petition",
-    title: "軍方聯名請願",
-    body: "將領們聯名上書,要求增加軍費與裝備預算,否則軍心難以維繫。",
-    weight: 8,
-    defaultChoiceId: "delay",
-    choices: [
-      { id: "comply", style: "comply", label: "批准擴編與軍費", hint: "軍方大悅,國庫失血", effects: { militarySatisfaction: 15, money: -2000 } },
-      { id: "crackdown", style: "crackdown", label: "駁回並整肅請願者", hint: "軍方大怒,但政局暫穩", effects: { militarySatisfaction: -15, stability: 3 } },
-      { id: "delay", style: "delay", label: "設宴安撫,不給預算", hint: "軍方小升,政治支持略降", effects: { militarySatisfaction: 4, politicalSupport: -4 } },
-    ],
-  },
-  {
-    kind: "economic_crisis",
-    title: "經濟危機來襲",
-    body: "物價飛漲、工廠停工,銀行門口排起長隊,民怨沸騰。",
-    weight: 8,
-    defaultChoiceId: "delay",
-    choices: [
-      { id: "comply", style: "comply", label: "動用國庫緊急紓困", hint: "穩定回升,國庫大失血", effects: { money: -2500, stability: 8 } },
-      { id: "crackdown", style: "crackdown", label: "推行緊縮,強壓物價", hint: "國庫回血,但穩定與議會下滑", effects: { money: 1500, stability: -8, parliamentSatisfaction: -6 } },
-      { id: "delay", style: "delay", label: "靜觀其變", hint: "穩定下滑", effects: { stability: -10 } },
-    ],
-  },
-  {
-    kind: "religious_revival",
-    title: "宗教復興運動",
-    body: "各地教會集會日益頻繁,信眾要求政府重新確立信仰在公共生活中的地位。",
-    weight: 6,
-    defaultChoiceId: "delay",
-    choices: [
-      { id: "comply", style: "comply", label: "扶持教會,給予特權", hint: "議會與支持度上升,軍方略有疑慮", effects: { parliamentSatisfaction: 6, politicalSupport: 6, militarySatisfaction: -3 } },
-      { id: "crackdown", style: "crackdown", label: "強行世俗化,取締集會", hint: "軍方支持,但穩定與議會下滑", effects: { stability: -10, militarySatisfaction: 6, parliamentSatisfaction: -6 } },
-      { id: "delay", style: "delay", label: "保持中立", hint: "議會略降", effects: { parliamentSatisfaction: -2 } },
-    ],
-  },
-];
+/** 全部隨機事件(100 個):依分類放在 catalog/ 資料夾,一個分類一個檔案。 */
+export const DOMESTIC_EVENTS: readonly DomesticEventDef[] = ALL_CATALOG_EVENTS;
 
 /**
  * 憲法危機(2026-10-06):由通過後的憲法漏洞觸發。標題與敘述在建立事件時換成該漏洞的文字,
@@ -135,6 +43,7 @@ export const DOMESTIC_EVENTS: readonly DomesticEventDef[] = [
  */
 export const CONSTITUTIONAL_CRISIS_DEF: DomesticEventDef = {
   kind: "constitutional_crisis",
+  category: "politics",
   title: "憲法危機",
   body: "憲法條文中的一處漏洞被人拿來大做文章,各方對條文的解釋針鋒相對。",
   weight: 1,
@@ -161,16 +70,23 @@ export function rollsEvent(rand: () => number): boolean {
   return rand() < EVENT_CHANCE;
 }
 
-/** 依權重抽一個事件種類 */
+/**
+ * 兩段式抽選(2026-10-06):先依「分類權重」抽類別(只考慮還有可抽事件的類別),
+ * 再在類別內依事件權重抽事件。這樣某一類事件寫得多,也不會壓過其他類。
+ * exclude 是要排除的事件(冷卻中);全被排除時退回全池(與舊行為一致,冷卻另由 pickEventKindWithCooldown 處理)。
+ */
 export function pickEventKind(rand: () => number, exclude: readonly string[] = []): DomesticEventKind {
-  const pool = DOMESTIC_EVENTS.filter((e) => !exclude.includes(e.kind));
-  const list = pool.length > 0 ? pool : DOMESTIC_EVENTS;
-  const total = list.reduce((s, e) => s + e.weight, 0);
-  let r = rand() * total;
-  for (const e of list) {
-    r -= e.weight;
-    if (r < 0) return e.kind;
-  }
+  let pool = DOMESTIC_EVENTS.filter((e) => !exclude.includes(e.kind));
+  if (pool.length === 0) pool = [...DOMESTIC_EVENTS];
+  const cats = EVENT_CATEGORY_META.filter((m) => pool.some((e) => e.category === m.id));
+  const totalCat = cats.reduce((a, m) => a + m.weight, 0);
+  let r = rand() * totalCat;
+  let chosen = cats[cats.length - 1]!;
+  for (const m of cats) { r -= m.weight; if (r < 0) { chosen = m; break; } }
+  const list = pool.filter((e) => e.category === chosen.id);
+  const total = list.reduce((a, e) => a + e.weight, 0);
+  let r2 = rand() * total;
+  for (const e of list) { r2 -= e.weight; if (r2 < 0) return e.kind; }
   return list[list.length - 1]!.kind;
 }
 
@@ -239,13 +155,41 @@ export function applyEffects(
   };
 }
 
-/** 驗證目錄本身(供測試與啟動自檢):每個事件三個風格各一、預設選項存在、id 不重複 */
+/** 事件選項的「強度」:各項變動的絕對值加總(金錢每 250 算 1 點)。用來檢查數值平衡。 */
+export function choiceIntensity(e: ChoiceEffects): number {
+  return Math.abs(e.stability ?? 0) + Math.abs((e.money ?? 0) / 250) + Math.abs(e.politicalSupport ?? 0)
+    + Math.abs(e.militarySatisfaction ?? 0) + Math.abs(e.parliamentSatisfaction ?? 0);
+}
+
+/** 各風格的強度允許區間(以原本 5 個事件的量級為基準,2026-10-06 定案) */
+export const INTENSITY_RANGE = {
+  comply: { min: 10, max: 32 },
+  crackdown: { min: 14, max: 40 },
+  delay: { min: 2, max: 16 },
+} as const;
+/** 內建的特殊事件(帶議會席次改動)可超出區間 */
+const INTENSITY_EXEMPT = new Set(["socialist_majority"]);
+
+const KIND_RE = /^[a-z][a-z0-9_]{2,47}$/;
+
+/**
+ * 驗證目錄本身(供測試與啟動自檢):id 格式與唯一、分類存在且各類數量正確、
+ * 每個事件三個風格各一、預設選項存在、數值強度在區間內、鎮壓比順應更「痛」(風險與報酬對稱)。
+ */
 export function validateEventCatalog(defs: readonly DomesticEventDef[] = DOMESTIC_EVENTS): string[] {
   const problems: string[] = [];
   const kinds = new Set<string>();
+  const titles = new Set<string>();
+  const perCategory = new Map<string, number>();
   for (const d of defs) {
     if (kinds.has(d.kind)) problems.push(`重複事件 ${d.kind}`);
     kinds.add(d.kind);
+    if (!KIND_RE.test(d.kind)) problems.push(`${d.kind} id 格式不合(小寫英數底線,3~48 字)`);
+    if (titles.has(d.title)) problems.push(`${d.kind} 標題與別的事件重複:${d.title}`);
+    titles.add(d.title);
+    if (!isEventCategory(d.category)) problems.push(`${d.kind} 分類不存在:${String(d.category)}`);
+    perCategory.set(d.category, (perCategory.get(d.category) ?? 0) + 1);
+    if (!d.title.trim() || !d.body.trim()) problems.push(`${d.kind} 缺標題或敘述`);
     if (d.weight <= 0) problems.push(`${d.kind} 權重必須為正`);
     const ids = d.choices.map((c) => c.id);
     if (new Set(ids).size !== ids.length) problems.push(`${d.kind} 選項 id 重複`);
@@ -256,7 +200,21 @@ export function validateEventCatalog(defs: readonly DomesticEventDef[] = DOMESTI
       if (!c.label.trim() || !c.hint.trim()) problems.push(`${d.kind}/${c.id} 缺文字`);
       if (Object.keys(c.effects).length === 0) problems.push(`${d.kind}/${c.id} 沒有任何效果`);
       if (c.effects.civilWarRisk && c.style !== "crackdown") problems.push(`${d.kind}/${c.id} 只有鎮壓可帶內戰風險`);
+      if (!INTENSITY_EXEMPT.has(d.kind) && c.style in INTENSITY_RANGE) {
+        const r = INTENSITY_RANGE[c.style as keyof typeof INTENSITY_RANGE];
+        const i = choiceIntensity(c.effects);
+        if (i < r.min || i > r.max) problems.push(`${d.kind}/${c.id} 強度 ${i.toFixed(1)} 超出 ${c.style} 區間 ${r.min}~${r.max}`);
+      }
     }
+    const byStyle = (st: string) => d.choices.find((c) => c.style === st);
+    const cr = byStyle("crackdown"), cp = byStyle("comply"), dl = byStyle("delay");
+    if (!INTENSITY_EXEMPT.has(d.kind) && cr && cp && dl) {
+      if (choiceIntensity(dl.effects) >= choiceIntensity(cp.effects)) problems.push(`${d.kind} 拖延的衝擊不該大於等於順應`);
+    }
+  }
+  for (const m of EVENT_CATEGORY_META) {
+    const n = perCategory.get(m.id) ?? 0;
+    if (defs === DOMESTIC_EVENTS && n !== m.expectedCount) problems.push(`分類 ${m.id} 應有 ${m.expectedCount} 個事件,實際 ${n}`);
   }
   return problems;
 }
