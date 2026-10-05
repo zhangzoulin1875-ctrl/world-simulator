@@ -13,13 +13,14 @@ test("city seed validation passes", () => {
   validateMapCitySeed();
 });
 
-test("quotas: 歐洲90 中國20 亞洲其他106 美洲50 非洲22 = 288", () => {
+test("quotas: 歐洲90 中國20 亞洲其他106 美洲50 非洲22 = 288，另加姆大陸虛構 12", () => {
   assert.deepEqual(EXPECTED_CITY_QUOTAS, {
     europe: 90,
     china: 20,
     otherAsia: 106,
     americas: 50,
     africa: 22,
+    mu: 12,
   });
   for (const group of CITY_QUOTA_GROUPS) {
     assert.equal(
@@ -28,7 +29,9 @@ test("quotas: 歐洲90 中國20 亞洲其他106 美洲50 非洲22 = 288", () => 
       `group ${group} quota mismatch`,
     );
   }
-  assert.equal(getAllCitySeeds().length, 288);
+  assert.equal(getAllCitySeeds().length, 300);
+  const real = getAllCitySeeds().filter((c) => !MAP_CITY_SEED.mu.includes(c));
+  assert.equal(real.length, 288);
 });
 
 test("per-macro city distribution (Task #311 補增後)", () => {
@@ -57,6 +60,7 @@ test("per-macro city distribution (Task #311 補增後)", () => {
     美洲: 27,
     南亞: 17,
     南美: 23,
+    姆大陸: 12,
   });
 });
 

@@ -16,13 +16,13 @@ test("seed passes internal validation", () => {
   validateMapRegionSeed();
 });
 
-test("seed has exactly 373 unique regions across 14 macro regions", () => {
+test("seed has exactly 397 unique regions across 15 macro regions", () => {
   const rows = getSeedRows();
   assert.equal(rows.length, EXPECTED_REGION_COUNT);
-  assert.equal(rows.length, 373);
-  assert.equal(new Set(rows.map((r) => r.name)).size, 373);
+  assert.equal(rows.length, 397);
+  assert.equal(new Set(rows.map((r) => r.name)).size, 397);
   assert.equal(Object.keys(MAP_REGION_SEED).length, EXPECTED_MACRO_REGION_COUNT);
-  assert.equal(Object.keys(MAP_REGION_SEED).length, 14);
+  assert.equal(Object.keys(MAP_REGION_SEED).length, 15);
 });
 
 test("macro region sizes match the confirmed 二代地圖 taxonomy", () => {
@@ -44,6 +44,7 @@ test("macro region sizes match the confirmed 二代地圖 taxonomy", () => {
     美洲: 27,
     南亞: 22,
     南美: 18,
+    姆大陸: 24,
   });
 });
 
@@ -90,7 +91,7 @@ test("spot checks: adjacency is real and mutual", () => {
 
 test("soil fertility: every region is an integer within 0–120", () => {
   const entries = Object.entries(REGION_ASSIGNMENTS);
-  assert.equal(entries.length, 373);
+  assert.equal(entries.length, 397);
   for (const [name, a] of entries) {
     assert.ok(Number.isInteger(a.f), `${name} 肥沃度應為整數（得 ${a.f}）`);
     assert.ok(a.f >= 0 && a.f <= 120, `${name} 肥沃度 ${a.f} 超出 0–120`);

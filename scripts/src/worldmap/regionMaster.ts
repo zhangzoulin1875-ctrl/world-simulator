@@ -23,7 +23,7 @@ export interface SeedRegion {
   lon: number;
   /** 代表點緯度。 */
   lat: number;
-  /** 涵蓋的國家 adm0_a3 代碼（該國單元指派給最近的候選區）。 */
+  /** 涵蓋的國家 adm0_a3 代碼（該國單元指派給最近的候選區）。虛構陸地（姆大陸）為空陣列。 */
   countries: readonly string[];
   /** 文明 profile（對應 mapRegionEraStats.PROFILES）。 */
   profile: string;
@@ -459,7 +459,35 @@ export const SEED_REGIONS: readonly SeedRegion[] = [
   { name: "潘帕斯平原", macro: "南美", lon: -64.0, lat: -32.0, countries: ["ARG"], profile: "latam_temperate", f: 95 },
   { name: "巴塔哥尼亞", macro: "南美", lon: -69.0, lat: -45.0, countries: ["ARG"], profile: "latam_temperate", f: 8 },
   { name: "智利", macro: "南美", lon: -71.0, lat: -35.0, countries: ["CHL"], profile: "latam_temperate", f: 50, pm: 1.3 },
-  { name: "烏拉圭", macro: "南美", lon: -56.0, lat: -33.0, countries: ["URY"], profile: "latam_temperate", f: 80 },
+  { name: "烏拉圭", macro: "南美", lon: -56.0, lat: -33.0, countries: ["URY"], profile: "latam_temperate", f: 80 },  // ══════════════ 姆大陸 (24) ══════════════
+  // 虛構陸地（太平洋中央，夏威夷以南；輪廓依參考手繪圖重新描摹，面積約 935 萬 km²）。
+  // 分區為有機形狀（加權種子＋座標扭曲），大小懸殊、邊界彎曲，不走格狀。
+  // 幾何固化於 data/mu-continent.geojson，由 buildWorldDistricts 併入；不走 Natural Earth，
+  // 故 countries 為空。可建國、無特殊限制。肥沃度：河谷／沿海高、山地／台地／長尾低。
+  { name: "姆西岬", macro: "姆大陸", lon: -175.1, lat: 6.1, countries: [], profile: "mu", f: 8, pm: 0.8 },
+  { name: "波納佩灣", macro: "姆大陸", lon: -172.0, lat: 4.0, countries: [], profile: "mu", f: 19, pm: 1.2 },
+  { name: "落日灣", macro: "姆大陸", lon: -167.9, lat: 0.1, countries: [], profile: "mu", f: 21, pm: 1.3 },
+  { name: "晨星岬", macro: "姆大陸", lon: -167.5, lat: 6.0, countries: [], profile: "mu", f: 15 },
+  { name: "翡翠半島", macro: "姆大陸", lon: -164.5, lat: -4.3, countries: [], profile: "mu", f: 16 },
+  { name: "姆西原", macro: "姆大陸", lon: -164.4, lat: 1.1, countries: [], profile: "mu", f: 13, pm: 0.9 },
+  { name: "斐濟南灘", macro: "姆大陸", lon: -158.5, lat: -7.9, countries: [], profile: "mu", f: 20, pm: 1.2 },
+  { name: "姆中央谷地", macro: "姆大陸", lon: -157.1, lat: 2.3, countries: [], profile: "mu", f: 24, pm: 1.4 },
+  { name: "夏威夷南麓", macro: "姆大陸", lon: -155.9, lat: 8.7, countries: [], profile: "mu", f: 11, pm: 0.9 },
+  { name: "聖樹平原", macro: "姆大陸", lon: -153.3, lat: -5.3, countries: [], profile: "mu", f: 25, pm: 1.4 },
+  { name: "日昇高原", macro: "姆大陸", lon: -150.3, lat: 3.8, countries: [], profile: "mu", f: 8, pm: 0.7 },
+  { name: "內海渡口", macro: "姆大陸", lon: -149.2, lat: -1.1, countries: [], profile: "mu", f: 18, pm: 1.2 },
+  { name: "北海岸", macro: "姆大陸", lon: -148.1, lat: 8.5, countries: [], profile: "mu", f: 18, pm: 1.1 },
+  { name: "紅岩台地", macro: "姆大陸", lon: -146.8, lat: -8.4, countries: [], profile: "mu", f: 6, pm: 0.6 },
+  { name: "珊瑚灣", macro: "姆大陸", lon: -144.0, lat: -11.4, countries: [], profile: "mu", f: 17 },
+  { name: "王都盆地", macro: "姆大陸", lon: -142.7, lat: 2.5, countries: [], profile: "mu", f: 23, pm: 1.4 },
+  { name: "馬克薩斯灣", macro: "姆大陸", lon: -140.3, lat: 7.4, countries: [], profile: "mu", f: 18, pm: 1.1 },
+  { name: "月神湖區", macro: "姆大陸", lon: -138.7, lat: -5.2, countries: [], profile: "mu", f: 14 },
+  { name: "東原", macro: "姆大陸", lon: -135.8, lat: 1.6, countries: [], profile: "mu", f: 12, pm: 0.8 },
+  { name: "長尾北岸", macro: "姆大陸", lon: -132.9, lat: -3.3, countries: [], profile: "mu", f: 11, pm: 0.8 },
+  { name: "長尾半島", macro: "姆大陸", lon: -132.8, lat: -8.4, countries: [], profile: "mu", f: 7, pm: 0.6 },
+  { name: "南十字岬", macro: "姆大陸", lon: -129.4, lat: -8.3, countries: [], profile: "mu", f: 5, pm: 0.5 },
+  { name: "遺跡高地", macro: "姆大陸", lon: -126.4, lat: -10.3, countries: [], profile: "mu", f: 4, pm: 0.5 },
+  { name: "復活節尖端", macro: "姆大陸", lon: -123.5, lat: -11.6, countries: [], profile: "mu", f: 3, pm: 0.4 },
 ];
 
 /**
@@ -528,6 +556,7 @@ export const MACRO_ORDER: readonly string[] = [
   "美洲",
   "南亞",
   "南美",
+  "姆大陸",
 ];
 
 /** 全部 373 區名稱（順序：SEED_REGIONS 依大地區、CHINA_REGIONS 併入中國）。 */

@@ -37,8 +37,8 @@ export const DEFAULT_TAX_RATE_PCT = 3;
  */
 export const GLOBAL_COST_DISCOUNT = 1 / 12;
 
-/** 全球區數（map_regions 373 區）。標準國 = 擁有「平均一區」人口的國家。 */
-export const GLOBAL_REGION_COUNT = 373;
+/** 全球區數（map_regions 397 區，含姆大陸 24 區）。標準國 = 擁有「平均一區」人口的國家。 */
+export const GLOBAL_REGION_COUNT = 397;
 
 /** 小國（r<1）指數：<1 → 價格降得比國力慢（補貼）。 */
 export const SMALL_NATION_EXPONENT = 0.7;

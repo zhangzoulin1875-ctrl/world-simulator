@@ -32,6 +32,12 @@ const OUTPUT = path.resolve(
 /** 完全不畫的國家（連灰底都不要）。 */
 const DROP_COUNTRIES = new Set(["ATA"]);
 const SIMPLIFY_PERCENTAGE = "4%";
+/**
+ * 虛構陸地「姆大陸」14 區的固化幾何（經緯度多邊形，相鄰區共用邊界）。
+ * 不在 Natural Earth 內，故不走最近-seed 指派；建置時直接併入 tagged 單元，
+ * 之後與其他區一起 dissolve／simplify／輸出，避免重建地圖時把姆大陸弄丟。
+ */
+const MU_CONTINENT = path.resolve(import.meta.dirname, "data/mu-continent.geojson");
 
 type Bbox = readonly [number, number, number, number];
 type Position = [number, number];
@@ -370,6 +376,24 @@ function main(): void {
         }
       }
     }
+  }
+
+  // ── 虛構陸地：姆大陸（固化幾何直接併入）─────────────────
+  const muFc = JSON.parse(fs.readFileSync(MU_CONTINENT, "utf8")) as {
+    features: Array<{ properties: { district: string }; geometry: Geometry }>;
+  };
+  for (const f of muFc.features) {
+    const name = f.properties.district;
+    if (assignedNames.has(name)) {
+      errors.push(`姆大陸區 "${name}" 與其他區重名`);
+      continue;
+    }
+    tagged.push({
+      type: "Feature",
+      properties: { district: name },
+      geometry: f.geometry,
+    });
+    assignedNames.add(name);
   }
 
   // ── 全區皆有幾何檢查 ───────────────────────────────────

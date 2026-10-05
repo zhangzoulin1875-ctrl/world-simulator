@@ -9,28 +9,28 @@
  * 既有值，時代推進自動跟漲，可隨時調整）。
  *
  * 係數定義 = 該時代全球總人口 × 稅收效率 ÷ 古典全球總人口 × 古典稅收效率
- *   （即「國家層級稅基」相對古典的倍數；資料來源：map_region_era_stats 全 373
- *    區各時代人口加總、TAX_EFFICIENCY_BY_ERA）。四捨五入到 3 位有效數字。
+ *   （即「國家層級稅基」相對古典的倍數；資料來源：map_region_era_stats 全 393
+ *    區（含姆大陸 20 區）各時代人口加總、TAX_EFFICIENCY_BY_ERA）。四捨五入到 3 位有效數字。
  * 新增時代或改稅收效率時，請跑 eraCostScale.test.ts 的「與稅基同步」測試。
  */
 import { TAX_EFFICIENCY_BY_ERA } from "./economy";
 
-/** 各時代全球總人口（map_region_era_stats 373 區加總；種子資料）。 */
+/** 各時代全球總人口（map_region_era_stats 397 區加總（含姆大陸 24 區）；種子資料）。 */
 export const ERA_GLOBAL_POPULATION: Readonly<Record<string, number>> = {
-  classical: 216_074_250,
-  roman: 305_691_950,
-  early_medieval: 345_232_650,
-  high_medieval: 423_912_360,
-  renaissance: 535_011_890,
-  discovery: 587_391_920,
-  scientific: 669_812_360,
-  enlightenment: 907_177_480,
-  industrial: 1_254_938_130,
-  ww1: 1_758_878_500,
-  ww2: 2_273_421_400,
-  cold_war: 3_808_599_200,
-  modern: 8_055_776_800,
-  future: 9_108_293_000,
+  classical: 218_989_850,
+  roman: 309_578_650,
+  early_medieval: 350_091_350,
+  high_medieval: 429_740_660,
+  renaissance: 542_786_990,
+  discovery: 598_068_420,
+  scientific: 685_353_560,
+  enlightenment: 929_529_480,
+  industrial: 1_295_732_130,
+  ww1: 1_826_880_500,
+  ww2: 2_370_566_400,
+  cold_war: 3_964_011_200,
+  modern: 8_288_946_800,
+  future: 9_370_553_000,
 };
 
 /** 四捨五入到 3 位有效數字（讓數字好讀、好手調）。 */
@@ -58,18 +58,18 @@ export function computeEraCostScaleTable(): Record<string, number> {
 export const ERA_COST_SCALE: Readonly<Record<string, number>> = {
   classical: 1,
   roman: 2.83,
-  early_medieval: 4.79,
+  early_medieval: 4.8,
   high_medieval: 7.85,
   renaissance: 14.9,
-  discovery: 24.5,
-  scientific: 40.3,
-  enlightenment: 75.6,
-  industrial: 145,
-  ww1: 285,
-  ww2: 473,
-  cold_war: 1060,
-  modern: 2980,
-  future: 4220,
+  discovery: 24.6,
+  scientific: 40.7,
+  enlightenment: 76.4,
+  industrial: 148,
+  ww1: 292,
+  ww2: 487,
+  cold_war: 1090,
+  modern: 3030,
+  future: 4280,
 };
 
 /** 取得時代係數；未知時代回 1（不縮放，等同古典）。 */

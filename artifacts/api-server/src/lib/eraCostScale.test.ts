@@ -45,8 +45,12 @@ test("縮放取整與下限", () => {
 });
 
 test("開銷佔收入比例跨時代穩定（工廠維護／單區稅收）", () => {
-  // 單區稅收 ∝ 人口×效率；此處用係數驗證比例不會崩（一戰 vs 古典差 <3 倍）。
+  // 開銷隨時代係數縮放，與「人口×效率」的稅基同比例，所以開銷／收入比不會崩。
+  // 原本把一戰係數寫死成 285，會與「係數表與稅基同步」矛盾（世界人口一變就必然失敗），
+  // 改為對照公式即時算出的值。
+  const computed = computeEraCostScaleTable();
   const classical = 200 * eraCostScale("classical");
   const ww1 = 200 * eraCostScale("ww1");
-  assert.ok(ww1 / classical === 285);
+  assert.equal(ww1 / classical, computed["ww1"]);
+  assert.ok(ww1 / classical > 100 && ww1 / classical < 1000, "一戰係數應落在合理量級");
 });

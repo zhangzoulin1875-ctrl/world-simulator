@@ -29,7 +29,7 @@ test("era definitions: 14 eras, unique slugs, user-specified averages", () => {
   assert.equal(DEFAULT_ERA_SLUG, "classical");
 });
 
-test("seed validation passes and covers exactly the 373 seed regions", () => {
+test("seed validation passes and covers exactly the 397 seed regions", () => {
   validateEraStatSeed();
   const seedNames = getSeedRows().map((r) => r.name);
   assert.equal(seedNames.length, EXPECTED_REGION_COUNT);
@@ -39,7 +39,7 @@ test("seed validation passes and covers exactly the 373 seed regions", () => {
   );
 });
 
-test("all 373 regions have a positive generated area", () => {
+test("all 397 regions have a positive generated area", () => {
   for (const name of getSeedRows().map((r) => r.name)) {
     const area = MAP_REGION_AREAS_KM2[name];
     assert.ok(area !== undefined && area > 0, `${name} missing/invalid area`);
@@ -93,7 +93,7 @@ test("static rows: fertility follows user baselines with variance", () => {
   }
 });
 
-test("era stat rows: complete 373×14 grid, all values positive", () => {
+test("era stat rows: complete 397×14 grid, all values positive", () => {
   const rows = generateEraStatRows();
   assert.equal(rows.length, EXPECTED_REGION_COUNT * ERA_COUNT);
   const seen = new Set<string>();

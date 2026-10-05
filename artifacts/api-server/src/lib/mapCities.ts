@@ -36,7 +36,7 @@ export interface MapCitySeed {
   lng: number;
 }
 
-export type CityQuotaGroup = "europe" | "china" | "otherAsia" | "americas" | "africa";
+export type CityQuotaGroup = "europe" | "china" | "otherAsia" | "americas" | "africa" | "mu";
 
 export const EXPECTED_CITY_QUOTAS: Readonly<Record<CityQuotaGroup, number>> = {
   europe: 90,
@@ -44,6 +44,8 @@ export const EXPECTED_CITY_QUOTAS: Readonly<Record<CityQuotaGroup, number>> = {
   otherAsia: 106,
   americas: 50,
   africa: 22,
+  // 姆大陸（虛構）：隨機虛構 12 座，不計入歷史城市 288 座配額。
+  mu: 12,
 };
 
 export const MAP_CITY_SEED: Readonly<
@@ -355,6 +357,21 @@ export const MAP_CITY_SEED: Readonly<
     { name: "約翰尼斯堡", region: "南非德蘭", lat: -26.204, lng: 28.047 },
     { name: "喀土穆", region: "蘇丹草原", lat: 15.5, lng: 32.56 },
     { name: "塔那那利佛", region: "馬達加斯", lat: -18.879, lng: 47.508 },
+  ],
+  // ── 姆大陸（12，虛構）────────────────────────────────────
+  mu: [
+    { name: "姆都．伊爾曼", region: "王都盆地", lat: 1.496, lng: -143.975 },
+    { name: "太陽神殿城", region: "姆中央谷地", lat: 2.635, lng: -156.816 },
+    { name: "白珊瑚港", region: "珊瑚灣", lat: -11.175, lng: -143.711 },
+    { name: "月湖城", region: "月神湖區", lat: -4.204, lng: -139.775 },
+    { name: "聖樹鎮", region: "聖樹平原", lat: -4.876, lng: -153.482 },
+    { name: "落日港", region: "落日灣", lat: 1.415, lng: -168.235 },
+    { name: "翡翠津", region: "翡翠半島", lat: -3.625, lng: -163.222 },
+    { name: "紅岩堡", region: "紅岩台地", lat: -7.16, lng: -146.2 },
+    { name: "晨星關", region: "晨星岬", lat: 6.412, lng: -167.57 },
+    { name: "波納佩灣港", region: "波納佩灣", lat: 4.188, lng: -171.213 },
+    { name: "長尾渡", region: "長尾北岸", lat: -3.275, lng: -132.935 },
+    { name: "遺跡守望", region: "遺跡高地", lat: -11.555, lng: -126.856 },
   ],
 };
 
