@@ -1,6 +1,7 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
 import {
+  Newspaper,
   Activity,
   AlertTriangle,
   RefreshCw,
@@ -281,6 +282,14 @@ function AppSidebar() {
                   <Link href="/gift-resources">
                     <Gift className="w-4 h-4" />
                     <span>發放資源</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isActive("/domestic-events")}>
+                  <Link href="/domestic-events">
+                    <Newspaper className="w-4 h-4" />
+                    <span>國內事件</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

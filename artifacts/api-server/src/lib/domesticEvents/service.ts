@@ -28,6 +28,11 @@ import { queueEventRewrite } from "./text";
 type Nation = typeof playerNationsTable.$inferSelect;
 type EventRow = typeof domesticEventsTable.$inferSelect;
 
+export interface AdminSendResult {
+  sent: { nationId: string; nationName: string; eventId: string }[];
+  skipped: { nationId: string; nationName: string; reason: "has_pending" | "npc" | "not_found" }[];
+}
+
 export interface SettlementSummary {
   nations: number;
   created: number;
@@ -254,3 +259,64 @@ export async function runDomesticEventSettlement(rand: () => number = Math.rando
 }
 
 export { clampSat };
+
+
+/**
+ * 管理員投放事件給指定玩家國(2026-10-05)。
+ *  - 已有待處理事件的國家一律略過,不覆蓋玩家正在面對的事件(唯一索引也會擋);
+ *  - NPC 不接受事件(沒有人能回應);
+ *  - 事件走和自然事件一樣的流程:同樣的期限、同樣的效果表、同樣可被 AI 改寫文字。
+ */
+export async function sendEventToNations(
+  kind: string,
+  nationIds: readonly string[],
+  opts: { rewrite?: boolean } = {},
+): Promise<AdminSendResult> {
+  const def = getEventDef(kind);
+  if (!def) throw new Error(`unknown event kind: ${kind}`);
+  const result: AdminSendResult = { sent: [], skipped: [] };
+  for (const id of nationIds) {
+    const [n] = await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, id));
+    if (!n) { result.skipped.push({ nationId: id, nationName: "", reason: "not_found" }); continue; }
+    const name = n.name ?? "";
+    if (n.isNpc) { result.skipped.push({ nationId: id, nationName: name, reason: "npc" }); continue; }
+    const tick = await currentTick(id);
+    const created = await createEvent(id, def, tick);
+    if (!created) { result.skipped.push({ nationId: id, nationName: name, reason: "has_pending" }); continue; }
+    result.sent.push({ nationId: id, nationName: name, eventId: created.id });
+    if (opts.rewrite !== false) queueEventRewrite(created.id);
+  }
+  return result;
+}
+
+/** 管理員撤回尚未處理的事件(已處理的不動,也不回滾效果)。回傳是否真的撤回 */
+export async function cancelPendingEvent(eventId: string): Promise<boolean> {
+  const rows = await db
+    .update(domesticEventsTable)
+    .set({ status: "expired", outcome: "管理員撤回了這個事件,沒有造成任何影響。", resolvedAt: new Date() })
+    .where(and(eq(domesticEventsTable.id, eventId), eq(domesticEventsTable.status, "pending")))
+    .returning({ id: domesticEventsTable.id });
+  return rows.length > 0;
+}
+
+/** 後台總覽:各國目前待處理的事件 + 最近的事件紀錄 */
+export async function adminOverview(limit = 40) {
+  const rows = await db
+    .select({
+      id: domesticEventsTable.id,
+      nationId: domesticEventsTable.nationId,
+      nationName: playerNationsTable.name,
+      kind: domesticEventsTable.kind,
+      title: domesticEventsTable.title,
+      status: domesticEventsTable.status,
+      chosenId: domesticEventsTable.chosenId,
+      outcome: domesticEventsTable.outcome,
+      createdAt: domesticEventsTable.createdAt,
+      resolvedAt: domesticEventsTable.resolvedAt,
+    })
+    .from(domesticEventsTable)
+    .innerJoin(playerNationsTable, eq(playerNationsTable.id, domesticEventsTable.nationId))
+    .orderBy(sql`${domesticEventsTable.createdAt} desc`)
+    .limit(limit);
+  return rows;
+}

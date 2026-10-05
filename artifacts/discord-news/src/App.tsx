@@ -51,6 +51,7 @@ import CampaignDetail from "@/pages/campaign-detail";
 import WarManagement from "@/pages/war-management";
 import AccountBans from "@/pages/account-bans";
 import GiftResources from "@/pages/gift-resources";
+import DomesticEventsAdmin from "@/pages/domestic-events-admin";
 import WorldSim from "@/pages/world-sim";
 import TerritoryHistory from "@/pages/territory-history";
 import PoliticalNotes from "@/pages/political-notes";
@@ -127,6 +128,9 @@ function SiteRoutes() {
         </Route>
         <Route path="/gift-resources">
           {() => <AdminOnly><GiftResources /></AdminOnly>}
+        </Route>
+        <Route path="/domestic-events">
+          {() => <AdminOnly><DomesticEventsAdmin /></AdminOnly>}
         </Route>
         <Route path="/world-sim">
           {() => <AdminOnly><WorldSim /></AdminOnly>}
