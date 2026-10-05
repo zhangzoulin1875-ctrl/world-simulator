@@ -15,11 +15,16 @@ export async function runEconomyMigrations(): Promise<void> {
 
 async function runEconomyMigrationsInner(): Promise<void> {
   // ── player_nations 新增經濟欄位 ──
-  // 稅率（%）：基礎 1，只能透過 AI 財政政策調整。CHECK 0–100。
+  // 稅率（%）：新國預設 3(既有國家不動),只能透過 AI 財政政策調整。CHECK 0–100。
   await db.execute(sql`
     ALTER TABLE player_nations
-      ADD COLUMN IF NOT EXISTS tax_rate_pct integer NOT NULL DEFAULT 1
+      ADD COLUMN IF NOT EXISTS tax_rate_pct integer NOT NULL DEFAULT 3
         CHECK (tax_rate_pct >= 0 AND tax_rate_pct <= 100)
+  `);
+  // 2026-10-05:新建國家預設稅率 1 → 3。ADD COLUMN IF NOT EXISTS 在欄位已存在的庫是空操作,
+  // 不會改既有欄位的 DEFAULT,所以明確 SET DEFAULT(只影響之後新建的國家,既有國家稅率不動)。
+  await db.execute(sql`
+    ALTER TABLE player_nations ALTER COLUMN tax_rate_pct SET DEFAULT 3
   `);
   // Task #401 — 四項預算分配（budget_*_pct）整組移除（一次性 DROP，永不再加回）。
   // 原 ADD 於此處建立，依「在原建立處覆蓋 DDL」原則改為 DROP IF EXISTS。

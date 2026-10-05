@@ -36,8 +36,38 @@ export const NPC_INITIATE_CHANCE = 0.25;
  */
 export const NPC_TROOP_RATIO = 0.004;
 export const NPC_DEFENDER_TROOP_RATIO = 0.008;
+/**
+ * 空地 NPC(攻打無人領土時就地建國/升格的防守方)的本土動員比例。
+ * 這類 NPC 沒有常備軍,全靠民兵補到目標兵力;用一般防守比例(0.8%)時,工業到二戰約
+ * 2.7 萬~4.9 萬、現代約 17 萬,對剛起步的玩家過強。改為 0.2%(約一般防守的 1/4),
+ * 作為「輕量阻力」:工業 ~6.7 千、二戰 ~1.2 萬、現代 ~4.3 萬。下限仍為 NPC_TROOP_MIN。
+ */
+export const NPC_UNCLAIMED_DEFENDER_TROOP_RATIO = 0.002;
 export const NPC_TROOP_MIN = 5_000;
 export const NPC_TROOP_MAX = 3_000_000;
+
+/**
+ * NPC 開戰時自動組建的目標兵力(純函式,DB-free,供單元測試)。
+ *  - 進攻方:人口 × NPC_TROOP_RATIO。
+ *  - 一般防守方:人口 × NPC_DEFENDER_TROOP_RATIO。
+ *  - 空地 NPC(攻打無人領土就地建國/升格的防守方):人口 × NPC_UNCLAIMED_DEFENDER_TROOP_RATIO。
+ * 皆夾在 [NPC_TROOP_MIN, NPC_TROOP_MAX]。
+ */
+export function npcCampaignTroops(params: {
+  population: number;
+  isDefender: boolean;
+  unclaimed?: boolean;
+}): number {
+  const ratio = params.isDefender
+    ? params.unclaimed
+      ? NPC_UNCLAIMED_DEFENDER_TROOP_RATIO
+      : NPC_DEFENDER_TROOP_RATIO
+    : NPC_TROOP_RATIO;
+  return Math.min(
+    NPC_TROOP_MAX,
+    Math.max(NPC_TROOP_MIN, Math.floor(params.population * ratio)),
+  );
+}
 
 /**
  * 追蹤「開戰後背景生成地形簡報」這類 fire-and-forget 的非同步工作。正式運行

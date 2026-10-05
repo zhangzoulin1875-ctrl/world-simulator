@@ -150,13 +150,13 @@ export const playerNationsTable = pgTable("player_nations", {
   diplomaticAttitude: text("diplomatic_attitude"),
   /**
    * 經濟系統（Task #117）。
-   * taxRatePct：人口稅率（%，基礎 1）。只能透過 AI 判定的財政政策調整，
+   * taxRatePct：人口稅率（%，新建國家預設 3；既有國家不動）。只能透過 AI 判定的財政政策調整，
    *   不是直接滑桿——加稅／減稅的代價由 AI 決定。
    * taxEfficiencyBonus：稅收效率的額外加成（%，未來經濟科技用；基礎效率由
    *   時代決定，見 lib/economy.ts）。
    * （四項預算分配 budget_*_pct 已於 Task #401 整組移除。）
    */
-  taxRatePct: integer("tax_rate_pct").notNull().default(1),
+  taxRatePct: integer("tax_rate_pct").notNull().default(3),
   taxEfficiencyBonus: integer("tax_efficiency_bonus").notNull().default(0),
   /**
    * Task #382 — 糧食政策開關（非累積資源；產出/消耗 per-request 計算）。

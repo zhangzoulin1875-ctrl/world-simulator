@@ -56,8 +56,7 @@ import { recordTerritoryChanges } from "../territoryHistory";
 import {
   WarActionError,
   trackBackgroundWork,
-  NPC_TROOP_RATIO,
-  NPC_DEFENDER_TROOP_RATIO,
+  npcCampaignTroops,
   NPC_TROOP_MIN,
   NPC_TROOP_MAX,
   type Tx,
@@ -441,6 +440,8 @@ export async function initiateCampaign(params: {
   // forceVoid=true → enemyControl 保持 undefined，直接進入無人地帶路徑。
 
   let defender: PlayerNation;
+  // 本次防守方是否為「攻打無人領土」就地建國/升格的空地 NPC(兵力採較低的動員比例)。
+  let unclaimedDefender = false;
   if (enemyControl) {
     // 一般戰役：目標由交戰中的敵國控制。
     const [d] = await db
@@ -531,6 +532,7 @@ export async function initiateCampaign(params: {
       forceVoid,
     });
     defender = result.defender;
+    unclaimedDefender = true;
     warByEnemy.set(defender.id, result.warId);
   }
 
@@ -579,12 +581,11 @@ export async function initiateCampaign(params: {
     const stats = await computeNationStats(side.id, statsEra);
     npcPopulation.set(side.id, stats.population);
     // 防守方採本土動員比例（較高）；進攻方採基礎比例。空地 NPC 一律為防守方。
-    const ratio =
-      side.id === defender.id ? NPC_DEFENDER_TROOP_RATIO : NPC_TROOP_RATIO;
-    let troops = Math.min(
-      NPC_TROOP_MAX,
-      Math.max(NPC_TROOP_MIN, Math.floor(stats.population * ratio)),
-    );
+    let troops = npcCampaignTroops({
+      population: stats.population,
+      isDefender: side.id === defender.id,
+      unclaimed: unclaimedDefender,
+    });
     // 海上登陸戰役：攻擊方（含 NPC）兵力受容許量上限限制。
     if (isSeaLanding && side.id === attacker.id && seaLandingTroopCap !== null) {
       troops = Math.min(troops, seaLandingTroopCap);

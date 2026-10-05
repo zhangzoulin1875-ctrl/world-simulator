@@ -1,3 +1,4 @@
+import { DEFAULT_TAX_RATE_PCT } from "../nationCostScale";
 import { type ParliamentStance, type ParliamentTier, type PartyInput, STANCE_LABELS } from "./core";
 
 /**
@@ -35,7 +36,7 @@ export function stanceWeights(raw: NationFacts): Record<Exclude<ParliamentStance
     stability: num(raw.stability, 50, 0, 100),
     warWeariness: num(raw.warWeariness, 0, 0, 100),
     militarySatisfaction: num(raw.militarySatisfaction, 50, 0, 100),
-    taxRatePct: num(raw.taxRatePct, 1, 0, 100),
+    taxRatePct: num(raw.taxRatePct, DEFAULT_TAX_RATE_PCT, 0, 100),
   };
   const w: Record<Exclude<ParliamentStance, "loyalist">, number> = {
     militarist: 20, pacifist: 20, fiscal_hawk: 20, welfare: 20, religious: 15, secular: 15, mercantile: 20,
@@ -43,7 +44,7 @@ export function stanceWeights(raw: NationFacts): Record<Exclude<ParliamentStance
   if (f.atWar) { w.militarist += 25; w.pacifist += Math.round(f.warWeariness / 3); }
   else w.pacifist += 10;
   w.militarist += Math.round((f.militarySatisfaction - 50) / 4);
-  w.fiscal_hawk += Math.max(0, (f.taxRatePct - 1) * 6);
+  w.fiscal_hawk += Math.max(0, (f.taxRatePct - DEFAULT_TAX_RATE_PCT) * 6);
   w.welfare += Math.round((60 - f.stability) / 3);
   const slug = f.governmentSlug ?? "";
   if (slug === "theocracy") { w.religious += 40; w.secular -= 10; }
