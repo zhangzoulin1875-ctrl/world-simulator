@@ -123,6 +123,8 @@ export const constitutionsTable = pgTable(
     /** 累計送審次數與最近一次送審的 tick（冷卻用）。 */
     submissions: integer("submissions").notNull().default(0),
     lastSubmitTick: integer("last_submit_tick"),
+    /** 本次審議開始的時間;伺服器重啟讓背景審查消失時,靠它回收卡在 reviewing 的列。 */
+    reviewStartedAt: timestamp("review_started_at", { withTimezone: true }),
     /** 最近一次審查結果（品質分、缺陷、各黨投票），給玩家看。 */
     lastReview: jsonb("last_review").$type<Record<string, unknown> | null>(),
     /** 通過後 AI 掃出的憲法漏洞（階段 3 使用）。 */

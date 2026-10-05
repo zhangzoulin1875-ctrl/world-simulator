@@ -106,6 +106,7 @@ export async function runParliamentMigrationsInner(
       CONSTRAINT constitutions_len_check CHECK (char_length(draft_text) <= 12000)
     )
   `);
+  await executor.execute(sql`ALTER TABLE constitutions ADD COLUMN IF NOT EXISTS review_started_at timestamptz`);
   // 「通過後不可更改」的硬規則放在資料庫層：不論哪條程式路徑（含日後新增的）都繞不過。
   // 已通過的列：禁止改 final_text / draft_text / status，也禁止刪除（nation 被刪時的 CASCADE 例外，
   // 因為 CASCADE 刪除發生在 nation 被刪的情況，此時沒有「憲法被修改」的問題）。

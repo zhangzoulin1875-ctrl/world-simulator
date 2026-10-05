@@ -19,6 +19,7 @@ import {
   constitutionRequired, submitCooldownLeft, NO_CONSTITUTION_PENALTY_PER_TICK, NO_CONSTITUTION_SAT_FLOOR,
 } from "../lib/constitution/core";
 import { loadConstitution, saveDraft, statusOf, currentParliamentTick } from "../lib/constitution/service";
+import { submitConstitution, recoverStaleReviews } from "../lib/constitution/submit";
 
 const router: IRouter = Router();
 
@@ -92,6 +93,7 @@ router.get("/constitution", async (req, res) => {
   const auth = await requirePlayer(req, res); if (!auth) return;
   try {
     const { nation } = auth;
+    await recoverStaleReviews().catch((err) => logger.warn({ err }, "constitution stale recovery failed"));
     const row = await loadConstitution(nation.id);
     const status = statusOf(row);
     const { tier } = await tierOfNation(nation);
@@ -121,6 +123,18 @@ router.put("/constitution/draft", async (req, res) => {
     if (!r.ok) { res.status(r.code).json({ error: r.error }); return; }
     res.json({ ok: true, status: r.row.status, length: r.row.draftText.length });
   } catch (err) { logger.error({ err }, "constitution save draft failed"); res.status(500).json({ error: "儲存憲法草稿失敗" }); }
+});
+
+/** 送審:扣款 + 鎖定為審議中,AI 審查在背景跑。結果用 GET /constitution 輪詢。 */
+router.post("/constitution/submit", async (req, res) => {
+  const auth = await requirePlayer(req, res); if (!auth) return;
+  try {
+    const { tier } = await tierOfNation(auth.nation);
+    if (!constitutionRequired(tier)) { res.status(403).json({ error: "專制政體的議會只是橡皮圖章,不審查憲法" }); return; }
+    const r = await submitConstitution(auth.nation.id);
+    if (!r.ok) { res.status(r.code).json({ error: r.error }); return; }
+    res.status(202).json({ ok: true, status: "reviewing" });
+  } catch (err) { logger.error({ err }, "constitution submit failed"); res.status(500).json({ error: "送審失敗" }); }
 });
 
 router.post("/parliament/report", async (req, res) => {
