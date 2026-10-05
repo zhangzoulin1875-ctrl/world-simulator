@@ -53,9 +53,13 @@ export function advanceFocus(
   progress: number,
   totalTurns: number,
   satisfaction: number,
+  /** 常駐加速(%),來自已完成國策;議會停滯(倍率 0)時不生效,避免靠加成繞過停滯 */
+  speedBonusPct = 0,
 ): { progress: number; completed: boolean; stalled: boolean } {
   const total = Math.max(1, Math.floor(totalTurns));
-  const mult = focusSpeedMultiplier(satisfaction);
+  const base = focusSpeedMultiplier(satisfaction);
+  const bonus = Number.isFinite(speedBonusPct) ? clamp(speedBonusPct, 0, 100) : 0;
+  const mult = base > 0 ? base * (1 + bonus / 100) : 0;
   const next = Math.round(clamp(progress + mult, 0, total) * 10_000) / 10_000;
   return { progress: next, completed: next >= total, stalled: mult === 0 };
 }

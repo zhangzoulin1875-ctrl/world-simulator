@@ -7,8 +7,27 @@ import type { FocusEffect } from "./types";
  * 不生效,避免做出假效果。要讓某個效果生效,先接好下游系統,再把它加進白名單。
  */
 export const WIRED_MODIFIER_STATS: ReadonlySet<string> = new Set<string>([
-  // 第一批尚未接線;接線一項加一項(例:pointsPerTurn、focusSpeed 由本模組自己讀,最先接)
+  // 已接線:由 service.ts 的 settleNationFocus 讀取「已完成國策」的加總
+  "pointsPerTurn", // 政治點數每回合收入 +N
+  "focusSpeed", // 國策完成速度 +N%
 ]);
+
+/**
+ * 加總「已完成國策」的常駐加成(只算已接線的統計)。
+ * 註:同一國策只會被完成一次(focus_completed 唯一索引),所以不會重複疊加。
+ */
+export function sumWiredModifiers(effectLists: readonly (readonly FocusEffect[])[]): { pointsPerTurn: number; focusSpeedPct: number } {
+  let pointsPerTurn = 0;
+  let focusSpeedPct = 0;
+  for (const list of effectLists) {
+    for (const e of list) {
+      if (e.kind !== "modifier") continue;
+      if (e.stat === "pointsPerTurn") pointsPerTurn += e.value;
+      else if (e.stat === "focusSpeed") focusSpeedPct += e.value;
+    }
+  }
+  return { pointsPerTurn, focusSpeedPct };
+}
 
 export const WIRED_UNLOCKS: ReadonlySet<string> = new Set<string>([]);
 

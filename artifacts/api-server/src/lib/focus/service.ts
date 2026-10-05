@@ -27,7 +27,7 @@ import {
 import { getCatalog, getFocusDef } from "./catalog";
 import { COMMUNIST_REVOLUTION_ID, REVOLUTION_EXCLUDED_GOVERNMENTS } from "./regimeFocuses";
 import type { FocusDef } from "./types";
-import { summarizeEffects } from "./effects";
+import { summarizeEffects, sumWiredModifiers } from "./effects";
 import { startCivilWar } from "../civilWarEngine";
 import { endCampaignsForNation } from "../warEngine/endCampaign";
 import { afterRegimeTransition, applyRegimeTransition, type RegimeTransitionResult } from "../politicsSettlement";
@@ -91,7 +91,10 @@ export async function settleNationFocus(
   const tier = parliamentTier(slug);
   const stats = await computeNationStats(nation.id, eraSlug).catch(() => ({ population: 0 }));
 
-  const perTurn = politicalPointsPerTurn({ tier, population: stats.population, satisfaction: sat });
+  // 已完成國策的常駐加成(目前只接線:政治點數收入、國策完成速度)
+  const doneRows = await db.select({ focusId: focusCompletedTable.focusId }).from(focusCompletedTable).where(eq(focusCompletedTable.nationId, nation.id));
+  const mods = sumWiredModifiers(doneRows.map((r) => getFocusDef(r.focusId)?.effects ?? []));
+  const perTurn = politicalPointsPerTurn({ tier, population: stats.population, satisfaction: sat }) + Math.floor(mods.pointsPerTurn);
   const cap = pointsCap(perTurn);
 
   const result: FocusSettleResult = { pointsGained: 0, completed: [], stalled: false };
@@ -152,7 +155,7 @@ export async function settleNationFocus(
 
     const actives = await tx.select().from(focusActiveTable).where(eq(focusActiveTable.nationId, nation.id));
     for (const a of actives) {
-      const adv = advanceFocus(a.progress, a.totalTurns, sat);
+      const adv = advanceFocus(a.progress, a.totalTurns, sat, mods.focusSpeedPct);
       if (adv.stalled) result.stalled = true;
       if (!adv.completed) {
         await tx.update(focusActiveTable).set({ progress: adv.progress }).where(eq(focusActiveTable.id, a.id));

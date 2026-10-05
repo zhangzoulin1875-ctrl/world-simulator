@@ -22,6 +22,7 @@ import {
 import { isCostEffect, type FocusDef, type FocusEffect } from "./types";
 import { evaluateStart } from "./service";
 import { describeEffect } from "./describe";
+import { sumWiredModifiers } from "./effects";
 import { COMMUNIST_REVOLUTION_ID, REVOLUTION_EXCLUDED_GOVERNMENTS } from "./regimeFocuses";
 import { ensureBranches } from "./branchService";
 import { logger } from "../logger";
@@ -102,9 +103,10 @@ export async function getFocusView(nation: Nation): Promise<FocusView> {
   const redLean = state?.redLean ?? 0;
   const tier = parliamentTier(governmentSlugByLabel(n.government));
   const stats = await computeNationStats(n.id, eraSlug).catch(() => ({ population: 0 }));
-  const perTurn = politicalPointsPerTurn({ tier, population: stats.population, satisfaction: sat });
-
   const completed = new Set(done.map((d) => d.id));
+  // 與結算一致:含已完成國策的常駐加成(政治點數收入)
+  const mods = sumWiredModifiers([...completed].map((id) => getFocusDef(id)?.effects ?? []));
+  const perTurn = politicalPointsPerTurn({ tier, population: stats.population, satisfaction: sat }) + Math.floor(mods.pointsPerTurn);
   const activeMap = new Map<FocusSlot, string>(actives.map((a) => [a.slot as FocusSlot, a.focusId]));
   const activeIds = new Set(actives.map((a) => a.focusId));
   // 隨機分支:第一次看樹時才抽並存起來,之後固定不變(見 branchService)

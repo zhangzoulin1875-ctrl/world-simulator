@@ -1,5 +1,6 @@
 import type { FocusDef } from "./types";
 import { buildRegimeFocuses } from "./regimeFocuses";
+import { buildCommunistPathFocuses } from "./communistPaths";
 
 /**
  * 正式國策目錄。
@@ -7,7 +8,7 @@ import { buildRegimeFocuses } from "./regimeFocuses";
  *  - 各政體的特色國策之後分批加入;加入時 validateCatalog 會在測試中把關。
  * 範例目錄(catalog.sample.ts)只用於測試,不進正式環境。
  */
-export const FOCUS_CATALOG: FocusDef[] = [...buildRegimeFocuses()];
+export const FOCUS_CATALOG: FocusDef[] = [...buildRegimeFocuses(), ...buildCommunistPathFocuses()];
 
 let override: readonly FocusDef[] | null = null;
 
