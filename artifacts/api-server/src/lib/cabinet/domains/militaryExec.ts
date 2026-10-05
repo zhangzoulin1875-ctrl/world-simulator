@@ -144,12 +144,17 @@ export async function executeRecruit(
       .set({
         productionSpent: sql`${playerNationsTable.productionSpent} + ${cost.production}`,
         populationSpent: sql`${playerNationsTable.populationSpent} + ${cost.population}`,
+        // 木材／礦石與玩家手動招募同口徑(AI 代理不得免費拿原料)。
+        wood: sql`${playerNationsTable.wood} - ${cost.wood}`,
+        ore: sql`${playerNationsTable.ore} - ${cost.ore}`,
       })
       .where(
         and(
           eq(playerNationsTable.discordUserId, userId),
           sql`${playerNationsTable.productionSpent} + ${cost.production} <= ${stats.production}`,
           sql`${playerNationsTable.populationSpent} + ${cost.population} <= ${stats.population}`,
+          sql`${playerNationsTable.wood} >= ${cost.wood}`,
+          sql`${playerNationsTable.ore} >= ${cost.ore}`,
         ),
       )
       .returning();
@@ -157,10 +162,16 @@ export async function executeRecruit(
     if (!freshNation) {
       const prodShort =
         nation.productionSpent + cost.production > stats.production;
+      const popShort =
+        nation.populationSpent + cost.population > stats.population;
       throw new Error(
         prodShort
           ? `生產力不足（需要 ${cost.production.toLocaleString("en-US")}）`
-          : `人口不足（需要 ${cost.population.toLocaleString("en-US")}）`,
+          : popShort
+            ? `人口不足（需要 ${cost.population.toLocaleString("en-US")}）`
+            : nation.wood < cost.wood
+              ? `木材不足（需要 ${cost.wood.toLocaleString("en-US")}）`
+              : `礦石不足（需要 ${cost.ore.toLocaleString("en-US")}）`,
       );
     }
     // Task #568 — 已持有列鎖後精確複核：佔用（更新後 spent）＋本回合已
@@ -186,7 +197,7 @@ export async function executeRecruit(
       });
     }
     // 訓練佇列（功能開關開啟時）：與玩家路由同口徑，兵力改進佇列。
-    // 內閣招募本來就不扣木礦，故 woodPaid/orePaid 為 0（取消時不會多退）。
+    // 木礦已在上面扣除,記入佇列(woodPaid/orePaid)讓取消時按比例退還,與玩家路由一致。
     if (queueOn) {
       await enqueueInTx(tx, {
         nationId: nation.id,
@@ -195,6 +206,8 @@ export async function executeRecruit(
         tpPerUnit: trainingPointsPerUnit(effective.prodCostPer100),
         productionReserved: cost.production,
         populationReserved: cost.population,
+        woodPaid: cost.wood,
+        orePaid: cost.ore,
       });
       return;
     }
@@ -257,6 +270,12 @@ export async function executePurchase(
   // Task #546 — 金錢購買也佔用生產力：⌈數量 × 每單位生產力維護費 ÷ 100⌉，
   // 守門口徑與招募一致（spent + 佔用 ≤ 總生產力；Task #568 起無維護費實扣）。
   const prodReserve = unitProductionReservation(effective, quantity);
+  // 木材／礦石與玩家手動購買同口徑(原料量固定,不吃科技加成)。
+  const woodCost = template.woodCostPerUnit * quantity;
+  const oreCost = template.oreCostPerUnit * quantity;
+  if (!Number.isSafeInteger(woodCost) || !Number.isSafeInteger(oreCost)) {
+    throw new Error("購買原料數量過大");
+  }
   const queueOn = await isRecruitQueueEnabled();
 
   await db.transaction(async (tx) => {
@@ -276,12 +295,16 @@ export async function executePurchase(
       .update(playerNationsTable)
       .set({
         money: sql`${playerNationsTable.money} - ${moneyCost}`,
+        wood: sql`${playerNationsTable.wood} - ${woodCost}`,
+        ore: sql`${playerNationsTable.ore} - ${oreCost}`,
         productionSpent: sql`${playerNationsTable.productionSpent} + ${prodReserve}`,
       })
       .where(
         and(
           eq(playerNationsTable.discordUserId, userId),
           sql`${playerNationsTable.money} >= ${moneyCost}`,
+          sql`${playerNationsTable.wood} >= ${woodCost}`,
+          sql`${playerNationsTable.ore} >= ${oreCost}`,
           sql`${playerNationsTable.productionSpent} + ${prodReserve} <= ${stats.production}`,
         ),
       )
@@ -293,7 +316,11 @@ export async function executePurchase(
       throw new Error(
         prodShort
           ? `生產力不足（購買需佔用 ${prodReserve.toLocaleString("en-US")}）`
-          : `金錢不足（需要 ${moneyCost.toLocaleString("en-US")}）`,
+          : nation.money < moneyCost
+            ? `金錢不足（需要 ${moneyCost.toLocaleString("en-US")}）`
+            : nation.wood < woodCost
+              ? `木材不足（需要 ${woodCost.toLocaleString("en-US")}）`
+              : `礦石不足（需要 ${oreCost.toLocaleString("en-US")}）`,
       );
     }
     // Task #568 — 已持有列鎖後複核：佔用（更新後 spent）＋本回合招募花費
@@ -312,6 +339,8 @@ export async function executePurchase(
         tpPerUnit: trainingPointsPerUnit(effective.prodCostPer100),
         productionReserved: prodReserve,
         moneyPaid: moneyCost,
+        woodPaid: woodCost,
+        orePaid: oreCost,
       });
       return;
     }
