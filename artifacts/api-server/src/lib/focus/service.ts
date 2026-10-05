@@ -32,6 +32,7 @@ import { startCivilWar } from "../civilWarEngine";
 import { endCampaignsForNation } from "../warEngine/endCampaign";
 import { afterRegimeTransition, applyRegimeTransition, type RegimeTransitionResult } from "../politicsSettlement";
 import { describeCondition, eraReached, firstFailedCondition, type ConditionFacts } from "./conditions";
+import { ensureBranches } from "./branchService";
 
 type Nation = typeof playerNationsTable.$inferSelect;
 
@@ -294,7 +295,7 @@ export async function runFocusSettlement(): Promise<{ nations: number; completed
 
 export type StartResult =
   | { ok: true; focusId: string; slot: FocusSlot; spent: number; totalTurns: number }
-  | { ok: false; reason: StartBlockReason | "unknown_focus" | "government_not_allowed" | "era_locked" | "condition_failed" | "not_yet_available"; message: string };
+  | { ok: false; reason: StartBlockReason | "unknown_focus" | "government_not_allowed" | "not_in_tree" | "era_locked" | "condition_failed" | "not_yet_available"; message: string };
 
 /** 玩家啟動國策:檢查全部條件後預扣點數並建立進行中紀錄(交易內搶占,避免競態)。 */
 function isUniqueViolation(err: unknown): boolean {
@@ -324,11 +325,16 @@ export interface StartFacts {
   points: number;
   coupPolicyLockTurns: number;
   conditionFacts: ConditionFacts;
+  /**
+   * 該國在目前政體已抽到的分支目的地(政體 slug)。轉型國策的目標不在裡面就不能推行。
+   * null/未提供 = 不套用樹的限制(舊呼叫與單元測試);共產革命沒有 transition 效果,不受此限。
+   */
+  branches?: ReadonlySet<string> | null;
 }
 
 export type StartVerdict =
   | { ok: true }
-  | { ok: false; reason: StartBlockReason | "unknown_focus" | "government_not_allowed" | "era_locked" | "condition_failed" | "not_yet_available"; message: string };
+  | { ok: false; reason: StartBlockReason | "unknown_focus" | "government_not_allowed" | "not_in_tree" | "era_locked" | "condition_failed" | "not_yet_available"; message: string };
 
 /**
  * 啟動判斷的唯一真相來源:startFocus(真的扣點)與畫面清單(唯讀)共用,
@@ -343,6 +349,10 @@ export function evaluateStart(def: FocusDef, f: StartFacts): StartVerdict {
     return { ok: false, reason: "era_locked", message: "世界尚未進入可推行此國策的時代" };
   }
   if (def.unavailableReason) return { ok: false, reason: "not_yet_available", message: def.unavailableReason };
+  const tr = def.effects.find((e) => e.kind === "transition");
+  if (tr && tr.kind === "transition" && f.branches && !f.branches.has(tr.toGovernment)) {
+    return { ok: false, reason: "not_in_tree", message: "這條轉型不在你的國策樹上(每個國家的可走路線不同)" };
+  }
   if (def.id === COMMUNIST_REVOLUTION_ID && REVOLUTION_EXCLUDED_GOVERNMENTS.includes(slug ?? "")) {
     return { ok: false, reason: "government_not_allowed", message: "目前政體已是紅線終點,無需再發動共產革命" };
   }
@@ -388,7 +398,10 @@ async function startFocusInner(nation: Nation, focusId: string): Promise<StartRe
       .from(parliamentStateTable)
       .where(eq(parliamentStateTable.nationId, nation.id));
 
+    const slugNow = governmentSlugByLabel(fresh!.government);
+    const branches = slugNow ? new Set(await ensureBranches(nation.id, slugNow, Math.random, tx)) : null;
     const verdict = evaluateStart(def, {
+      branches,
       governmentLabel: fresh!.government,
       eraSlug,
       completed: new Set(done.map((d) => d.id)),

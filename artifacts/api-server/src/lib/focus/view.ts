@@ -23,6 +23,7 @@ import { isCostEffect, type FocusDef, type FocusEffect } from "./types";
 import { evaluateStart } from "./service";
 import { describeEffect } from "./describe";
 import { COMMUNIST_REVOLUTION_ID, REVOLUTION_EXCLUDED_GOVERNMENTS } from "./regimeFocuses";
+import { ensureBranches } from "./branchService";
 
 type Nation = typeof playerNationsTable.$inferSelect;
 
@@ -99,7 +100,11 @@ export async function getFocusView(nation: Nation): Promise<FocusView> {
   const completed = new Set(done.map((d) => d.id));
   const activeMap = new Map<FocusSlot, string>(actives.map((a) => [a.slot as FocusSlot, a.focusId]));
   const activeIds = new Set(actives.map((a) => a.focusId));
+  // 隨機分支:第一次看樹時才抽並存起來,之後固定不變(見 branchService)
+  const slugNow = governmentSlugByLabel(n.government);
+  const branches = slugNow ? new Set(await ensureBranches(n.id, slugNow)) : null;
   const facts = {
+    branches,
     governmentLabel: n.government,
     eraSlug,
     completed,
@@ -119,8 +124,8 @@ export async function getFocusView(nation: Nation): Promise<FocusView> {
   const focuses: FocusCard[] = [];
   for (const def of getCatalog()) {
     const verdict = evaluateStart(def, facts);
-    // 政體不符 / 時代未到:對這個國家不可見,直接略過(否則 43 個轉型國策全是雜訊)
-    if (!verdict.ok && (verdict.reason === "government_not_allowed" || verdict.reason === "era_locked")) continue;
+    // 政體不符 / 時代未到 / 沒抽到的分支:對這個國家不可見,直接略過(否則 43 個轉型國策全是雜訊)
+    if (!verdict.ok && (verdict.reason === "government_not_allowed" || verdict.reason === "era_locked" || verdict.reason === "not_in_tree")) continue;
     // 共產革命是通用入口;已經是紅線終點的政體不需要(也不該)再看到它
     if (def.id === COMMUNIST_REVOLUTION_ID && REVOLUTION_EXCLUDED_GOVERNMENTS.includes(governmentSlugByLabel(n.government) ?? "")) continue;
 

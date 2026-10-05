@@ -84,4 +84,39 @@ export async function runFocusMigrationsInner(): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS focus_text_nation_focus_uq
       ON focus_text_overrides (nation_id, focus_id)
   `);
+  // 國策樹隨機分支:每國在某政體時抽到的目的地;唯一索引 + ON CONFLICT 讓併發抽選只會留下一套
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS focus_branches (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      nation_id uuid NOT NULL
+        REFERENCES player_nations(id) ON DELETE CASCADE,
+      from_government text NOT NULL,
+      to_government text NOT NULL,
+      drawn_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS focus_branches_nation_from_to_uq
+      ON focus_branches (nation_id, from_government, to_government)
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS focus_branches_nation_from_idx
+      ON focus_branches (nation_id, from_government)
+  `);
+  // 「已抽過」標記:主鍵是原子裁決者,併發時只有成功 INSERT 的請求有權寫分支(不依賴 advisory lock)
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS focus_branch_roots (
+      nation_id uuid NOT NULL
+        REFERENCES player_nations(id) ON DELETE CASCADE,
+      from_government text NOT NULL,
+      drawn_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (nation_id, from_government)
+    )
+  `);
+  // 補齊:上線前若已有 focus_branches 的資料(理論上沒有),為它們補上標記,避免被當成沒抽過而重抽
+  await db.execute(sql`
+    INSERT INTO focus_branch_roots (nation_id, from_government)
+    SELECT DISTINCT nation_id, from_government FROM focus_branches
+    ON CONFLICT DO NOTHING
+  `);
 }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { and, eq, isNull, like, sql } from "drizzle-orm";
 import {
   db, pool, playerNationsTable, parliamentStateTable, focusStatesTable, focusActiveTable, focusCompletedTable,
-  regionControlsTable, mapRegionsTable, diplomacyWarsTable,
+  regionControlsTable, mapRegionsTable, diplomacyWarsTable, focusBranchesTable, focusBranchRootsTable,
 } from "@workspace/db";
 import { runGameMigrations, runRegionControlMigrations } from "../gameMigrations";
 import { runDiplomacyMigrations } from "../diplomacyMigrations";
@@ -13,6 +13,7 @@ import { runFocusMigrations } from "../focusMigrations";
 import { settleNationFocus, startFocus } from "./service";
 import { setCatalogForTest, FOCUS_CATALOG, getFocusDef } from "./catalog";
 import { governmentLabel } from "../governments";
+import { edgesFrom } from "./regimeGraph";
 
 const TAG = "revfocus-test";
 const ERA = "classical";
@@ -47,6 +48,9 @@ beforeEach(async () => {
     stability: 30, politicalSupport: 50, satisfactionMilitary: 60, money: 50000,
   } as never).returning({ id: playerNationsTable.id });
   nationId = n!.id;
+  // 測的是革命規則,不是隨機抽選:固定放入君主專制的全部出邊,避免一般轉型測試因沒抽到而間歇失敗
+  await db.insert(focusBranchRootsTable).values({ nationId, fromGovernment: "absolute_monarchy" });
+  await db.insert(focusBranchesTable).values(edgesFrom("absolute_monarchy").map((e) => ({ nationId, fromGovernment: "absolute_monarchy", toGovernment: e.to })));
   await db.insert(parliamentStateTable).values({ nationId, satisfaction: 65 }).onConflictDoNothing();
   for (const r of regionIds.slice(0, 2)) await db.insert(regionControlsTable).values({ regionId: r, nationId, percent: 100 });
   // 紅線傾向夠高 + 政治點數充足

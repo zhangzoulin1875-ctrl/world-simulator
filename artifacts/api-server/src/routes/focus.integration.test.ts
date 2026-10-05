@@ -3,24 +3,34 @@ import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
+import { readBranches } from "../lib/focus/branchService";
 const { eq, like } = await import("drizzle-orm");
-const { db, pool, playerNationsTable, focusStatesTable } = await import("@workspace/db");
+const { db, pool, playerNationsTable, focusStatesTable, focusBranchesTable } = await import("@workspace/db");
 const { runGameMigrations } = await import("../lib/gameMigrations");
 const { runFocusMigrations } = await import("../lib/focusMigrations");
 const { runParliamentMigrations } = await import("../lib/parliamentMigrations");
 const { createSession } = await import("../lib/sessions");
 const { default: app } = await import("../app");
-const { findEdge } = await import("../lib/focus/regimeGraph");
+const { findEdge, edgesFrom } = await import("../lib/focus/regimeGraph");
 
 const MARK = "FocR"; const run = randomBytes(3).toString("hex");
 let server: import("node:http").Server; let base = "";
 const made: string[] = [];
-async function mk(gov: string, extra: Record<string, unknown> = {}) {
+/**
+ * 建一個測試國家。預設會把「君主專制 → 君主立憲制」固定寫進它的國策樹,讓依賴這條路的測試不因隨機抽選而不穩;
+ * 要測隨機分支本身時傳 fixTree:false。
+ */
+async function mk(gov: string, extra: Record<string, unknown> = {}, fixTree = true) {
   const uid = `fr-${run}-${made.length}`;
   const [n] = await db.insert(playerNationsTable).values({
     discordUserId: uid, name: `${MARK}${run}${made.length}`, leaderName: "t", government: gov, money: 10_000, ...extra,
   } as any).returning();
   made.push(n!.id);
+  const slug = governmentSlugByLabel(gov);
+  if (fixTree && slug) {
+    const to = edgesFrom(slug).slice(0, 3).map((e) => e.to); // 固定前三條出邊(含君主專制 → 君主立憲制)
+    if (to.length > 0) await db.insert(focusBranchesTable).values(to.map((t) => ({ nationId: n!.id, fromGovernment: slug, toGovernment: t })));
+  }
   const tok = await createSession({ discordUserId: uid, username: "t", avatar: null } as any);
   return { n: n!, cookie: `dn_session=${tok}` };
 }
@@ -59,17 +69,23 @@ test("未登入:三個端點都 401", async () => {
   assert.equal(st!.points, 100, "被 CSRF 擋下時不扣點");
 });
 
-test("GET /focus:只列出該政體看得到的國策(君主專制只看到自己的出口)", async () => {
-  const { cookie } = await mk("君主專制");
+test("GET /focus:只列出自己抽到的分支(君主專制 5 條出邊 → 只看到 3~5 條)+ 共產革命", async () => {
+  const { n, cookie } = await mk("君主專制", {}, false);
   const r = await get(cookie); assert.equal(r.status, 200);
   const j: any = await r.json();
   const ids: string[] = j.focuses.map((f: any) => f.id);
-  const expected = [
-    ...["constitutional_monarchy", "military_dictatorship", "theocracy", "elective_monarchy", "dual_monarchy"]
-      .map((to) => findEdge("absolute_monarchy", to)!.focusId),
-    "regime.communist_revolution",
-  ].sort();
-  assert.deepEqual(ids.slice().sort(), expected, "只看得到 6 條出口(5 條轉型 + 1 條紅色革命)");
+  const allExits = ["constitutional_monarchy", "military_dictatorship", "theocracy", "elective_monarchy", "dual_monarchy"]
+    .map((to) => findEdge("absolute_monarchy", to)!.focusId);
+  const transitions = ids.filter((id) => id !== "regime.communist_revolution");
+  assert.ok(ids.includes("regime.communist_revolution"), "共產革命永遠在,不佔分支名額");
+  assert.ok(transitions.length >= 3 && transitions.length <= 5, `轉型應為 3~5 條,實際 ${transitions.length}`);
+  for (const id of transitions) assert.ok(allExits.includes(id), `${id} 必須是君主專制的合法出口`);
+  // 畫面上的分支 = 資料庫裡存的那一套
+  const stored = (await readBranches(n.id, "absolute_monarchy"))!;
+  assert.deepEqual(transitions.slice().sort(), stored.map((to) => findEdge("absolute_monarchy", to)!.focusId).sort());
+  // 再讀一次:固定不變(不重抽)
+  const j2: any = await (await get(cookie)).json();
+  assert.deepEqual(j2.focuses.map((f: any) => f.id).sort(), ids.slice().sort(), "分支一旦抽出就固定");
   for (const f of j.focuses) {
     if (f.id === "regime.communist_revolution") {
       assert.equal(f.transitionTo, null, "革命不是和平轉型:沒有目標政體,打贏才改制");
@@ -81,6 +97,44 @@ test("GET /focus:只列出該政體看得到的國策(君主專制只看到自�
   }
   assert.ok(j.pointsPerTurn >= 1); assert.ok(j.pointsCap >= j.pointsPerTurn);
   assert.deepEqual(j.active, []);
+});
+
+test("不在自己樹上的轉型:清單看不到、POST /start 被擋且不扣點(即使條件與點數都夠)", async () => {
+  const { n, cookie } = await mk("君主專制", { politicalSupport: 90 }, false);
+  const only = "constitutional_monarchy"; // 樹上只放這一條
+  await db.insert(focusBranchesTable).values({ nationId: n.id, fromGovernment: "absolute_monarchy", toGovernment: only });
+  await give(n.id, 500);
+  const offTree = findEdge("absolute_monarchy", "military_dictatorship")!.focusId;
+  const onTree = findEdge("absolute_monarchy", only)!.focusId;
+
+  const j: any = await (await get(cookie)).json();
+  const ids: string[] = j.focuses.map((f: any) => f.id);
+  assert.ok(ids.includes(onTree), "樹上的看得到");
+  assert.ok(!ids.includes(offTree), "沒抽到的完全不顯示");
+
+  const before = (await db.select().from(focusStatesTable).where(eq(focusStatesTable.nationId, n.id)))[0]!.points;
+  const r = await post("start", cookie, { focusId: offTree });
+  assert.ok(r.status >= 400 && r.status < 500, `應被擋,實際 ${r.status}`);
+  const body: any = await r.json();
+  assert.ok(JSON.stringify(body).includes("not_in_tree") || JSON.stringify(body).includes("國策樹"), JSON.stringify(body));
+  const after = (await db.select().from(focusStatesTable).where(eq(focusStatesTable.nationId, n.id)))[0]!.points;
+  assert.equal(after, before, "被擋時不可扣點");
+});
+
+test("共產革命不受樹限制:即使樹上只有 1 條轉型,革命入口仍在", async () => {
+  const { n, cookie } = await mk("貴族制", {}, false);
+  await db.insert(focusBranchesTable).values({ nationId: n.id, fromGovernment: "aristocracy", toGovernment: edgesFrom("aristocracy")[0]!.to });
+  const j: any = await (await get(cookie)).json();
+  const ids: string[] = j.focuses.map((f: any) => f.id);
+  assert.ok(ids.includes("regime.communist_revolution"));
+  assert.equal(ids.filter((id) => id !== "regime.communist_revolution").length, 1);
+});
+
+test("出邊 ≤3 的政體(神權制):全部出邊都在樹上,不會少", async () => {
+  const { cookie } = await mk("神權制", {}, false);
+  const j: any = await (await get(cookie)).json();
+  const transitions = j.focuses.filter((f: any) => f.id !== "regime.communist_revolution").map((f: any) => f.id).sort();
+  assert.deepEqual(transitions, edgesFrom("theocracy").map((e) => e.focusId).sort());
 });
 
 test("共產革命對所有非紅線終點的政體都可見;紅線終點(委員會制/社會主義委員會)不顯示", async () => {

@@ -10,13 +10,15 @@ import {
   focusStatesTable,
   focusActiveTable,
   focusCompletedTable,
+  focusBranchesTable,
+  focusBranchRootsTable,
 } from "@workspace/db";
 import { runGameMigrations } from "../gameMigrations";
 import { runFocusMigrations } from "../focusMigrations";
 import { runParliamentMigrations } from "../parliamentMigrations";
 import { settleNationFocus, startFocus, cancelFocus, runFocusSettlement } from "./service";
 import { setCatalogForTest, FOCUS_CATALOG } from "./catalog";
-import { findEdge } from "./regimeGraph";
+import { findEdge, edgesFrom } from "./regimeGraph";
 import { SAMPLE_CATALOG } from "./catalog.sample";
 import type { FocusDef } from "./types";
 import { governmentLabel } from "../governments";
@@ -41,6 +43,12 @@ before(async () => {
     .values({ name: `${TAG}-國`, leaderName: TAG, discordUserId: `${TAG}-u`, government: governmentLabel("absolute_monarchy")! })
     .returning({ id: playerNationsTable.id });
   nationId = n!.id;
+  // 這個檔案測的是國策「規則」本身,不是隨機抽選:把君主專制的全部出邊固定放進樹上,
+  // 否則轉型測試會因為沒抽到該條而間歇性失敗(not_in_tree)
+  await db.insert(focusBranchRootsTable).values({ nationId, fromGovernment: "absolute_monarchy" });
+  await db.insert(focusBranchesTable).values(
+    edgesFrom("absolute_monarchy").map((e) => ({ nationId, fromGovernment: "absolute_monarchy", toGovernment: e.to })),
+  );
 });
 
 after(async () => {

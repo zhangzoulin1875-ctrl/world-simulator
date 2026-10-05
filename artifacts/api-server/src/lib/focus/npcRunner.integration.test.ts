@@ -2,7 +2,7 @@ import test, { before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { and, eq, like, inArray } from "drizzle-orm";
 import {
-  db, pool, playerNationsTable, parliamentStateTable, focusStatesTable, focusActiveTable,
+  db, pool, playerNationsTable, parliamentStateTable, focusStatesTable, focusActiveTable, focusBranchesTable,
   regionControlsTable, mapRegionsTable, diplomacyWarsTable,
 } from "@workspace/db";
 import { isNull } from "drizzle-orm";
@@ -16,6 +16,8 @@ import { runNpcFocusDecisions } from "./npcRunner";
 import { settleNationFocus } from "./service";
 import { settleCivilWars } from "../civilWarEngine";
 import { governmentLabel } from "../governments";
+import { readBranches } from "./branchService";
+import { edgesFrom } from "./regimeGraph";
 
 const TAG = "npcfocus-test";
 let regionIds: number[] = [];
@@ -117,4 +119,29 @@ test("端到端:NPC 完成革命國策 → 開內戰(NPC 當革命方留 35%)→
   assert.equal(extra.length, 0);
   assert.ok(again.started >= 0);
   await settleCivilWars(); // 不應丟錯
+});
+
+test("NPC 只會選自己樹上的轉型:樹上只放一條,就只可能啟動那一條(或共產革命),絕不選到沒抽到的", async () => {
+  for (let i = 0; i < 6; i++) {
+    const npc = await mkNpc("absolute_monarchy", { politicalSupport: 85, stability: 75 });
+    await db.insert(focusBranchesTable).values({ nationId: npc.id, fromGovernment: "absolute_monarchy", toGovernment: "theocracy" });
+    const r = await runNpcFocusDecisions(() => Math.random());
+    assert.equal(r.failed, 0, JSON.stringify(r));
+    const regime = (await actives(npc.id)).filter((x) => x.focusId.startsWith("regime."));
+    for (const a of regime) {
+      const ok = a.focusId === edgesFrom("absolute_monarchy").find((e) => e.to === "theocracy")!.focusId || a.focusId === "regime.communist_revolution";
+      assert.ok(ok, `NPC 選到了不在樹上的國策:${a.focusId}`);
+    }
+    await cleanup();
+  }
+});
+
+test("NPC 第一次決策會把自己的樹抽好並存起來(3~5 條),之後不變", async () => {
+  const npc = await mkNpc("absolute_monarchy", { politicalSupport: 80, stability: 70 });
+  assert.equal(await readBranches(npc.id, "absolute_monarchy"), null);
+  await runNpcFocusDecisions(ALWAYS);
+  const first = await readBranches(npc.id, "absolute_monarchy");
+  assert.ok(first && first.length >= 3 && first.length <= 5, JSON.stringify(first));
+  await runNpcFocusDecisions(() => 0.37);
+  assert.deepEqual((await readBranches(npc.id, "absolute_monarchy"))!.slice().sort(), first!.slice().sort());
 });

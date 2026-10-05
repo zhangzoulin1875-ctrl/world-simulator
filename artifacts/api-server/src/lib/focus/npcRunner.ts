@@ -15,6 +15,7 @@ import { getFocusDef } from "./catalog";
 import { startFocus } from "./service";
 import { decideNpcFocus, isRadicalFocus, npcRadicalCap, type NpcCandidate } from "./npcDecision";
 import type { FocusDef } from "./types";
+import { ensureBranches } from "./branchService";
 
 export interface NpcFocusRunSummary {
   npcs: number;
@@ -71,7 +72,9 @@ export async function runNpcFocusDecisions(rand: () => number = Math.random): Pr
       const slug = governmentSlugByLabel(n.government);
       if (!slug) continue;
       const candidates: NpcCandidate[] = [];
-      for (const e of edgesFrom(slug)) {
+      // 只從「自己抽到的分支」裡選(與玩家同一套規則);沒抽過就現在抽並存起來
+      const myBranches = new Set(await ensureBranches(n.id, slug, rand));
+      for (const e of edgesFrom(slug).filter((x) => myBranches.has(x.to))) {
         const def = getFocusDef(e.focusId);
         if (def) candidates.push({ def, isRevolution: false });
       }

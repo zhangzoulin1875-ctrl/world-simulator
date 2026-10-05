@@ -9,6 +9,7 @@ import {
   index,
   uniqueIndex,
   check,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { playerNationsTable } from "./playerNations";
@@ -117,5 +118,48 @@ export const focusTextOverridesTable = pgTable(
   (t) => ({
     uq: uniqueIndex("focus_text_nation_focus_uq").on(t.nationId, t.focusId),
     srcCheck: check("focus_text_source_check", sql`${t.source} IN ('ai','template')`),
+  }),
+);
+
+/**
+ * 國策樹隨機分支(2026-10-05):每個國家在「某個政體」時抽到的分支目的地。
+ * 抽出後不重抽;換政體後以新政體為根重抽,舊列保留當歷史。
+ * 共產革命是獨立入口,不存在這張表裡。
+ */
+export const focusBranchesTable = pgTable(
+  "focus_branches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    nationId: uuid("nation_id")
+      .notNull()
+      .references(() => playerNationsTable.id, { onDelete: "cascade" }),
+    /** 根政體 slug(抽選當下的政體) */
+    fromGovernment: text("from_government").notNull(),
+    /** 抽到的目的地政體 slug */
+    toGovernment: text("to_government").notNull(),
+    drawnAt: timestamp("drawn_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    uq: uniqueIndex("focus_branches_nation_from_to_uq").on(t.nationId, t.fromGovernment, t.toGovernment),
+    nationIdx: index("focus_branches_nation_from_idx").on(t.nationId, t.fromGovernment),
+  }),
+);
+
+/**
+ * 「這個國家在這個政體已經抽過分支」的標記。主鍵 (nation_id, from_government) 是原子裁決者:
+ * 併發時只有成功 INSERT 這一列的請求有權寫入分支,其餘的讀取結果即可。
+ * (不依賴 advisory lock,在任何連線環境下都成立。)
+ */
+export const focusBranchRootsTable = pgTable(
+  "focus_branch_roots",
+  {
+    nationId: uuid("nation_id")
+      .notNull()
+      .references(() => playerNationsTable.id, { onDelete: "cascade" }),
+    fromGovernment: text("from_government").notNull(),
+    drawnAt: timestamp("drawn_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.nationId, t.fromGovernment] }),
   }),
 );
