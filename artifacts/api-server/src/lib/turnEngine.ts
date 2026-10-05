@@ -42,6 +42,7 @@ import {
 } from "./politicsSettlement";
 import { runParliamentSettlement } from "./parliament/service";
 import { runFocusSettlement } from "./focus/service";
+import { runNpcFocusDecisions } from "./focus/npcRunner";
 import {
   runFinanceSettlement,
   type FinanceSettlementSummary,
@@ -1293,6 +1294,14 @@ async function doRunTurn(
       error: err instanceof Error ? err.message : String(err),
     };
     logger.error({ err }, "turn engine: focus settlement failed");
+  }
+
+  // NPC 自己推動政體轉型國策(偏穩定線,奪權線機率低且有全域上限);失敗不影響回合
+  try {
+    const npcFocus = await runNpcFocusDecisions();
+    if (npcFocus.started > 0 || npcFocus.failed > 0) logger.info({ npcFocus }, "turn engine: NPC focus decisions done");
+  } catch (err) {
+    logger.error({ err }, "turn engine: NPC focus decisions failed");
   }
 
   // Task #333 — 超事件系統：每回合自動生成／推進全球重大事件，套用跨國數值影響、
