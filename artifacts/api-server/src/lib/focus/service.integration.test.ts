@@ -23,6 +23,7 @@ import { SAMPLE_CATALOG } from "./catalog.sample";
 import type { FocusDef } from "./types";
 import { governmentLabel } from "../governments";
 import { setStoryQueuerForTest } from "./focusStory";
+import { COMMUNIST_REVOLUTION_COST } from "./regimeFocuses";
 
 const TAG = "focussvc-test";
 const ERA = "classical";
@@ -354,7 +355,7 @@ test("共產革命國策:條件全滿足可以推行(預扣點數,啟動當下�
   await db.update(playerNationsTable).set({ stability: 20 }).where(eq(playerNationsTable.id, nationId));
   const r = await startFocus(await load(), "regime.communist_revolution");
   assert.equal(r.ok, true, JSON.stringify(r));
-  assert.equal((await fstate()).points, 100 - 45, "預扣 45 點");
+  assert.equal((await fstate()).points, 100 - COMMUNIST_REVOLUTION_COST, "預扣 45 點");
   assert.equal((await load()).government, governmentLabel("absolute_monarchy"), "啟動時政體不變");
 });
 

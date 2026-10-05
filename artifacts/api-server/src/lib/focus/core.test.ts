@@ -6,6 +6,7 @@ import {
   estimateRemainingTurns,
   politicalPointsPerTurn,
   pointsCap,
+  BASE_POINTS_BY_TIER,
   checkStartFocus,
   type StartCheckInput,
   type FocusSlot,
@@ -51,10 +52,10 @@ test("estimateRemainingTurns:停擺回 null,其餘向上取整", () => {
 });
 
 test("政治點數:檔位基礎 + 人口 + 滿意度,至少 1,人口加成有上限", () => {
-  assert.equal(politicalPointsPerTurn({ tier: "autocracy", population: 0, satisfaction: 0 }), 3);
-  assert.equal(politicalPointsPerTurn({ tier: "democracy", population: 0, satisfaction: 0 }), 2);
-  assert.equal(politicalPointsPerTurn({ tier: "semi", population: 10_000_000, satisfaction: 70 }), 3 + 2 + 1);
-  assert.equal(politicalPointsPerTurn({ tier: "semi", population: 10_000_000_000, satisfaction: 95 }), 3 + 4 + 2, "人口加成上限 +4");
+  assert.equal(politicalPointsPerTurn({ tier: "autocracy", population: 0, satisfaction: 0 }), BASE_POINTS_BY_TIER.autocracy);
+  assert.equal(politicalPointsPerTurn({ tier: "democracy", population: 0, satisfaction: 0 }), BASE_POINTS_BY_TIER.democracy);
+  assert.equal(politicalPointsPerTurn({ tier: "semi", population: 10_000_000, satisfaction: 70 }), BASE_POINTS_BY_TIER.semi + 2 + 1);
+  assert.equal(politicalPointsPerTurn({ tier: "semi", population: 10_000_000_000, satisfaction: 95 }), BASE_POINTS_BY_TIER.semi + 4 + 2, "人口加成上限 +4");
   assert.ok(politicalPointsPerTurn({ tier: "democracy", population: Number.NaN, satisfaction: -5 }) >= 1);
   assert.equal(pointsCap(5), 100);
 });

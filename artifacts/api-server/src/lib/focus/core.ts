@@ -75,7 +75,7 @@ export function estimateRemainingTurns(
 // ── 政治點數 ────────────────────────────────────────────────
 
 /** 政體檔位基礎每回合政治點數(專制集權效率高、民主需協商較低但議會加成)。 */
-export const BASE_POINTS_BY_TIER = { autocracy: 3, semi: 3, democracy: 2 } as const;
+export const BASE_POINTS_BY_TIER = { autocracy: 5, semi: 5, democracy: 4 } as const;
 
 /**
  * 每回合政治點數產出:

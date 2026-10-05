@@ -17,10 +17,10 @@ const labelOf = (slug: string) => GOVERNMENTS.find((g) => g.slug === slug)?.labe
 /** 依軌道決定成本與回合(極端轉型更貴更慢)。 */
 function costAndTurns(track: RegimeEdge["track"]): { cost: number; turns: number } {
   switch (track) {
-    case "stable": return { cost: 14, turns: 5 };
-    case "reform": return { cost: 20, turns: 7 };
-    case "red": return { cost: 30, turns: 9 };
-    case "black": return { cost: 32, turns: 10 };
+    case "stable": return { cost: 9, turns: 5 };
+    case "reform": return { cost: 13, turns: 7 };
+    case "red": return { cost: 20, turns: 9 };
+    case "black": return { cost: 21, turns: 10 };
   }
 }
 
@@ -90,6 +90,8 @@ function toFocus(edge: RegimeEdge): FocusDef {
 
 /** 共產革命的國策 id:全系統唯一的革命入口(不屬於政體圖,任何政體的樹上都固定顯示) */
 export const COMMUNIST_REVOLUTION_ID = "regime.communist_revolution";
+/** 共產革命的政治點數成本(最貴的一個轉型國策,約為黑線的 1.4 倍) */
+export const COMMUNIST_REVOLUTION_COST = 30;
 
 /** 已經是紅線終點的政體,不需要再革命。 */
 export const REVOLUTION_EXCLUDED_GOVERNMENTS: readonly string[] = ["council_system", "socialist_council"];
@@ -108,7 +110,7 @@ export function buildCommunistRevolutionFocus(): FocusDef {
     slot: "main",
     title: "共產革命",
     description: `發動共產革命,推翻現有政權。革命政權只能掌握約 ${pct}% 的土地並與舊政權展開內戰,雙方不會停戰,直到一方被完全消滅。打贏後國家改制為委員會制;這是代價最高的一條路。`,
-    cost: 45,
+    cost: COMMUNIST_REVOLUTION_COST,
     turns: 12,
     requires: [],
     // 不設 governments = 任何政體(紅線終點用 REVOLUTION_EXCLUDED_GOVERNMENTS 在 view 層略過)
