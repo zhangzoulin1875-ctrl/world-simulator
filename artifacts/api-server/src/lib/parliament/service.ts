@@ -18,6 +18,7 @@ import {
 } from "./core";
 import { planParliamentTurn } from "./plan";
 import { buildParties, partyColor, type NationFacts } from "./parties";
+import { SOCIALIST_PARTY_NAME } from "../domesticEvents/parliamentShift";
 
 type Nation = typeof playerNationsTable.$inferSelect;
 export const PARTY_REFRESH_EVERY_TICKS = 12;
@@ -87,7 +88,16 @@ export async function settleNationParliament(
   let parties = await loadParties(nation.id);
   const tierChanged = (tier === "autocracy") !== (parties.length === 1 && parties[0]?.stance === "loyalist");
   const stale = state.lastPartiesTick === null || state.tick - state.lastPartiesTick >= PARTY_REFRESH_EVERY_TICKS;
-  if (parties.length === 0 || tierChanged || stale) parties = await rebuildParties(nation, state, facts);
+  if (parties.length === 0 || tierChanged || stale) {
+    // 國內事件(社會黨取得多數)造成的議會結構要延續:定期重建時不能把它洗掉。
+    // 政體層級沒變、且議會裡有事件插入的社會黨時,只重設計時器,保留現有席次。
+    const keepEventParliament = !tierChanged && parties.length > 0 && parties.some((p) => p.name === SOCIALIST_PARTY_NAME);
+    if (keepEventParliament) {
+      await db.update(parliamentStateTable).set({ lastPartiesTick: state.tick }).where(eq(parliamentStateTable.nationId, nation.id));
+    } else {
+      parties = await rebuildParties(nation, state, facts);
+    }
+  }
 
   const prevArmy = state.prevArmyPop === null ? null : Number(state.prevArmyPop);
   const curArmy = armyPop === null ? null : Number(armyPop);

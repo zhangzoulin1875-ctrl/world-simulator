@@ -18,6 +18,7 @@ import {
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout } from "@/components/layout";
+import { DomesticEventGate } from "@/components/domestic-event-gate";
 import { AppErrorBoundary } from "@/components/app-error-boundary";
 import { GameMusicProvider } from "@/components/game-music-context";
 import { EncyclopediaProvider } from "@/components/encyclopedia-context";
@@ -62,6 +63,7 @@ import NotFound from "@/pages/not-found";
 
 function Router() {
   return (
+    <DomesticEventGate>
     <Switch>
       {/* Full-screen game home — deliberately outside the news Layout. */}
       <Route path="/game">{() => <AutopilotGate><GameHome /></AutopilotGate>}</Route>
@@ -79,6 +81,7 @@ function Router() {
       <Route path="/">{() => <Redirect to="/game" />}</Route>
       <Route>{() => <SiteRoutes />}</Route>
     </Switch>
+    </DomesticEventGate>
   );
 }
 

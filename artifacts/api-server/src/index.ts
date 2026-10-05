@@ -33,6 +33,7 @@ import { runCabinetMigrations } from "./lib/cabinetMigrations";
 import { runAutopilotMigrations } from "./lib/autopilotMigrations";
 import { runMercenaryMigrations } from "./lib/mercenaryMigrations";
 import { runFocusMigrations } from "./lib/focusMigrations";
+import { runDomesticEventMigrations } from "./lib/domesticEvents/migrations";
 import { runWarMigrations } from "./lib/warMigrations";
 import {
   runEconomyMigrations,
@@ -125,6 +126,7 @@ async function runStartupMigrations(): Promise<void> {
   // 僱傭兵表外鍵指向 war_campaigns,必須排在 runWarMigrations 之後。
   await runMercenaryMigrations();
   await runFocusMigrations();
+  await runDomesticEventMigrations();
   await runEconomyMigrations();
   // Task #479 — 一次性歸零負值 production_bonus（舊生產力維護費死亡螺旋
   // 的歷史欠債；game_flags 原子認領，只跑一次）。

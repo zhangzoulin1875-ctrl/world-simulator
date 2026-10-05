@@ -92,6 +92,7 @@ export const AI_FEATURES = {
     defaultMaxTokens: 4096,
   },
   "focus.story": { label: "國策:發動背景故事", defaultMaxTokens: 500 },
+  "domestic.event": { label: "國內事件文字", defaultMaxTokens: 700 },
   "parliament.report": { label: "議會:國情報告評分", defaultMaxTokens: 400 },
   "diagnostics.ping": { label: "系統：AI 連線測試", defaultMaxTokens: 200 },
 } as const satisfies Record<string, AiFeatureDef>;

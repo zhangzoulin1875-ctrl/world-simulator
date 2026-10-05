@@ -42,6 +42,7 @@ import {
 } from "./politicsSettlement";
 import { runParliamentSettlement } from "./parliament/service";
 import { runFocusSettlement } from "./focus/service";
+import { runDomesticEventSettlement } from "./domesticEvents/service";
 import { runNpcFocusDecisions } from "./focus/npcRunner";
 import {
   runFinanceSettlement,
@@ -1297,6 +1298,16 @@ async function doRunTurn(
   }
 
   // NPC 自己推動政體轉型國策(偏穩定線,奪權線機率低且有全域上限);失敗不影響回合
+  // 國內隨機事件:要在議會結算之後(讀得到最新 tick);獨立 try/catch,失敗只記 log,不影響整回合
+  try {
+    const domestic = await runDomesticEventSettlement();
+    if (domestic.created > 0 || domestic.expired > 0 || domestic.failed > 0) {
+      logger.info({ domestic }, "turn engine: domestic events settled");
+    }
+  } catch (err) {
+    logger.error({ err }, "turn engine: domestic event settlement failed");
+  }
+
   try {
     const npcFocus = await runNpcFocusDecisions();
     if (npcFocus.started > 0 || npcFocus.failed > 0) logger.info({ npcFocus }, "turn engine: NPC focus decisions done");
