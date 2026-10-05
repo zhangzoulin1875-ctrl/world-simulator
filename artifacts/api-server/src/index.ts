@@ -15,6 +15,7 @@ import {
   runRegionControlMigrations,
 } from "./lib/gameMigrations";
 import { runMapRegionSync } from "./lib/mapRegions";
+import { seedDefaultMusic } from "./lib/gameMusicSeed";
 import { validateSeaAdjacency } from "./lib/navalLanding";
 import { runMapRegionEraStatsSync } from "./lib/mapRegionEraStats";
 import { runMapCitySync, validateMapCitySeed } from "./lib/mapCities";
@@ -96,6 +97,10 @@ function openPort(): void {
 // applied by Replit's Publish flow, so these are effectively redundant there.
 async function runStartupMigrations(): Promise<void> {
   await runGameMigrations();
+  // 預設歌單(四首公有領域國歌/軍樂):只在新庫第一次啟動播種;失敗不阻擋伺服器啟動。
+  await seedDefaultMusic().catch((err) =>
+    logger.warn({ err }, "seedDefaultMusic failed; continuing without default playlist"),
+  );
   await runMapRegionSync();
   // Task #277 海上航路一致性：地圖種子同步後立即驗證近海相鄰資料
   // （navalLanding 的 SEA_ADJACENCY_PAIRS／COMPASS_ONLY_ISLANDS 以地區「名稱」為鍵，
