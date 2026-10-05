@@ -1,3 +1,4 @@
+import { CIVIL_WAR_NO_CEASEFIRE_MESSAGE, notCivilWar } from "../../lib/civilWar";
 import { type IRouter } from "express";
 import {
   and,
@@ -154,6 +155,10 @@ export function registerWarAdminRoutes(router: IRouter): void {
       res.status(400).json({ error: "這場戰爭已經結束" });
       return;
     }
+    if (war.isCivilWar) {
+      res.status(409).json({ error: CIVIL_WAR_NO_CEASEFIRE_MESSAGE });
+      return;
+    }
     try {
       const now = new Date();
       const updated = await db
@@ -163,6 +168,7 @@ export function registerWarAdminRoutes(router: IRouter): void {
           and(
             eq(diplomacyWarsTable.id, id),
             isNull(diplomacyWarsTable.endedAt),
+            notCivilWar(),
           ),
         )
         .returning({ endedAt: diplomacyWarsTable.endedAt });

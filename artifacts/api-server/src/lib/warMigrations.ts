@@ -26,6 +26,20 @@ async function runWarMigrationsInner(): Promise<void> {
       ADD COLUMN IF NOT EXISTS ceasefire_proposed_by uuid
         REFERENCES player_nations(id) ON DELETE SET NULL
   `);
+  // 奪權內戰(2026-10-05):內戰標記、奪權方、意識形態(一次性 ADD,永不 DROP)
+  await db.execute(sql`
+    ALTER TABLE diplomacy_wars
+      ADD COLUMN IF NOT EXISTS is_civil_war boolean NOT NULL DEFAULT false
+  `);
+  await db.execute(sql`
+    ALTER TABLE diplomacy_wars
+      ADD COLUMN IF NOT EXISTS rebel_nation_id uuid
+        REFERENCES player_nations(id) ON DELETE SET NULL
+  `);
+  await db.execute(sql`
+    ALTER TABLE diplomacy_wars
+      ADD COLUMN IF NOT EXISTS rebel_ideology text
+  `);
   // pair 唯一改為 partial（僅進行中的戰爭唯一，歷史戰爭保留多筆）。
   // 先建新 partial index 再拆舊全域 index，順序保證不留下無唯一保護的空窗。
   await db.execute(sql`

@@ -305,6 +305,15 @@ export const diplomacyWarsTable = pgTable(
     ),
     /** Task #105 — 戰爭結束時間；null = 交戰中。 */
     endedAt: timestamp("ended_at", { withTimezone: true }),
+    /**
+     * 奪權內戰(2026-10-05):true = 革命方與原政權之間的內戰。
+     * 內戰無法停戰、無法用條約結束,只能有一方被完全消滅。
+     */
+    isCivilWar: boolean("is_civil_war").notNull().default(false),
+    /** 內戰的奪權方(革命方)nation id;非內戰為 null。 */
+    rebelNationId: uuid("rebel_nation_id").references(() => playerNationsTable.id, { onDelete: "set null" }),
+    /** 奪權方意識形態:black | red | parliament(議會革命);決定勝利後的政體。 */
+    rebelIdeology: text("rebel_ideology"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

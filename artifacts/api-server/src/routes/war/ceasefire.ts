@@ -1,3 +1,4 @@
+import { CIVIL_WAR_NO_CEASEFIRE_MESSAGE, notCivilWar } from "../../lib/civilWar";
 import { type IRouter } from "express";
 import { and, eq, isNull } from "drizzle-orm";
 import {
@@ -63,6 +64,10 @@ export function registerWarCeasefireRoutes(router: IRouter): void {
       res.status(400).json({ error: "戰爭已結束" });
       return;
     }
+    if (war.isCivilWar) {
+      res.status(409).json({ error: CIVIL_WAR_NO_CEASEFIRE_MESSAGE });
+      return;
+    }
     if (war.ceasefireProposedBy === nation.id) {
       res.json({ ok: true, warEnded: false, proposedByMe: true });
       return;
@@ -81,6 +86,7 @@ export function registerWarCeasefireRoutes(router: IRouter): void {
           eq(diplomacyWarsTable.id, war.id),
           isNull(diplomacyWarsTable.endedAt),
           isNull(diplomacyWarsTable.ceasefireProposedBy),
+          notCivilWar(),
         ),
       )
       .returning();
@@ -108,6 +114,10 @@ export function registerWarCeasefireRoutes(router: IRouter): void {
       res.status(400).json({ error: "戰爭已結束" });
       return;
     }
+    if (war.isCivilWar) {
+      res.status(409).json({ error: CIVIL_WAR_NO_CEASEFIRE_MESSAGE });
+      return;
+    }
     if (!war.ceasefireProposedBy || war.ceasefireProposedBy === nation.id) {
       res.status(400).json({ error: "目前沒有對方的停戰提案可接受" });
       return;
@@ -116,7 +126,7 @@ export function registerWarCeasefireRoutes(router: IRouter): void {
       .update(diplomacyWarsTable)
       .set({ endedAt: new Date(), ceasefireProposedBy: null })
       .where(
-        and(eq(diplomacyWarsTable.id, war.id), isNull(diplomacyWarsTable.endedAt)),
+        and(eq(diplomacyWarsTable.id, war.id), isNull(diplomacyWarsTable.endedAt), notCivilWar()),
       )
       .returning();
     if (updated.length === 0) {

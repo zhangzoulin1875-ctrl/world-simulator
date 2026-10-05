@@ -419,3 +419,69 @@ test("execCeasefire 提案方向：索求在 request* 側、proposerIsPayer=true
   assert.equal(await getControl(demandRegion, npcId), 30, "NPC 得到索求割地");
   assert.ok(await getWarEndedAt(warId), "戰爭應已結束（ended_at 設值）");
 });
+
+// ── 奪權內戰:任何路徑都不能結束它 ─────────────────────────────────
+async function createCivilWar(): Promise<number> {
+  const { low, high } = canonicalPair(npcId, playerId);
+  const [row] = await db
+    .insert(diplomacyWarsTable)
+    .values({
+      nationAId: low, nationBId: high, declaredByNationId: npcId,
+      isCivilWar: true, rebelNationId: npcId, rebelIdeology: "red",
+    })
+    .returning({ id: diplomacyWarsTable.id });
+  assert.ok(row);
+  return row.id;
+}
+
+test("內戰:附條件停戰條約即使被接受也無法結束戰爭(409,金錢/領土零轉移)", async () => {
+  const regionId = regionIds[0]!;
+  await setControl(regionId, playerId, 60);
+  const warId = await createCivilWar();
+  const treaty = await insertNpcTreatyProposal({
+    proposerNationId: npcId, targetNationId: playerId, type: "nonaggression", durationDays: null,
+    offerMoney: 200, offerRegionIds: [regionId], proposerIsPayer: false, boundWarId: warId,
+  });
+  assert.ok(treaty);
+  await assert.rejects(
+    () => acceptTreaty(treaty.id),
+    (err: unknown) => err instanceof HttpError && err.status === 409,
+  );
+  assert.equal(await getWarEndedAt(warId), null, "內戰仍在進行");
+  assert.equal(await getMoney(npcId), 1_000, "NPC 沒收到錢");
+  assert.equal(await getMoney(playerId), 500, "玩家沒付錢");
+  assert.equal(await getControl(regionId, playerId), 60, "領土沒有轉移");
+  assert.equal(await getControl(regionId, npcId), null);
+});
+
+test("內戰:NPC 聊天不能對內戰提出停戰或附條件停戰(回報失敗與原因,戰爭不變)", async () => {
+  const warId = await createCivilWar();
+  for (const demand of [false, true]) {
+    const results = await executeNpcChatActions({
+      actorId: npcId, counterpartId: playerId,
+      planned: [{
+        type: "ceasefire", targetId: playerId, targetIsPlayer: true, treatyType: null, durationDays: null,
+        offerMoney: 0, offerTechPoints: 0, offerRegionIds: [], clause: null,
+        demandMoney: demand ? 150 : 0, demandTechPoints: 0, demandRegions: [],
+      }],
+    });
+    assert.equal(results[0]!.ok, false);
+    assert.ok(results[0]!.detail.includes("內戰"), results[0]!.detail);
+  }
+  assert.equal(await getWarEndedAt(warId), null);
+});
+
+test("內戰:NPC 接受玩家既有的停戰提案也不會結束戰爭", async () => {
+  const warId = await createCivilWar();
+  await db.update(diplomacyWarsTable).set({ ceasefireProposedBy: playerId }).where(eq(diplomacyWarsTable.id, warId));
+  const results = await executeNpcChatActions({
+    actorId: npcId, counterpartId: playerId,
+    planned: [{
+      type: "ceasefire", targetId: playerId, targetIsPlayer: true, treatyType: null, durationDays: null,
+      offerMoney: 0, offerTechPoints: 0, offerRegionIds: [], clause: null,
+      demandMoney: 0, demandTechPoints: 0, demandRegions: [],
+    }],
+  });
+  assert.equal(results[0]!.ok, false);
+  assert.equal(await getWarEndedAt(warId), null);
+});

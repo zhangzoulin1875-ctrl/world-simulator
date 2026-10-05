@@ -1,3 +1,4 @@
+import { CIVIL_WAR_NO_CEASEFIRE_MESSAGE, notCivilWar } from "./civilWar";
 import { and, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import {
   db,
@@ -215,6 +216,7 @@ async function execCeasefire(
     )
     .limit(1);
   if (!war) return { type, ok: false, detail: "目前並未與該國交戰" };
+  if (war.isCivilWar) return { type, ok: false, detail: CIVIL_WAR_NO_CEASEFIRE_MESSAGE };
 
   // Task #341 — 附條件停戰：NPC 向「正在對話的玩家」索求金錢／科技／領土作為停戰條件，
   // 以一筆綁定本場戰爭（boundWarId）的條約提案落地；玩家接受後 activateTreaty 會轉移
@@ -275,7 +277,7 @@ async function execCeasefire(
       .update(diplomacyWarsTable)
       .set({ endedAt: new Date(), ceasefireProposedBy: null })
       .where(
-        and(eq(diplomacyWarsTable.id, war.id), isNull(diplomacyWarsTable.endedAt)),
+        and(eq(diplomacyWarsTable.id, war.id), isNull(diplomacyWarsTable.endedAt), notCivilWar()),
       )
       .returning({ id: diplomacyWarsTable.id });
     if (ended.length === 0) {

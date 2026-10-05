@@ -10,6 +10,7 @@ import {
 import { recordFinanceLedger } from "./financeLedger";
 import { recordTerritoryChanges } from "./territoryHistory";
 import { pgErrorCode } from "./playerValidation";
+import { CIVIL_WAR_NO_CEASEFIRE_MESSAGE, isActiveCivilWar, notCivilWar } from "./civilWar";
 
 /** Error that maps to an HTTP status inside a transaction (throw → rollback). */
 export class HttpError extends Error {
@@ -59,9 +60,13 @@ export async function activateTreaty(
         and(
           eq(diplomacyWarsTable.id, treaty.boundWarId),
           isNull(diplomacyWarsTable.endedAt),
+          notCivilWar(),
         ),
       )
       .returning({ id: diplomacyWarsTable.id });
+    if (ended.length === 0) {
+      if (await isActiveCivilWar(treaty.boundWarId)) throw new HttpError(409, CIVIL_WAR_NO_CEASEFIRE_MESSAGE);
+    }
     if (ended.length === 0) {
       throw new HttpError(400, "該場戰爭已結束，此附條件停戰提案已失效");
     }
