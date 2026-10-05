@@ -63,9 +63,12 @@ test("GET /focus:只列出該政體看得到的國策(君主專制只看到自�
   const r = await get(cookie); assert.equal(r.status, 200);
   const j: any = await r.json();
   const ids: string[] = j.focuses.map((f: any) => f.id);
-  const expected = ["constitutional_monarchy", "military_dictatorship", "theocracy", "elective_monarchy", "dual_monarchy"]
-    .map((to) => findEdge("absolute_monarchy", to)!.focusId).sort();
-  assert.deepEqual(ids.slice().sort(), expected, "只看得到 5 條從君主專制出發的轉型");
+  const expected = [
+    ...["constitutional_monarchy", "military_dictatorship", "theocracy", "elective_monarchy", "dual_monarchy"]
+      .map((to) => findEdge("absolute_monarchy", to)!.focusId),
+    "regime.absolute_monarchy_red_revolution",
+  ].sort();
+  assert.deepEqual(ids.slice().sort(), expected, "只看得到 6 條出口(5 條轉型 + 1 條紅色革命)");
   for (const f of j.focuses) {
     assert.ok(f.transitionTo, "轉型國策要標示目標政體");
     assert.ok(f.costs.length > 0, "每個轉型都要列出代價");

@@ -205,7 +205,7 @@ export async function runFocusSettlement(): Promise<{ nations: number; completed
 
 export type StartResult =
   | { ok: true; focusId: string; slot: FocusSlot; spent: number; totalTurns: number }
-  | { ok: false; reason: StartBlockReason | "unknown_focus" | "government_not_allowed" | "era_locked" | "condition_failed"; message: string };
+  | { ok: false; reason: StartBlockReason | "unknown_focus" | "government_not_allowed" | "era_locked" | "condition_failed" | "not_yet_available"; message: string };
 
 /** 玩家啟動國策:檢查全部條件後預扣點數並建立進行中紀錄(交易內搶占,避免競態)。 */
 function isUniqueViolation(err: unknown): boolean {
@@ -239,7 +239,7 @@ export interface StartFacts {
 
 export type StartVerdict =
   | { ok: true }
-  | { ok: false; reason: StartBlockReason | "unknown_focus" | "government_not_allowed" | "era_locked" | "condition_failed"; message: string };
+  | { ok: false; reason: StartBlockReason | "unknown_focus" | "government_not_allowed" | "era_locked" | "condition_failed" | "not_yet_available"; message: string };
 
 /**
  * 啟動判斷的唯一真相來源:startFocus(真的扣點)與畫面清單(唯讀)共用,
@@ -253,6 +253,7 @@ export function evaluateStart(def: FocusDef, f: StartFacts): StartVerdict {
   if (!eraReached(f.eraSlug, def.minEra)) {
     return { ok: false, reason: "era_locked", message: "世界尚未進入可推行此國策的時代" };
   }
+  if (def.unavailableReason) return { ok: false, reason: "not_yet_available", message: def.unavailableReason };
   const siblingIds = new Set<string>(def.excludes ?? []);
   if (def.exclusiveGroup) {
     for (const d of getCatalog()) if (d.exclusiveGroup === def.exclusiveGroup && d.id !== def.id) siblingIds.add(d.id);

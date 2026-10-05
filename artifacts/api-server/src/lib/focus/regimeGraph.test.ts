@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { REGIME_EDGES, edgesFrom, findEdge, reachableFrom, validateRegimeGraph } from "./regimeGraph";
+import { AUTOCRACY_RED_REVOLUTION_LAND_SHARE, REGIME_EDGES, edgesFrom, findEdge, reachableFrom, validateRegimeGraph } from "./regimeGraph";
 import { buildRegimeFocuses } from "./regimeFocuses";
 import { FOCUS_CATALOG } from "./catalog";
 import { validateCatalog } from "./validate";
@@ -68,4 +68,40 @@ test("轉型國策:極端路線比穩定路線更貴更慢,且黑/紅線要求�
   assert.ok(red.cost > stable.cost && red.turns > stable.turns);
   assert.ok(black.conditions!.some((c) => c.kind === "leanAtLeast" && c.side === "black"));
   assert.ok(red.conditions!.some((c) => c.kind === "leanAtLeast" && c.side === "red"));
+});
+
+test("獨裁國家可發動共產革命:三個獨裁政體都有,革命方只佔 35% 土地", () => {
+  assert.equal(AUTOCRACY_RED_REVOLUTION_LAND_SHARE, 0.35);
+  const revs = REGIME_EDGES.filter((e) => e.revolution);
+  assert.deepEqual(revs.map((e) => e.from).sort(), ["absolute_monarchy", "military_dictatorship", "theocracy"]);
+  for (const e of revs) {
+    assert.equal(e.to, "council_system");
+    assert.equal(e.track, "red");
+    assert.equal(e.revolution!.landShare, 0.35);
+    assert.equal(e.focusId, `regime.${e.from}_red_revolution`);
+  }
+});
+
+test("共產革命比民主國家的紅線轉型更貴更慢、門檻更高、代價更重", () => {
+  const fs = buildRegimeFocuses();
+  const dem = fs.find((f) => f.id === findEdge("parliamentary", "council_system")!.focusId)!;
+  const rev = fs.find((f) => f.id === "regime.absolute_monarchy_red_revolution")!;
+  assert.ok(rev.cost > dem.cost && rev.turns > dem.turns);
+  const lean = (f: typeof rev) => (f.conditions!.find((c) => c.kind === "leanAtLeast") as any).value;
+  assert.ok(lean(rev) > lean(dem), "紅線傾向門檻更高");
+  const loss = (f: typeof rev, stat: string) =>
+    f.effects.filter((e) => e.kind === "grant" && e.stat === stat).reduce((a, e: any) => a + e.value, 0);
+  assert.ok(loss(rev, "stability") < loss(dem, "stability"), "穩定度損失更大");
+  assert.ok(loss(rev, "money") < loss(dem, "money"), "金錢損失更大");
+  assert.ok(rev.description.includes("35%") && rev.description.includes("內戰"));
+});
+
+test("民主國家沒有革命邊(他們用議會式轉型);革命國策在內戰機制完成前標為不可推行", () => {
+  for (const g of ["parliamentary", "parliamentary_republic", "presidential_democracy", "constitutional_monarchy"]) {
+    assert.ok(!REGIME_EDGES.some((e) => e.from === g && e.revolution), g);
+  }
+  for (const f of buildRegimeFocuses().filter((f) => f.id.endsWith("_red_revolution"))) {
+    assert.ok(f.unavailableReason, f.id);
+  }
+  assert.ok(buildRegimeFocuses().filter((f) => !f.id.endsWith("_red_revolution")).every((f) => !f.unavailableReason));
 });

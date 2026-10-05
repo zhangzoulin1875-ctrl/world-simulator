@@ -335,3 +335,15 @@ test("轉型完成後,同時進行中的其他轉型國策作廢並退點", asyn
   assert.equal(actives.length, 0, "第二條轉型作廢");
   assert.ok((await fstate()).points >= before + 14, "作廢的那條退回預扣點數");
 });
+
+test("共產革命國策:條件全滿足也不能推行(內戰未開放),不扣點、不換政體", async () => {
+  setCatalogForTest(FOCUS_CATALOG);
+  await give(100);
+  await db.update(focusStatesTable).set({ redLean: 90 }).where(eq(focusStatesTable.nationId, nationId));
+  await db.update(playerNationsTable).set({ stability: 20 }).where(eq(playerNationsTable.id, nationId));
+  const r = await startFocus(await load(), "regime.absolute_monarchy_red_revolution");
+  assert.equal(r.ok, false);
+  assert.ok(!r.ok && r.reason === "not_yet_available");
+  assert.equal((await fstate()).points, 100);
+  assert.equal((await load()).government, governmentLabel("absolute_monarchy"));
+});

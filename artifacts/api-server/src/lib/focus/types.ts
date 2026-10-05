@@ -70,6 +70,8 @@ export interface FocusDef {
   milestone?: boolean;
   /** 客觀條件門檻(全部須成立才能啟動;用於轉型國策取代舊「接受度」)。 */
   conditions?: FocusCondition[];
+  /** 設定後,此國策顯示但暫不可推行(對應功能尚未完成),值為給玩家看的說明。 */
+  unavailableReason?: string;
 }
 
 export type FocusDomain =
