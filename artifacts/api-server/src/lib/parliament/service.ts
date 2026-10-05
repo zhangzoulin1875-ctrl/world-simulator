@@ -19,6 +19,8 @@ import {
 import { planParliamentTurn } from "./plan";
 import { buildParties, partyColor, type NationFacts } from "./parties";
 import { SOCIALIST_PARTY_NAME } from "../domesticEvents/parliamentShift";
+import { noConstitutionPenalty } from "../constitution/core";
+import { loadConstitution, statusOf } from "../constitution/service";
 
 type Nation = typeof playerNationsTable.$inferSelect;
 export const PARTY_REFRESH_EVERY_TICKS = 12;
@@ -142,9 +144,21 @@ export async function settleNationParliament(
     activeDemand: state.activeDemand as any, parties, snapshot, militarySatisfaction: nation.satisfactionMilitary,
   });
 
+  // 沒有通過憲法 → 議會滿意度每回合小扣(有下限,單憑此事不會逼出革命;專制橡皮圖章不罰)。
+  // 革命回合不再扣,避免剛重置的 40 又被打折。
+  let satisfactionAfter = plan.satisfaction;
+  if (!plan.revolt) {
+    const con = await loadConstitution(nation.id);
+    const pen = noConstitutionPenalty(planTier, statusOf(con), plan.satisfaction);
+    if (pen.delta < 0) {
+      satisfactionAfter = pen.satisfaction;
+      plan.logs.push({ kind: "constitution", summary: "國家至今沒有憲法,議會對領袖遲遲不制憲越來越不滿。", satDelta: pen.delta });
+    }
+  }
+
   await db.transaction(async (tx) => {
     await tx.update(parliamentStateTable).set({
-      tick: plan.tick, satisfaction: plan.satisfaction, lastDemandTick: plan.lastDemandTick,
+      tick: plan.tick, satisfaction: satisfactionAfter, lastDemandTick: plan.lastDemandTick,
       activeDemand: plan.activeDemand as any,
       protestText: plan.protestText ?? state.protestText,
       prevTaxRate: nation.taxRatePct, prevArmyPop: curArmy === null ? null : String(Math.round(curArmy)),

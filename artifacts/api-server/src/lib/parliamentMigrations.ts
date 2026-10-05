@@ -86,4 +86,54 @@ export async function runParliamentMigrationsInner(
   `);
   await executor.execute(sql`CREATE INDEX IF NOT EXISTS military_demands_nation_idx ON military_demands (nation_id, created_at)`);
   await executor.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS military_demands_one_pending_uidx ON military_demands (nation_id) WHERE status = 'pending'`);
+
+  // ── 憲法系統 ─────────────────────────────────────────────────────────
+  await executor.execute(sql`
+    CREATE TABLE IF NOT EXISTS constitutions (
+      nation_id uuid PRIMARY KEY REFERENCES player_nations(id) ON DELETE CASCADE,
+      status text NOT NULL DEFAULT 'draft',
+      draft_text text NOT NULL DEFAULT '',
+      final_text text,
+      ratified_tick integer,
+      ratified_at timestamptz,
+      submissions integer NOT NULL DEFAULT 0,
+      last_submit_tick integer,
+      last_review jsonb,
+      flaws jsonb,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      CONSTRAINT constitutions_status_check CHECK (status IN ('draft','reviewing','ratified')),
+      CONSTRAINT constitutions_len_check CHECK (char_length(draft_text) <= 12000)
+    )
+  `);
+  // 「通過後不可更改」的硬規則放在資料庫層：不論哪條程式路徑（含日後新增的）都繞不過。
+  // 已通過的列：禁止改 final_text / draft_text / status，也禁止刪除（nation 被刪時的 CASCADE 例外，
+  // 因為 CASCADE 刪除發生在 nation 被刪的情況，此時沒有「憲法被修改」的問題）。
+  // 只允許更新 flaws（階段 3 漏洞掃描）、last_review、updated_at。
+  await executor.execute(sql`
+    CREATE OR REPLACE FUNCTION constitutions_lock_guard() RETURNS trigger AS $$
+    BEGIN
+      IF OLD.status = 'ratified' THEN
+        IF NEW.status IS DISTINCT FROM OLD.status
+           OR NEW.final_text IS DISTINCT FROM OLD.final_text
+           OR NEW.draft_text IS DISTINCT FROM OLD.draft_text
+           OR NEW.ratified_tick IS DISTINCT FROM OLD.ratified_tick
+           OR NEW.ratified_at IS DISTINCT FROM OLD.ratified_at THEN
+          RAISE EXCEPTION 'constitution is ratified and cannot be modified';
+        END IF;
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql
+  `);
+  // 不用 DROP（本檔慣例只增不刪）：trigger 不存在才建立；函式本體用 CREATE OR REPLACE 已可更新規則。
+  await executor.execute(sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'constitutions_lock_trg') THEN
+        CREATE TRIGGER constitutions_lock_trg BEFORE UPDATE ON constitutions
+        FOR EACH ROW EXECUTE FUNCTION constitutions_lock_guard();
+      END IF;
+    END $$
+  `);
 }

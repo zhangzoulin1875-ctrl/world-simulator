@@ -22,7 +22,7 @@ export interface PlanInput {
   militarySatisfaction: number | null;
 }
 
-export interface PlanLogEntry { kind: "demand" | "judgement" | "revolution"; summary: string; satDelta: number }
+export interface PlanLogEntry { kind: "demand" | "judgement" | "revolution" | "constitution"; summary: string; satDelta: number }
 
 export interface PlanResult {
   tick: number;                       // 新 tick

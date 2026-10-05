@@ -14,6 +14,11 @@ import {
   validateReportText, reportCooldownLeft, REPORT_COST_MONEY, REPORT_COOLDOWN_TICKS,
 } from "../lib/parliament/reportCore";
 import { scoreReport } from "../lib/parliament/report";
+import {
+  CONSTITUTION_MAX_LEN, CONSTITUTION_MIN_LEN, SUBMIT_COST_MONEY, SUBMIT_COOLDOWN_TICKS,
+  constitutionRequired, submitCooldownLeft, NO_CONSTITUTION_PENALTY_PER_TICK, NO_CONSTITUTION_SAT_FLOOR,
+} from "../lib/constitution/core";
+import { loadConstitution, saveDraft, statusOf, currentParliamentTick } from "../lib/constitution/service";
 
 const router: IRouter = Router();
 
@@ -80,6 +85,42 @@ router.get("/parliament", async (req, res) => {
     res.json(await buildView(auth.nation.id, auth.nation.government));
   }
   catch (err) { logger.error({ err }, "parliament view failed"); res.status(500).json({ error: "讀取議會失敗" }); }
+});
+
+/** 憲法頁:狀態、草稿、最近一次審查結果。通過後才回傳定稿與漏洞以外的內容(漏洞清單不給玩家看)。 */
+router.get("/constitution", async (req, res) => {
+  const auth = await requirePlayer(req, res); if (!auth) return;
+  try {
+    const { nation } = auth;
+    const row = await loadConstitution(nation.id);
+    const status = statusOf(row);
+    const { tier } = await tierOfNation(nation);
+    const tick = await currentParliamentTick(nation.id);
+    res.json({
+      status,
+      required: constitutionRequired(tier),
+      draftText: row?.draftText ?? "",
+      finalText: status === "ratified" ? row?.finalText ?? "" : null,
+      ratifiedAt: row?.ratifiedAt ? row.ratifiedAt.toISOString() : null,
+      submissions: row?.submissions ?? 0,
+      lastReview: row?.lastReview ?? null,
+      limits: { maxLen: CONSTITUTION_MAX_LEN, minSubmitLen: CONSTITUTION_MIN_LEN },
+      submit: { cost: SUBMIT_COST_MONEY, cooldownTicks: SUBMIT_COOLDOWN_TICKS, cooldownLeft: submitCooldownLeft(tick, row?.lastSubmitTick ?? null) },
+      // 沒有憲法的代價,讓玩家知道為什麼議會越來越不滿。
+      penalty: constitutionRequired(tier) && status !== "ratified"
+        ? { perTick: NO_CONSTITUTION_PENALTY_PER_TICK, floor: NO_CONSTITUTION_SAT_FLOOR } : null,
+    });
+  } catch (err) { logger.error({ err }, "constitution view failed"); res.status(500).json({ error: "讀取憲法失敗" }); }
+});
+
+/** 存草稿(可反覆)。已通過或審議中會被擋。 */
+router.put("/constitution/draft", async (req, res) => {
+  const auth = await requirePlayer(req, res); if (!auth) return;
+  try {
+    const r = await saveDraft(auth.nation.id, (req.body ?? {}).text);
+    if (!r.ok) { res.status(r.code).json({ error: r.error }); return; }
+    res.json({ ok: true, status: r.row.status, length: r.row.draftText.length });
+  } catch (err) { logger.error({ err }, "constitution save draft failed"); res.status(500).json({ error: "儲存憲法草稿失敗" }); }
 });
 
 router.post("/parliament/report", async (req, res) => {

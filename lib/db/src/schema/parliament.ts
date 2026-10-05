@@ -100,3 +100,39 @@ export const parliamentLogTable = pgTable(
     nationIdx: index("parliament_log_nation_idx").on(t.nationId, t.id),
   }),
 );
+
+/**
+ * 憲法。每國最多一列。status:draft | reviewing | ratified（none = 沒有這一列）。
+ * 通過（ratified）後 final_text 永久鎖定，資料庫層以 trigger 擋下任何修改。
+ * 規則在 lib/constitution/core.ts；AI 只負責審查與投票理由，不決定鎖定。
+ */
+export const constitutionsTable = pgTable(
+  "constitutions",
+  {
+    nationId: uuid("nation_id")
+      .primaryKey()
+      .references(() => playerNationsTable.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("draft"),
+    /** 草稿全文（最多 12000 字）。 */
+    draftText: text("draft_text").notNull().default(""),
+    /** 通過後的定稿；通過前為 null。永久鎖定。 */
+    finalText: text("final_text"),
+    /** 通過時的議會 tick 與時間。 */
+    ratifiedTick: integer("ratified_tick"),
+    ratifiedAt: timestamp("ratified_at", { withTimezone: true }),
+    /** 累計送審次數與最近一次送審的 tick（冷卻用）。 */
+    submissions: integer("submissions").notNull().default(0),
+    lastSubmitTick: integer("last_submit_tick"),
+    /** 最近一次審查結果（品質分、缺陷、各黨投票），給玩家看。 */
+    lastReview: jsonb("last_review").$type<Record<string, unknown> | null>(),
+    /** 通過後 AI 掃出的憲法漏洞（階段 3 使用）。 */
+    flaws: jsonb("flaws").$type<string[] | null>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => ({
+    statusCheck: check("constitutions_status_check", sql`${t.status} IN ('draft','reviewing','ratified')`),
+    lenCheck: check("constitutions_len_check", sql`char_length(${t.draftText}) <= 12000`),
+  }),
+);
