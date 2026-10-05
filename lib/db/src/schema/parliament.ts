@@ -106,6 +106,10 @@ export const parliamentLogTable = pgTable(
  * 通過（ratified）後 final_text 永久鎖定，資料庫層以 trigger 擋下任何修改。
  * 規則在 lib/constitution/core.ts；AI 只負責審查與投票理由，不決定鎖定。
  */
+export interface ConstitutionFlawRow {
+  id: string; title: string; description: string; triggered: boolean; triggeredTick: number | null;
+}
+
 export const constitutionsTable = pgTable(
   "constitutions",
   {
@@ -127,8 +131,8 @@ export const constitutionsTable = pgTable(
     reviewStartedAt: timestamp("review_started_at", { withTimezone: true }),
     /** 最近一次審查結果（品質分、缺陷、各黨投票），給玩家看。 */
     lastReview: jsonb("last_review").$type<Record<string, unknown> | null>(),
-    /** 通過後 AI 掃出的憲法漏洞（階段 3 使用）。 */
-    flaws: jsonb("flaws").$type<string[] | null>(),
+    /** 通過後 AI 掃出的憲法漏洞（3~6 個），觸發過的標記 triggered。玩家看不到清單，只看得到危機事件。 */
+    flaws: jsonb("flaws").$type<ConstitutionFlawRow[] | null>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
       .$onUpdate(() => new Date()),

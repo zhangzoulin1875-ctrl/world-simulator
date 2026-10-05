@@ -17,8 +17,9 @@ import {
   type ReviewRecord, type ConstitutionStatus,
 } from "./core";
 import {
-  QUALITY_SYSTEM, VOTE_SYSTEM, buildQualityPrompt, buildVotePrompt, parseQualityReview, parseVotes,
-  toPartyVotes, qualityPasses, clampForAi, type NationBrief, type PartyBrief,
+  QUALITY_SYSTEM, VOTE_SYSTEM, FLAW_SYSTEM, buildQualityPrompt, buildVotePrompt, buildFlawPrompt,
+  parseQualityReview, parseVotes, parseFlaws, toPartyVotes, qualityPasses, clampForAi,
+  type NationBrief, type PartyBrief,
 } from "./review";
 import { loadConstitution, statusOf, currentParliamentTick } from "./service";
 
@@ -31,10 +32,10 @@ export type SubmitResult =
   | { ok: true }
   | { ok: false; code: 400 | 402 | 409 | 429; error: string };
 
-type AiCaller = (feature: "constitution.quality" | "constitution.vote", system: string, user: string) => Promise<string>;
+type AiCaller = (feature: "constitution.quality" | "constitution.vote" | "constitution.flaws", system: string, user: string) => Promise<string>;
 
 const defaultAi: AiCaller = async (feature, system, user) => {
-  const tier = feature === "constitution.quality" ? "quality" : "bulk";
+  const tier = feature === "constitution.vote" ? "bulk" : "quality";
   const msg = await callGameAi(feature, tier, { system, messages: [{ role: "user", content: user }] });
   const block = msg.content[0];
   return block && block.type === "text" ? block.text : "";
@@ -202,10 +203,39 @@ export async function runReview(nationId: string, rawText: string, tick: number)
       qualityScore: quality.score, feedback: quality.feedback, flaws: quality.flaws,
       votes, yesSeats: tally.yesSeats, totalSeats, source: "ai", reviewedTick: tick,
     };
-    await finishReview(nationId, record, tally.passed ? { status: "ratified", finalText: rawText } : { status: "draft" });
+    const landed = await finishReview(nationId, record, tally.passed ? { status: "ratified", finalText: rawText } : { status: "draft" });
+    // 憲法已經通過並鎖定:漏洞掃描失敗不能反悔,只是留待之後補掃。
+    if (landed && tally.passed) await scanFlaws(nationId).catch((err) => logger.warn({ err, nationId }, "constitution flaw scan failed, will retry"));
   } catch (err) {
     logger.error({ err, nationId }, "constitution review failed");
     await abortReview(nationId, "exception").catch((e) => logger.error({ e }, "constitution abort failed"));
   }
 }
 
+
+
+/**
+ * 掃描已通過憲法的漏洞並存檔。冪等:已經有漏洞清單的不重掃(避免重複花 AI、避免覆蓋已觸發紀錄)。
+ * 回傳是否寫入了新清單。失敗(AI 掛掉/格式錯誤)回傳 false,憲法本身不受影響,下次結算會重試。
+ */
+export async function scanFlaws(nationId: string): Promise<boolean> {
+  const row = await loadConstitution(nationId);
+  if (!row || row.status !== "ratified" || !row.finalText) return false;
+  const existing = row.flaws as unknown[] | null;
+  if (Array.isArray(existing) && existing.length > 0) return false;
+
+  const [nation] = await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, nationId));
+  if (!nation) return false;
+  const brief = await nationBrief(nationId, nation.government, nation.stability);
+  const raw = await aiCaller("constitution.flaws", FLAW_SYSTEM, buildFlawPrompt(clampForAi(row.finalText), brief));
+  const flaws = parseFlaws(raw);
+  if (!flaws) { logger.warn({ nationId }, "constitution flaw scan: unparsable output"); return false; }
+
+  // 條件更新:只有「還沒有漏洞清單」才寫入,並發的第二次掃描不會覆蓋第一次。
+  const done = await db.update(constitutionsTable).set({ flaws })
+    .where(and(
+      eq(constitutionsTable.nationId, nationId), eq(constitutionsTable.status, "ratified"),
+      sql`(${constitutionsTable.flaws} IS NULL OR jsonb_array_length(${constitutionsTable.flaws}) = 0)`,
+    )).returning({ n: constitutionsTable.nationId });
+  return done.length > 0;
+}

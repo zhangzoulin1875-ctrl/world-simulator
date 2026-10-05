@@ -155,7 +155,7 @@ test("並發雙擊送審：只有一個成功、只扣一次錢、AI 只跑一�
   await Promise.all(pending);
   assert.equal(rs.filter((r) => r.ok).length, 1);
   assert.equal(await moneyOf(nat.id), money0 - SUBMIT_COST_MONEY);
-  assert.equal(aiCalls, 2, "品質 + 投票各一次");
+  assert.equal(aiCalls, 3, "一輪完整流程 = 品質 + 投票 + 通過後漏洞掃描各一次；雙擊各跑一輪會是 6");
   assert.equal((await loadConstitution(nat.id))!.submissions, 1);
 });
 

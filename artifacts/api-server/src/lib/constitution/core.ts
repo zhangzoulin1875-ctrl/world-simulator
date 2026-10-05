@@ -138,3 +138,47 @@ export function noConstitutionPenalty(
   const next = Math.max(NO_CONSTITUTION_SAT_FLOOR, satisfaction - NO_CONSTITUTION_PENALTY_PER_TICK);
   return { satisfaction: next, delta: next - satisfaction };
 }
+
+// ── 階段 3:憲法漏洞與危機 ────────────────────────────────────────────────
+/** 每次擲骰回合,通過後的憲法觸發危機的機率。獨立於一般隨機事件的 30%。 */
+export const CRISIS_CHANCE = 0.15;
+/** 通過後至少要過幾個議會回合才會開始出現危機(給玩家喘息,也避開剛通過的滿意度加成)。 */
+export const CRISIS_GRACE_TICKS = 6;
+/** 兩次憲法危機之間至少間隔幾個回合。 */
+export const CRISIS_SPACING_TICKS = 32;
+export const FLAWS_MIN = 3;
+export const FLAWS_MAX = 6;
+
+/** 一個憲法漏洞。AI 只產生 title / description;triggered 由程式維護。 */
+export interface ConstitutionFlaw {
+  id: string;              // f1..f6,程式指定,不信 AI
+  title: string;           // 危機事件標題(<= 24 字)
+  description: string;     // 危機事件敘述(<= 140 字)
+  triggered: boolean;      // 是否已引發過危機
+  triggeredTick: number | null;
+}
+
+/** 挑出下一個要引爆的漏洞:尚未觸發者中,依 id 順序取第一個(可預期、可測試)。 */
+export function nextUntriggeredFlaw(flaws: readonly ConstitutionFlaw[] | null | undefined): ConstitutionFlaw | null {
+  if (!flaws) return null;
+  return flaws.find((f) => !f.triggered) ?? null;
+}
+
+/**
+ * 這個回合憲法危機要不要發生(純函式)。條件全部成立才擲骰:
+ *  - 憲法已通過、且還有未觸發的漏洞;
+ *  - 通過後已過 CRISIS_GRACE_TICKS 回合;
+ *  - 距離上一次危機至少 CRISIS_SPACING_TICKS 回合。
+ */
+export function shouldRollCrisis(args: {
+  status: ConstitutionStatus; tick: number; ratifiedTick: number | null;
+  flaws: readonly ConstitutionFlaw[] | null | undefined;
+}): boolean {
+  if (args.status !== "ratified" || args.ratifiedTick === null) return false;
+  if (!nextUntriggeredFlaw(args.flaws)) return false;
+  if (args.tick - args.ratifiedTick < CRISIS_GRACE_TICKS) return false;
+  const last = (args.flaws ?? []).reduce<number | null>(
+    (m, f) => (f.triggeredTick !== null && (m === null || f.triggeredTick > m) ? f.triggeredTick : m), null);
+  if (last !== null && args.tick - last < CRISIS_SPACING_TICKS) return false;
+  return true;
+}

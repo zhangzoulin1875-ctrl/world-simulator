@@ -23,7 +23,11 @@ export type DomesticEventKind =
   | "socialist_majority"
   | "military_petition"
   | "economic_crisis"
-  | "religious_revival";
+  | "religious_revival"
+  | "constitutional_crisis";
+
+/** 只能由憲法漏洞觸發的事件種類:不進隨機抽選、不進管理員投放目錄。 */
+export const CONSTITUTION_ONLY_KINDS: readonly DomesticEventKind[] = ["constitutional_crisis"];
 
 export type ChoiceStyle = "comply" | "crackdown" | "delay";
 
@@ -124,7 +128,26 @@ export const DOMESTIC_EVENTS: readonly DomesticEventDef[] = [
   },
 ];
 
+/**
+ * 憲法危機(2026-10-06):由通過後的憲法漏洞觸發。標題與敘述在建立事件時換成該漏洞的文字,
+ * 這裡的三個選項與效果數字永遠固定(AI 只負責描述漏洞,碰不到數字)。
+ * 刻意不放進 DOMESTIC_EVENTS:不會被隨機抽到,管理員目錄也看不到。
+ */
+export const CONSTITUTIONAL_CRISIS_DEF: DomesticEventDef = {
+  kind: "constitutional_crisis",
+  title: "憲法危機",
+  body: "憲法條文中的一處漏洞被人拿來大做文章,各方對條文的解釋針鋒相對。",
+  weight: 1,
+  defaultChoiceId: "delay",
+  choices: [
+    { id: "comply", style: "comply", label: "召集議會修補解釋,公開讓步", hint: "議會與穩定回升,國庫花一點錢", effects: { parliamentSatisfaction: 8, stability: 4, money: -800 } },
+    { id: "crackdown", style: "crackdown", label: "以行政命令強行解釋條文", hint: "軍方支持,但議會與穩定大降且有內戰風險", effects: { militarySatisfaction: 8, parliamentSatisfaction: -12, stability: -14, civilWarRisk: true } },
+    { id: "delay", style: "delay", label: "擱置爭議,等風頭過去", hint: "議會與穩定都受損", effects: { parliamentSatisfaction: -6, stability: -6 } },
+  ],
+};
+
 export function getEventDef(kind: string): DomesticEventDef | undefined {
+  if (kind === CONSTITUTIONAL_CRISIS_DEF.kind) return CONSTITUTIONAL_CRISIS_DEF;
   return DOMESTIC_EVENTS.find((e) => e.kind === kind);
 }
 

@@ -96,6 +96,7 @@ export const AI_FEATURES = {
   "parliament.report": { label: "議會:國情報告評分", defaultMaxTokens: 400 },
   "constitution.quality": { label: "憲法:品質審查", defaultMaxTokens: 900 },
   "constitution.vote": { label: "憲法:各黨投票", defaultMaxTokens: 1200 },
+  "constitution.flaws": { label: "憲法:漏洞掃描", defaultMaxTokens: 1400 },
   "diagnostics.ping": { label: "系統：AI 連線測試", defaultMaxTokens: 200 },
 } as const satisfies Record<string, AiFeatureDef>;
 

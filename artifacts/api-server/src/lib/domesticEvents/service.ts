@@ -13,6 +13,7 @@ import { partyColor } from "../parliament/parties";
 import { rulingParty, clampSat, PARLIAMENT_SATISFACTION_START, effectiveParliamentTier, type ParliamentStance, type SeatedParty } from "../parliament/core";
 import {
   EVENT_DEADLINE_TURNS,
+  CONSTITUTION_ONLY_KINDS,
   getEventDef,
   isRollTurn,
   rollsEvent,
@@ -24,6 +25,7 @@ import {
 } from "./core";
 import { shiftParliament } from "./parliamentShift";
 import { queueEventRewrite } from "./text";
+import { maybeTriggerCrisis } from "../constitution/crisis";
 
 type Nation = typeof playerNationsTable.$inferSelect;
 type EventRow = typeof domesticEventsTable.$inferSelect;
@@ -243,6 +245,11 @@ export async function runDomesticEventSettlement(rand: () => number = Math.rando
       }
 
       if (!isRollTurn(tick)) continue;
+
+      // 憲法危機:通過後的憲法有漏洞時,擲骰回合獨立擲一次(與一般事件互斥,同回合最多一個新事件)。
+      const crisisId = await maybeTriggerCrisis(n.id, tick, rand);
+      if (crisisId) { summary.created++; continue; }
+
       if (!rollsEvent(rand)) continue;
 
       // 同一種事件 EVENT_REPEAT_COOLDOWN_TURNS 回合內不重發;全部種類都在冷卻就這回合不發事件。
@@ -280,6 +287,8 @@ export async function sendEventToNations(
 ): Promise<AdminSendResult> {
   const def = getEventDef(kind);
   if (!def) throw new Error(`unknown event kind: ${kind}`);
+  // 憲法危機只能由通過的憲法漏洞引爆(文字來自漏洞本身),管理員不能憑空投放。
+  if ((CONSTITUTION_ONLY_KINDS as readonly string[]).includes(kind)) throw new Error(`event kind ${kind} cannot be sent manually`);
   const result: AdminSendResult = { sent: [], skipped: [] };
   for (const id of nationIds) {
     const [n] = await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, id));

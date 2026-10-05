@@ -90,8 +90,9 @@ test("通過後資料庫層鎖定：不能改文字、不能改狀態、不能�
   assert.equal(row.status, "ratified");
 
   // 但後續階段需要寫入的欄位（漏洞清單、審查紀錄）仍可更新。
-  await db.update(constitutionsTable).set({ flaws: ["漏洞一"] }).where(eq(constitutionsTable.nationId, nat.id));
-  assert.deepEqual((await loadConstitution(nat.id))!.flaws, ["漏洞一"]);
+  const flaw = { id: "f1", title: "漏洞一", description: "描述", triggered: false, triggeredTick: null };
+  await db.update(constitutionsTable).set({ flaws: [flaw] }).where(eq(constitutionsTable.nationId, nat.id));
+  assert.deepEqual((await loadConstitution(nat.id))!.flaws, [flaw]);
 });
 
 test("並發存草稿不會產生兩列，也不會丟錯", async () => {
@@ -139,4 +140,14 @@ test("議會結算：滿意度已在下限時，憲法懲罰不再追加（不�
   await settleNationParliament(nat, null, 0);
   const pen = await db.execute(sql`select 1 from parliament_log where nation_id = ${nat.id} and summary like '%沒有憲法%'`);
   assert.equal(pen.rows.length, 0, "已在下限，憲法懲罰不該再出手");
+});
+
+test("對玩家的審查結果：通過時不給缺陷清單；退回/否決時照給", async () => {
+  const { publicReview } = await import("../../routes/parliament");
+  const rec = { outcome: "ratified", qualityScore: 80, feedback: "好", flaws: ["a", "b"], votes: [] };
+  assert.deepEqual((publicReview(rec) as any).flaws, []);
+  assert.equal((publicReview(rec) as any).feedback, "好");
+  assert.deepEqual((publicReview({ ...rec, outcome: "rejected_quality" }) as any).flaws, ["a", "b"]);
+  assert.deepEqual((publicReview({ ...rec, outcome: "rejected_vote" }) as any).flaws, ["a", "b"]);
+  assert.equal(publicReview(null), null);
 });

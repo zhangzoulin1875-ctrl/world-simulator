@@ -88,6 +88,15 @@ router.get("/parliament", async (req, res) => {
   catch (err) { logger.error({ err }, "parliament view failed"); res.status(500).json({ error: "讀取議會失敗" }); }
 });
 
+/**
+ * 給玩家看的審查結果。通過時拿掉品質審查的缺陷清單:它和通過後掃出的隱藏漏洞高度重疊,
+ * 留著等於提前預告憲法危機、送玩家一份修補指南。被退回/否決時缺陷清單照給(那是讓玩家改稿用的)。
+ */
+export function publicReview(r: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!r) return null;
+  return r["outcome"] === "ratified" ? { ...r, flaws: [] } : r;
+}
+
 /** 憲法頁:狀態、草稿、最近一次審查結果。通過後才回傳定稿與漏洞以外的內容(漏洞清單不給玩家看)。 */
 router.get("/constitution", async (req, res) => {
   const auth = await requirePlayer(req, res); if (!auth) return;
@@ -105,7 +114,7 @@ router.get("/constitution", async (req, res) => {
       finalText: status === "ratified" ? row?.finalText ?? "" : null,
       ratifiedAt: row?.ratifiedAt ? row.ratifiedAt.toISOString() : null,
       submissions: row?.submissions ?? 0,
-      lastReview: row?.lastReview ?? null,
+      lastReview: publicReview(row?.lastReview ?? null),
       limits: { maxLen: CONSTITUTION_MAX_LEN, minSubmitLen: CONSTITUTION_MIN_LEN },
       submit: { cost: SUBMIT_COST_MONEY, cooldownTicks: SUBMIT_COOLDOWN_TICKS, cooldownLeft: submitCooldownLeft(tick, row?.lastSubmitTick ?? null) },
       // 沒有憲法的代價,讓玩家知道為什麼議會越來越不滿。
