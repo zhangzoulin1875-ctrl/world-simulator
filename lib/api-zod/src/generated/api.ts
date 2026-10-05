@@ -77,6 +77,15 @@ export const ListFoundingGovernmentsResponse = zod.object({
       decisionDifficulty: zod
         .number()
         .describe("政治決策難度 0–100，越高越難通過決策"),
+      guide: zod
+        .object({
+          summary: zod.string(),
+          pros: zod.array(zod.string()),
+          cons: zod.array(zod.string()),
+          tip: zod.string(),
+        })
+        .nullish()
+        .describe("給新手看的政體說明(定位\/優點\/缺點\/適合誰)"),
     }),
   ),
   foundingProductionCap: zod
@@ -4150,7 +4159,7 @@ export const WithdrawGovernmentDecisionResponse = zod.object({
 });
 
 /**
- * @summary 主動政體變更 — 接受度達 100 且目標政體已由社會科技解鎖時，改為指定政體
+ * @summary 【已下線,一律回 410】手動政體變更;政體改由國策樹的轉型國策決定
  */
 
 export const ChangeGovernmentBody = zod.object({

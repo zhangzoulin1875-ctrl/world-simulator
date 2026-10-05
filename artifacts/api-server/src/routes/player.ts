@@ -36,6 +36,7 @@ import {
 import { grantJoinEraKeyTechsToPlayer } from "../lib/keyTechAdmin";
 import {
   FOUNDING_GOVERNMENT_SLUGS,
+  FOUNDING_GUIDES,
   GOVERNMENTS,
   governmentLabel,
   isFoundingGovernmentSlug,
@@ -451,6 +452,7 @@ router.get("/player/founding-governments", async (req, res) => {
       label: def.label,
       description: def.description,
       decisionDifficulty: def.decisionDifficulty,
+      guide: FOUNDING_GUIDES[slug] ?? null,
     };
   }).filter((g) => g !== null);
 

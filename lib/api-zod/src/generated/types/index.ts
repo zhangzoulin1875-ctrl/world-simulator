@@ -95,6 +95,7 @@ export * from "./foodProductionSummary";
 export * from "./foodRegionLine";
 export * from "./foodTreatyFlows";
 export * from "./foundingGovernment";
+export * from "./foundingGovernmentGuide";
 export * from "./foundingGovernmentSlug";
 export * from "./foundNationRequest";
 export * from "./foundNationRequestGovernment";

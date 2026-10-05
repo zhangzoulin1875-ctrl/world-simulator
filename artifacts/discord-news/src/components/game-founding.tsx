@@ -934,7 +934,30 @@ function CreateNationFlow() {
                       </span>
                     </span>
                   </div>
-                  {g.description}
+                  {g.guide ? (
+                    <div className="mt-1.5 space-y-2" data-testid={`guide-government-${g.slug}`}>
+                      <p className={selected ? "text-white/90" : "text-white/70"}>{g.guide.summary}</p>
+                      <div>
+                        <div className="mb-0.5 font-semibold text-emerald-300/90">優點</div>
+                        <ul className="list-disc space-y-0.5 pl-4 text-white/70">
+                          {g.guide.pros.map((t) => (
+                            <li key={t}>{t}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <div className="mb-0.5 font-semibold text-red-300/90">缺點</div>
+                        <ul className="list-disc space-y-0.5 pl-4 text-white/70">
+                          {g.guide.cons.map((t) => (
+                            <li key={t}>{t}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <p className="text-amber-200/80">適合:{g.guide.tip}</p>
+                    </div>
+                  ) : (
+                    g.description
+                  )}
                 </button>
               );
             })}
@@ -943,7 +966,7 @@ function CreateNationFlow() {
             決策難易度愈高，政治決策愈需要協商共識、愈難直接通過；愈低則政令愈暢通。
           </div>
           <div className="mt-1.5 text-[11px] leading-relaxed text-white/45">
-            其他政體日後可透過「政治」介面改制取得。
+            建國後若想換政體,要在「國策」頁完成對應的轉型國策(需花政治點數與回合),可走的路線由你的國策樹決定。
           </div>
         </div>
 

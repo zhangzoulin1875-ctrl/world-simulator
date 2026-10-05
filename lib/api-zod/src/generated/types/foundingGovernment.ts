@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { FoundingGovernmentGuide } from "./foundingGovernmentGuide";
 import type { FoundingGovernmentSlug } from "./foundingGovernmentSlug";
 
 export interface FoundingGovernment {
@@ -15,4 +16,6 @@ export interface FoundingGovernment {
   description: string;
   /** 政治決策難度 0–100，越高越難通過決策 */
   decisionDifficulty: number;
+  /** 給新手看的政體說明(定位/優點/缺點/適合誰) */
+  guide?: FoundingGovernmentGuide;
 }

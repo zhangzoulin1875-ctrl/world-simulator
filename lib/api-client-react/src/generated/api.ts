@@ -7540,7 +7540,7 @@ export const useWithdrawGovernmentDecision = <
 };
 
 /**
- * @summary 主動政體變更 — 接受度達 100 且目標政體已由社會科技解鎖時，改為指定政體
+ * @summary 【已下線,一律回 410】手動政體變更;政體改由國策樹的轉型國策決定
  */
 export const getChangeGovernmentUrl = () => {
   return `/api/politics/government-change`;
@@ -7603,7 +7603,7 @@ export type ChangeGovernmentMutationBody = BodyType<ChangeGovernmentRequest>;
 export type ChangeGovernmentMutationError = ErrorType<ErrorMessage>;
 
 /**
- * @summary 主動政體變更 — 接受度達 100 且目標政體已由社會科技解鎖時，改為指定政體
+ * @summary 【已下線,一律回 410】手動政體變更;政體改由國策樹的轉型國策決定
  */
 export const useChangeGovernment = <
   TError = ErrorType<ErrorMessage>,

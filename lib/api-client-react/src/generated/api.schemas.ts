@@ -334,6 +334,16 @@ export const FoundingGovernmentSlug = {
   parliamentary_republic: "parliamentary_republic",
 } as const;
 
+/**
+ * 給新手看的政體說明(定位/優點/缺點/適合誰)
+ */
+export type FoundingGovernmentGuide = {
+  summary: string;
+  pros: string[];
+  cons: string[];
+  tip: string;
+} | null;
+
 export interface FoundingGovernment {
   slug: FoundingGovernmentSlug;
   /** 政體名稱（zh-TW） */
@@ -342,6 +352,8 @@ export interface FoundingGovernment {
   description: string;
   /** 政治決策難度 0–100，越高越難通過決策 */
   decisionDifficulty: number;
+  /** 給新手看的政體說明(定位/優點/缺點/適合誰) */
+  guide?: FoundingGovernmentGuide;
 }
 
 /**

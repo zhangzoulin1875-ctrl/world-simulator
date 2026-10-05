@@ -150,3 +150,32 @@ test("governmentDecisionDifficulty — 接受 label 或 slug，未知/null 回 5
   assert.equal(governmentDecisionDifficulty(null), 50);
   assert.equal(governmentDecisionDifficulty(""), 50);
 });
+
+test("建國三選一每個政體都有新手說明(定位/優點/缺點/適合誰)", async () => {
+  const { FOUNDING_GUIDES, FOUNDING_GOVERNMENT_SLUGS } = await import("./governments");
+  for (const slug of FOUNDING_GOVERNMENT_SLUGS) {
+    const g = FOUNDING_GUIDES[slug];
+    assert.ok(g, `missing guide for ${slug}`);
+    assert.ok(g.summary.trim().length > 0, slug);
+    assert.ok(g.pros.length >= 2 && g.pros.every((x) => x.trim().length > 0), `${slug} pros`);
+    assert.ok(g.cons.length >= 2 && g.cons.every((x) => x.trim().length > 0), `${slug} cons`);
+    assert.ok(g.tip.trim().length > 0, slug);
+  }
+});
+
+test("新手說明的數字與現行機制常數一致(改機制時這裡會提醒同步文字)", async () => {
+  const { FOUNDING_GUIDES } = await import("./governments");
+  const { MAX_PENALTY, REVOLUTION_SPLIT_RATIO, DEMAND_INTERVAL_TURNS } = await import("./parliament/core");
+  const { DEMAND_CHANCE_PCT, REFUSE_PENALTY, AUTO_WAR_BELOW, COUP_BELOW } = await import("./militaryDemand/core");
+  const text = (slug: string) => JSON.stringify(FOUNDING_GUIDES[slug]);
+  assert.ok(text("aristocracy").includes(`最多只扣 ${MAX_PENALTY.semi} 點`));
+  assert.ok(text("parliamentary_republic").includes(`最多扣 ${MAX_PENALTY.democracy} 點`));
+  assert.ok(text("aristocracy").includes(`${Math.round(REVOLUTION_SPLIT_RATIO * 100)}% 土地`));
+  assert.ok(text("parliamentary_republic").includes(`${Math.round(REVOLUTION_SPLIT_RATIO * 100)}% 土地`));
+  assert.ok(text("aristocracy").includes(`每 ${DEMAND_INTERVAL_TURNS} 回合`));
+  const mono = text("absolute_monarchy");
+  assert.ok(mono.includes(`${DEMAND_CHANCE_PCT}% 機率`));
+  assert.ok(mono.includes(`-${REFUSE_PENALTY}`));
+  assert.ok(mono.includes(`低於 ${AUTO_WAR_BELOW}`));
+  assert.ok(mono.includes(`低於 ${COUP_BELOW}`));
+});

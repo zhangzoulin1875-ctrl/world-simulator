@@ -3730,6 +3730,16 @@ components:
         decisionDifficulty:
           type: integer
           description: "政治決策難度 0–100，越高越難通過決策"
+        guide:
+          type: object
+          nullable: true
+          description: "給新手看的政體說明(定位/優點/缺點/適合誰)"
+          required: [summary, pros, cons, tip]
+          properties:
+            summary: { type: string }
+            pros: { type: array, items: { type: string } }
+            cons: { type: array, items: { type: string } }
+            tip: { type: string }
 
     FoundNationRequest:
       type: object
