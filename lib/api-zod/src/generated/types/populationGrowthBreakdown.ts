@@ -21,8 +21,14 @@ export interface PopulationGrowthBreakdown {
   buffPct: number;
   /** 人口增長率絕對值上限（%） */
   capAbsPct: number;
-  /** 有效人口增長率（夾在 ±上限） */
+  /** 有效人口增長率／出生率（夾在 ±上限；尚未受承載量限制） */
   effectivePct: number;
+  /** 實際淨成長率（%／回合）＝出生率套上承載量後的期望值；超載時為負 */
+  netPct: number;
+  /** 全國人口承載量（各掌控地區加總） */
+  capacity: number;
+  /** 人口 ÷ 承載量；大於 1 = 超載（緩慢回落） */
+  loadRatio: number;
   /** 科技節點來源清單 */
   techSources: PopulationGrowthTechSource[];
   /** 建築來源清單 */

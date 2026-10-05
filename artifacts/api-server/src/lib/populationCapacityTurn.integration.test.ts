@@ -14,7 +14,9 @@ import { runWorldSimMigrations } from "./worldSimMigrations";
 import { runMapRegionSync } from "./mapRegions";
 import { runMapRegionEraStatsSync } from "./mapRegionEraStats";
 import { runTurnUpdate } from "./turnEngine";
-import { computeNationStats } from "./nationStats";
+import { computeNationStats, buildNationStatBreakdown } from "./nationStats";
+import { schemas } from "@workspace/api-zod";
+const { GetNationStatBreakdownResponse } = schemas;
 import { loadRegionGrowthInputs } from "./regionPopulation";
 import { nationNetGrowth, summarizeCapacity } from "./populationCapacity";
 import { getPoliticsSettings } from "./politicsSettings";
@@ -179,4 +181,27 @@ test("顯示彙總:summarizeCapacity 的淨成長率與實際回合預期(無擾
   // 用到政治設定確認增長率來源是既有的有效增長率(基礎+修正),不是新常數。
   const settings = await getPoliticsSettings();
   assert.ok(rate >= populationGrowthRatePct(-999, settings) && rate <= settings.populationGrowthMaxAbsPct);
+});
+
+test("明細彈窗 API:承載量/負載/淨成長率三欄通過 zod 驗證,且與首頁顯示彙總同一口徑", async () => {
+  for (const ratio of [0.4, 1, 2]) {
+    await setLoad(ratio);
+    const nation = await loadNation();
+    const breakdown = await buildNationStatBreakdown(nation, ERA);
+    // 與路由同樣以生成的 zod schema 驗證(欄位漂移會在這裡顯性失敗,而不是前端 undefined)。
+    const data = GetNationStatBreakdownResponse.parse({ ...breakdown, eraLabel: "test" });
+    const g = data.population.growth;
+    assert.ok(Math.abs(g.loadRatio - ratio) < 0.02, `ratio ${ratio}: loadRatio=${g.loadRatio}`);
+    assert.ok(g.capacity > 0);
+    // 淨成長率符號:低於上限為正、超載為負、貼近上限約 0。
+    if (ratio < 0.9) assert.ok(g.netPct > 0, `ratio ${ratio}: netPct=${g.netPct}`);
+    if (ratio > 1.05) assert.ok(g.netPct < 0, `ratio ${ratio}: netPct=${g.netPct}`);
+    if (ratio === 1) assert.ok(Math.abs(g.netPct) < 0.02, `ratio 1: netPct=${g.netPct}`);
+    // 與首頁同一彙總:同一組輸入算出的淨成長率一致(四捨五入到 0.01)。
+    const inputs = await loadRegionGrowthInputs(db, nationId, ERA);
+    const summary = summarizeCapacity(inputs, g.effectivePct);
+    assert.ok(Math.abs(summary.netGrowthPct - g.netPct) < 0.05, `summary ${summary.netGrowthPct} vs ${g.netPct}`);
+    // 出生率(effectivePct)維持原本語意:不受承載量影響,仍是正的有效增長率。
+    assert.ok(g.effectivePct > 0);
+  }
 });

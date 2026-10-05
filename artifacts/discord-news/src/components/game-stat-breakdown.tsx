@@ -1,3 +1,4 @@
+import { populationLoadState } from "@/lib/populationLoad";
 import React, { useState } from "react";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import {
@@ -509,6 +510,64 @@ function TechBody({ data }: { data: NationStatBreakdown }) {
   );
 }
 
+const LOAD_TONE_CLASS = {
+  grow: { text: "text-green-400", bar: "bg-green-400" },
+  near: { text: "text-yellow-300", bar: "bg-yellow-300" },
+  over: { text: "text-red-400", bar: "bg-red-400" },
+} as const;
+
+export function CapacityCard({
+  population,
+  capacity,
+  loadRatio,
+  birthPct,
+  netPct,
+}: {
+  population: number;
+  capacity: number;
+  loadRatio: number;
+  birthPct: number;
+  netPct: number;
+}) {
+  const state = populationLoadState(loadRatio);
+  const tone = LOAD_TONE_CLASS[state.tone];
+  // 進度條以 0–150% 為刻度,100% 位置畫一條標線;超載時條會越過標線。
+  const barPct = Math.min(150, Math.max(0, loadRatio * 100));
+  return (
+    <SectionCard title="土地承載量">
+      <Row label="總人口" value={formatBigNumber(population)} />
+      <Row label="承載量" value={formatBigNumber(capacity)} />
+      <div
+        className="relative my-2 h-2 rounded-full bg-white/10"
+        data-testid="capacity-bar"
+      >
+        <div
+          className={`h-2 rounded-full ${tone.bar}`}
+          style={{ width: `${(barPct / 150) * 100}%` }}
+        />
+        <div
+          className="absolute top-[-2px] h-3 w-px bg-white/60"
+          style={{ left: `${(100 / 150) * 100}%` }}
+          title="承載量 100%"
+        />
+      </div>
+      <Row
+        label="負載"
+        hint={state.label}
+        value={`${Math.round(loadRatio * 100)}%`}
+      />
+      <div className="my-1 border-t border-white/10" />
+      <Row label="出生率" value={signedPct(birthPct)} />
+      <Row label="實際淨成長率" value={signedPct(netPct)} strong />
+      <p className="mt-2 text-xs leading-relaxed text-white/55">
+        人口越接近土地承載量，自然死亡越多、淨成長越慢；超過承載量時人口會
+        緩慢回落（不是飢荒）。承載量由各地區的人口基礎與土壤肥沃度決定，
+        隨時代進步而擴大，所以政策與科技提高的是出生率與上限，而不是讓人口無限增長。
+      </p>
+    </SectionCard>
+  );
+}
+
 function PopulationBody({ data }: { data: NationStatBreakdown }) {
   const p = data.population;
   const g = p.growth;
@@ -546,8 +605,20 @@ function PopulationBody({ data }: { data: NationStatBreakdown }) {
         )}
         <Row label="增長率上限" value={`±${g.capAbsPct}%`} />
         <div className="my-1 border-t border-white/10" />
-        <Row label="有效增長率" value={signedPct(g.effectivePct)} strong />
+        <Row
+          label="出生率"
+          hint="未受承載量限制"
+          value={signedPct(g.effectivePct)}
+          strong
+        />
       </SectionCard>
+      <CapacityCard
+        population={p.total}
+        capacity={g.capacity}
+        loadRatio={g.loadRatio}
+        birthPct={g.effectivePct}
+        netPct={g.netPct}
+      />
       <SectionCard title="各地區貢獻">
         <RegionTable regions={data.regions} field="population" />
       </SectionCard>

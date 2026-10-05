@@ -1,3 +1,5 @@
+import { loadRegionGrowthInputs } from "./regionPopulation";
+import { summarizeCapacity } from "./populationCapacity";
 import { and, asc, eq, sql } from "drizzle-orm";
 import {
   db,
@@ -369,7 +371,14 @@ export interface NationStatBreakdown {
       /** 暫時人口 buff 增長加成（百分點）。 */
       buffPct: number;
       capAbsPct: number;
+      /** 有效增長率／出生率(尚未受承載量限制)。 */
       effectivePct: number;
+      /** 實際淨成長率(%/回合):出生率套上承載量後的期望值,超載時為負。 */
+      netPct: number;
+      /** 全國人口承載量(各掌控地區加總)。 */
+      capacity: number;
+      /** 人口 ÷ 承載量;大於 1 = 超載(緩慢回落)。 */
+      loadRatio: number;
       /** 人口增長加成：科技節點來源清單。 */
       techSources: ProductivityTechSource[];
       /** 人口增長加成：建築來源清單。 */
@@ -554,6 +563,13 @@ export async function buildNationStatBreakdown(
     multiplier,
   );
 
+  // 人口承載量/實際淨成長率:與回合引擎同一口徑(loadRegionGrowthInputs + 同一個增長率),
+  // 讓明細彈窗、首頁百分比、回合實際結算三者一致。
+  const capacitySummary = summarizeCapacity(
+    await loadRegionGrowthInputs(db, nation.id, era),
+    growthEffective,
+  );
+
   return {
     era,
     regions,
@@ -612,6 +628,9 @@ export async function buildNationStatBreakdown(
         buffPct: round1(loadedDetail?.populationBuffPct ?? 0),
         capAbsPct: round1(settings.populationGrowthMaxAbsPct),
         effectivePct: round1(growthEffective),
+        netPct: Math.round(capacitySummary.netGrowthPct * 100) / 100,
+        capacity: capacitySummary.capacity,
+        loadRatio: Math.round(capacitySummary.loadRatio * 1000) / 1000,
         techSources: loadedDetail?.populationTechSources ?? [],
         buildingSources: loadedDetail?.populationBuildingSources ?? [],
       },

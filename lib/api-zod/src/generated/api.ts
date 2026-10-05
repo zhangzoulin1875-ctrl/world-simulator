@@ -147,7 +147,22 @@ export const GetPlayerNationResponse = zod.object({
       populationGrowthPct: zod
         .number()
         .describe(
-          "有效人口增長率（%／回合）＝內政基礎增長率 + 政策\/事件 populationGrowth 加減成，夾 ±上限。",
+          "人口「實際淨成長率」（%／回合）＝有效增長率（出生率）套上土地承載量後的期望值。接近承載量時趨近 0，超載時為負（緩慢回落）。不含回合起伏擾動。",
+        ),
+      populationBirthRatePct: zod
+        .number()
+        .describe(
+          "有效人口增長率／出生率（%／回合）＝內政基礎增長率 + 政策\/事件 populationGrowth 加減成，夾 ±上限；尚未受承載量限制。",
+        ),
+      populationCapacity: zod
+        .number()
+        .describe(
+          "全國人口承載量（各掌控地區：時代基準人口 × 控制比例 × 3 × 肥沃度修正，加總）。",
+        ),
+      populationLoadRatio: zod
+        .number()
+        .describe(
+          "人口 ÷ 承載量。小於 1 = 仍有成長空間；約 1 = 在上限附近起伏；大於 1 = 超載，正在緩慢回落。",
         ),
       money: zod.number(),
       stability: zod
@@ -355,7 +370,22 @@ export const UpdatePlayerNationResponse = zod.object({
       populationGrowthPct: zod
         .number()
         .describe(
-          "有效人口增長率（%／回合）＝內政基礎增長率 + 政策\/事件 populationGrowth 加減成，夾 ±上限。",
+          "人口「實際淨成長率」（%／回合）＝有效增長率（出生率）套上土地承載量後的期望值。接近承載量時趨近 0，超載時為負（緩慢回落）。不含回合起伏擾動。",
+        ),
+      populationBirthRatePct: zod
+        .number()
+        .describe(
+          "有效人口增長率／出生率（%／回合）＝內政基礎增長率 + 政策\/事件 populationGrowth 加減成，夾 ±上限；尚未受承載量限制。",
+        ),
+      populationCapacity: zod
+        .number()
+        .describe(
+          "全國人口承載量（各掌控地區：時代基準人口 × 控制比例 × 3 × 肥沃度修正，加總）。",
+        ),
+      populationLoadRatio: zod
+        .number()
+        .describe(
+          "人口 ÷ 承載量。小於 1 = 仍有成長空間；約 1 = 在上限附近起伏；大於 1 = 超載，正在緩慢回落。",
         ),
       money: zod.number(),
       stability: zod
@@ -515,7 +545,22 @@ export const GenerateAdvisorTipsResponse = zod.object({
       populationGrowthPct: zod
         .number()
         .describe(
-          "有效人口增長率（%／回合）＝內政基礎增長率 + 政策\/事件 populationGrowth 加減成，夾 ±上限。",
+          "人口「實際淨成長率」（%／回合）＝有效增長率（出生率）套上土地承載量後的期望值。接近承載量時趨近 0，超載時為負（緩慢回落）。不含回合起伏擾動。",
+        ),
+      populationBirthRatePct: zod
+        .number()
+        .describe(
+          "有效人口增長率／出生率（%／回合）＝內政基礎增長率 + 政策\/事件 populationGrowth 加減成，夾 ±上限；尚未受承載量限制。",
+        ),
+      populationCapacity: zod
+        .number()
+        .describe(
+          "全國人口承載量（各掌控地區：時代基準人口 × 控制比例 × 3 × 肥沃度修正，加總）。",
+        ),
+      populationLoadRatio: zod
+        .number()
+        .describe(
+          "人口 ÷ 承載量。小於 1 = 仍有成長空間；約 1 = 在上限附近起伏；大於 1 = 超載，正在緩慢回落。",
         ),
       money: zod.number(),
       stability: zod
@@ -764,7 +809,18 @@ export const GetNationStatBreakdownResponse = zod.object({
       buildingPct: zod.number().describe("建築人口增長加成（百分點）"),
       buffPct: zod.number().describe("暫時人口 buff 增長加成（百分點）"),
       capAbsPct: zod.number().describe("人口增長率絕對值上限（%）"),
-      effectivePct: zod.number().describe("有效人口增長率（夾在 ±上限）"),
+      effectivePct: zod
+        .number()
+        .describe("有效人口增長率／出生率（夾在 ±上限；尚未受承載量限制）"),
+      netPct: zod
+        .number()
+        .describe(
+          "實際淨成長率（%／回合）＝出生率套上承載量後的期望值；超載時為負",
+        ),
+      capacity: zod.number().describe("全國人口承載量（各掌控地區加總）"),
+      loadRatio: zod
+        .number()
+        .describe("人口 ÷ 承載量；大於 1 = 超載（緩慢回落）"),
       techSources: zod
         .array(
           zod.object({
@@ -916,7 +972,22 @@ export const ClaimUnownedNationResponse = zod.object({
       populationGrowthPct: zod
         .number()
         .describe(
-          "有效人口增長率（%／回合）＝內政基礎增長率 + 政策\/事件 populationGrowth 加減成，夾 ±上限。",
+          "人口「實際淨成長率」（%／回合）＝有效增長率（出生率）套上土地承載量後的期望值。接近承載量時趨近 0，超載時為負（緩慢回落）。不含回合起伏擾動。",
+        ),
+      populationBirthRatePct: zod
+        .number()
+        .describe(
+          "有效人口增長率／出生率（%／回合）＝內政基礎增長率 + 政策\/事件 populationGrowth 加減成，夾 ±上限；尚未受承載量限制。",
+        ),
+      populationCapacity: zod
+        .number()
+        .describe(
+          "全國人口承載量（各掌控地區：時代基準人口 × 控制比例 × 3 × 肥沃度修正，加總）。",
+        ),
+      populationLoadRatio: zod
+        .number()
+        .describe(
+          "人口 ÷ 承載量。小於 1 = 仍有成長空間；約 1 = 在上限附近起伏；大於 1 = 超載，正在緩慢回落。",
         ),
       money: zod.number(),
       stability: zod

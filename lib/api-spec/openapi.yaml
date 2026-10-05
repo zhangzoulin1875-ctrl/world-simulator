@@ -3348,6 +3348,9 @@ components:
           productionSpent,
           population,
           populationGrowthPct,
+          populationBirthRatePct,
+          populationCapacity,
+          populationLoadRatio,
           money,
           stability,
           unrest,
@@ -3396,7 +3399,16 @@ components:
           description: Available population — computed Σ(control percent × region current-era population) plus accrued growth (population_bonus) minus population spent on military recruiting; clamped at 0.
         populationGrowthPct:
           type: number
-          description: 有效人口增長率（%／回合）＝內政基礎增長率 + 政策/事件 populationGrowth 加減成，夾 ±上限。
+          description: 人口「實際淨成長率」（%／回合）＝有效增長率（出生率）套上土地承載量後的期望值。接近承載量時趨近 0，超載時為負（緩慢回落）。不含回合起伏擾動。
+        populationBirthRatePct:
+          type: number
+          description: 有效人口增長率／出生率（%／回合）＝內政基礎增長率 + 政策/事件 populationGrowth 加減成，夾 ±上限；尚未受承載量限制。
+        populationCapacity:
+          type: number
+          description: 全國人口承載量（各掌控地區：時代基準人口 × 控制比例 × 3 × 肥沃度修正，加總）。
+        populationLoadRatio:
+          type: number
+          description: 人口 ÷ 承載量。小於 1 = 仍有成長空間；約 1 = 在上限附近起伏；大於 1 = 超載，正在緩慢回落。
         money: { type: number }
         stability:
           type: number
@@ -3644,7 +3656,7 @@ components:
 
     PopulationGrowthBreakdown:
       type: object
-      required: [basePct, policyPct, techPct, buildingPct, buffPct, capAbsPct, effectivePct, techSources, buildingSources]
+      required: [basePct, policyPct, techPct, buildingPct, buffPct, capAbsPct, effectivePct, netPct, capacity, loadRatio, techSources, buildingSources]
       properties:
         basePct: { type: number, description: "內政基礎人口增長率（%）" }
         policyPct: { type: number, description: "政策/事件人口增長加減成（百分點）" }
@@ -3652,7 +3664,10 @@ components:
         buildingPct: { type: number, description: "建築人口增長加成（百分點）" }
         buffPct: { type: number, description: "暫時人口 buff 增長加成（百分點）" }
         capAbsPct: { type: number, description: "人口增長率絕對值上限（%）" }
-        effectivePct: { type: number, description: "有效人口增長率（夾在 ±上限）" }
+        effectivePct: { type: number, description: "有效人口增長率／出生率（夾在 ±上限；尚未受承載量限制）" }
+        netPct: { type: number, description: "實際淨成長率（%／回合）＝出生率套上承載量後的期望值；超載時為負" }
+        capacity: { type: number, description: "全國人口承載量（各掌控地區加總）" }
+        loadRatio: { type: number, description: "人口 ÷ 承載量；大於 1 = 超載（緩慢回落）" }
         techSources:
           type: array
           description: 科技節點來源清單

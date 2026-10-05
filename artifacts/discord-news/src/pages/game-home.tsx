@@ -51,6 +51,7 @@ import {
   StatBreakdownDialog,
   type BreakdownStatKey,
 } from "@/components/game-stat-breakdown";
+import { populationLoadState, populationLoadTextClass } from "@/lib/populationLoad";
 import { useEncyclopedia } from "@/components/encyclopedia-context";
 import {
   GameOnboarding,
@@ -274,7 +275,18 @@ function GameScreen({
   const bg = nation.backgroundUrl || DEFAULT_BG;
   const kanban = nation.kanbanUrl || DEFAULT_KANBAN;
 
-  const stats = [
+  const stats: Array<{
+    key: string;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    iconClass: string;
+    value: string;
+    extra: string | null;
+    /** extra 文字顏色(預設綠)。 */
+    extraClass?: string;
+    /** 滑鼠懸停提示。 */
+    title?: string;
+  }> = [
     {
       key: "tech",
       label: "科技點數",
@@ -299,11 +311,14 @@ function GameScreen({
       icon: Users,
       iconClass: "text-emerald-300",
       value: formatBigNumber(nation.population),
-      // 每回合人口增長率（內政基礎值 + 政策/事件加減成）
+      // 每回合人口「實際淨成長率」（出生率套上土地承載量後）。
+      // 顏色與提示依負載狀態:成長中(綠)/接近上限(黃)/超載回落(紅)。
       extra:
         nation.populationGrowthPct !== 0
           ? `${nation.populationGrowthPct > 0 ? "+" : ""}${nation.populationGrowthPct}%`
           : null,
+      extraClass: populationLoadTextClass(nation.populationLoadRatio),
+      title: `人口 ${formatBigNumber(nation.population)} / 承載量 ${formatBigNumber(nation.populationCapacity)}（${Math.round(nation.populationLoadRatio * 100)}%）・${populationLoadState(nation.populationLoadRatio).label}`,
     },
     {
       key: "money",
@@ -433,7 +448,9 @@ function GameScreen({
                           {s.value}
                         </span>
                         {s.extra && (
-                          <span className="text-[11px] font-bold text-green-400">
+                          <span
+                            className={`text-[11px] font-bold ${s.extraClass ?? "text-green-400"}`}
+                          >
                             {s.extra}
                           </span>
                         )}
@@ -448,6 +465,7 @@ function GameScreen({
                     <div
                       key={s.key}
                       className={cellClass}
+                      title={s.title}
                       data-testid={`stat-${s.key}`}
                     >
                       {inner}
@@ -460,6 +478,7 @@ function GameScreen({
                     type="button"
                     onClick={onActivate}
                     className={`${cellClass} transition-colors hover:border-white/40 hover:bg-black/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60`}
+                    title={s.title}
                     data-testid={`stat-${s.key}`}
                     aria-label={
                       s.key === "money" ? "前往財政頁" : `${s.label} 來源明細`

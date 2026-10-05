@@ -30,8 +30,14 @@ export interface PlayerNation {
   productionSpent: number;
   /** Available population — computed Σ(control percent × region current-era population) plus accrued growth (population_bonus) minus population spent on military recruiting; clamped at 0. */
   population: number;
-  /** 有效人口增長率（%／回合）＝內政基礎增長率 + 政策/事件 populationGrowth 加減成，夾 ±上限。 */
+  /** 人口「實際淨成長率」（%／回合）＝有效增長率（出生率）套上土地承載量後的期望值。接近承載量時趨近 0，超載時為負（緩慢回落）。不含回合起伏擾動。 */
   populationGrowthPct: number;
+  /** 有效人口增長率／出生率（%／回合）＝內政基礎增長率 + 政策/事件 populationGrowth 加減成，夾 ±上限；尚未受承載量限制。 */
+  populationBirthRatePct: number;
+  /** 全國人口承載量（各掌控地區：時代基準人口 × 控制比例 × 3 × 肥沃度修正，加總）。 */
+  populationCapacity: number;
+  /** 人口 ÷ 承載量。小於 1 = 仍有成長空間；約 1 = 在上限附近起伏；大於 1 = 超載，正在緩慢回落。 */
+  populationLoadRatio: number;
   money: number;
   /** 有效穩定度 0–100（基底 + 生效中內政條目加減成；最多小數點第一位）。 */
   stability: number;
