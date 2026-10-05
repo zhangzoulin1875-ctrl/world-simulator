@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   CAPACITY_MULTIPLIER, CAPACITY_MIN, CAPACITY_WOBBLE_PCT, fertilityFactor, regionCapacity,
-  regionNetGrowth, wobblePct, nationNetGrowth,
+  regionNetGrowth, wobblePct, nationNetGrowth, summarizeCapacity,
 } from "./populationCapacity";
 
 test("肥沃度修正:0→0.8、100→1.2、超過 100 封頂、缺值中性", () => {
@@ -86,4 +86,22 @@ test("已經超載 3 倍的國家:約 33 天內回落到上限附近,過程單�
     prev = pop; turns++;
   }
   assert.ok(turns > 100 && turns < 400, `回落用了 ${turns} 回合`);
+});
+
+test("極端超載(人口遠大於承載量)也只緩慢回落:單回合最多 −6%,不會一次扣成 0 或負數", () => {
+  for (const ratio of [4, 10, 100, 15_490]) {
+    const capacity = 1000;
+    const population = capacity * ratio;
+    const net = regionNetGrowth({ population, capacity, ratePct: 1 });
+    assert.ok(net < 0, `ratio ${ratio} 應為負成長`);
+    assert.ok(net >= -population * 0.06 - 1, `ratio ${ratio} 單回合扣 ${net} 超過 6%`);
+    assert.ok(population + net > 0, "人口不可被扣成 0 或負數");
+  }
+  const s = summarizeCapacity([{ regionId: 1, population: 15_490_000, capacity: 1000 }], 1);
+  assert.ok(s.netGrowthPct >= -6.01 && s.netGrowthPct < 0, `顯示成長率 ${s.netGrowthPct} 應在 −6%~0`);
+});
+
+test("3 倍超載以內行為不變(首回合約 −6%)", () => {
+  const net = regionNetGrowth({ population: 3000, capacity: 1000, ratePct: 1 });
+  assert.equal(net, Math.round(3000 * 0.01 * (1 - 3)));
 });

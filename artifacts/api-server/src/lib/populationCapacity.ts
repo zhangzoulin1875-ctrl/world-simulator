@@ -31,6 +31,14 @@ export const FERTILITY_FULL = 100;
 /** 穩態起伏幅度:在上限附近 ±這個比例內做確定性擾動,避免死板的一條線。 */
 export const CAPACITY_WOBBLE_PCT = 10;
 
+/**
+ * 超載回落的單回合下限:單區單回合最多掉當前人口的這個比例(%)。
+ * logistic 的 pop × rate × (1 − pop/K) 在人口遠大於承載量時是二次方爆炸(人口 = 1000×K 時
+ * 一回合 −1,000,000%),會把人口直接扣成 0 或負數。設計本意是「緩慢回落、不是一次砍 20%」,
+ * 所以在這裡封頂;3 倍超載內(首回合約 −6%)完全不受影響。
+ */
+export const MAX_OVERLOAD_LOSS_PCT_PER_TURN = 6;
+
 /** 承載量的下限,避免小地區/零人口區除以 0 或被瞬間判定超載。 */
 export const CAPACITY_MIN = 1000;
 
@@ -88,7 +96,9 @@ export function regionNetGrowth(params: {
   if (params.capacity <= 0 || rate <= 0) return Math.round(pop * rate);
   const k = params.capacity * (1 + (params.wobble ?? 0) / 100);
   const net = pop * rate * (1 - pop / k);
-  return Math.round(net);
+  // 封頂:超載回落每回合最多掉 MAX_OVERLOAD_LOSS_PCT_PER_TURN%,且絕不會讓人口變負。
+  const floor = -pop * (MAX_OVERLOAD_LOSS_PCT_PER_TURN / 100);
+  return Math.round(Math.max(net, floor));
 }
 
 export interface RegionGrowthInput {
