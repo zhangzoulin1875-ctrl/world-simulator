@@ -31,6 +31,7 @@ import type {
   MilitaryWeapon,
 } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
+import { MobilizationPanel } from "@/components/mobilization-panel";
 import {
   MilitaryPageGuard,
   NavalLandingBar,
@@ -191,6 +192,7 @@ function BuildTab({
   return (
     <div className="space-y-6">
       <ContractNotice onOpen={onOpenContracts} />
+      <MobilizationPanel />
       <TrainingQueuePanel templates={overview.templates} />
       {/* category chips */}
       <div className="flex flex-wrap gap-2">

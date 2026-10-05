@@ -104,3 +104,36 @@ export const mercenaryDeploymentsTable = pgTable(
 );
 
 export type MercenaryDeployment = typeof mercenaryDeploymentsTable.$inferSelect;
+
+/**
+ * 全民皆兵狀態(每國一列)。開啟時把 10% 人口轉成民兵(player_armies 一列,視為正規部隊),
+ * 期間每回合固定扣穩定度;關閉/解散時釋放占用人口。與僱傭兵合約互斥。
+ */
+export const totalMobilizationStatesTable = pgTable(
+  "total_mobilization_states",
+  {
+    nationId: uuid("nation_id")
+      .primaryKey()
+      .references(() => playerNationsTable.id, { onDelete: "cascade" }),
+    active: boolean("active").notNull().default(false),
+    /** 最近一次開啟時徵召的人數(統計與介面顯示用)。 */
+    lastLevy: bigint("last_levy", { mode: "number" }).notNull().default(0),
+    /** 民兵所用的模板 id(系統民兵模板,依開啟當下時代建立)。 */
+    templateId: integer("template_id"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    /** 累計因全民皆兵扣掉的穩定度(統計用)。 */
+    totalStabilityLost: bigint("total_stability_lost", { mode: "number" })
+      .notNull()
+      .default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+);
+
+export type TotalMobilizationState =
+  typeof totalMobilizationStatesTable.$inferSelect;

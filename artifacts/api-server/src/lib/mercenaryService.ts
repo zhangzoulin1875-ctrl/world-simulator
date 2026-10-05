@@ -10,6 +10,7 @@ import {
   playerWoundedUnitsTable,
   mercenaryStatesTable,
   mercenaryDeploymentsTable,
+  totalMobilizationStatesTable,
   recruitQueueTable,
   type MercenaryState,
   type MercenaryDeployment,
@@ -32,6 +33,7 @@ import { loadNationScales } from "./nationScale";
 import { computeUnitCategoryAverages } from "./gameBalance";
 import { getStatsEraSlug } from "./nationStats";
 import { cancelQueueOrdersForNation } from "./recruitQueue";
+import { mobilizationBlocksContract } from "./totalMobilization";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Executor = typeof db | Tx;
@@ -284,6 +286,12 @@ export async function disarmNation(nationId: string): Promise<DisarmResult> {
         .where(eq(playerNationsTable.id, nationId));
     }
 
+    // 全民皆兵的民兵就在上面被一併解散、人口已退還;狀態同步關閉,避免殘留繼續扣穩定度。
+    await tx
+      .update(totalMobilizationStatesTable)
+      .set({ active: false, updatedAt: new Date() })
+      .where(eq(totalMobilizationStatesTable.nationId, nationId));
+
     await tx
       .insert(mercenaryStatesTable)
       .values({ nationId, disarmed: true })
@@ -340,6 +348,13 @@ export async function signContract(
       .for("update")
       .limit(1);
     if (!nation) throw new MercenaryError(404, "找不到國家");
+    const [mob] = await tx
+      .select({ active: totalMobilizationStatesTable.active })
+      .from(totalMobilizationStatesTable)
+      .where(eq(totalMobilizationStatesTable.nationId, nationId))
+      .limit(1);
+    const mobBlock = mobilizationBlocksContract(!!mob?.active);
+    if (!mobBlock.ok) throw new MercenaryError(409, mobBlock.reason);
     const state = await getMercenaryState(nationId, tx);
     const check = canSignContract({
       isNpc: nation.isNpc,

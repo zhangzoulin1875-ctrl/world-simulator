@@ -92,4 +92,17 @@ export async function runMercenaryMigrationsInner(): Promise<void> {
        SET deployed_campaign_id = NULL, deployed_slot = NULL, deployed_mode = NULL
      WHERE deployed_campaign_id IS NOT NULL
   `);
+  // 全民皆兵狀態表(每國一列;idempotent)。
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS total_mobilization_states (
+      nation_id uuid PRIMARY KEY REFERENCES player_nations(id) ON DELETE CASCADE,
+      active boolean NOT NULL DEFAULT false,
+      last_levy bigint NOT NULL DEFAULT 0,
+      template_id integer,
+      started_at timestamptz,
+      total_stability_lost bigint NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
 }

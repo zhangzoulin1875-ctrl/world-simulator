@@ -35,6 +35,7 @@ import {
 } from "./politics";
 import { computeTurnFinance, effectiveTaxEfficiencyPct } from "./economy";
 import { settleMercenaryRent } from "./mercenaryService";
+import { tickMobilizationStability } from "./totalMobilizationService";
 import { upkeepShortfallMilitaryPenalty } from "./militaryPolitics";
 import {
   runPoliticsSettlement,
@@ -866,6 +867,14 @@ async function doRunTurn(
       // 不可合併為單一 delta：回復「過度回收」到 0 後，負政策 delta（增加厭戰）
       // 仍應從 0 開始加，而非被回復量抵消歸零。
       const wearinessPolicyDelta = stats.warWearinessPolicyDelta;
+      // 全民皆兵:開啟期間每回合固定扣一點穩定度(僅玩家;NPC 不使用)。
+      // 與國庫危機的穩定度懲罰加總後,在同一條 UPDATE 內一次寫入(同欄位不能 set 兩次)。
+      const mobilizationStabilityDelta =
+        !nation.isNpc && nation.discordUserId
+          ? await tickMobilizationStability(nation.id)
+          : 0;
+      const stabilityDeltaTotal =
+        (treasuryPenalty?.stability ?? 0) + mobilizationStabilityDelta;
       await db
         .update(playerNationsTable)
         .set({
@@ -902,13 +911,17 @@ async function doRunTurn(
                   playerNationsTable.satisfactionClergy,
                   treasuryPenalty.satisfaction,
                 ),
-                stability: clampedStatDelta(
-                  playerNationsTable.stability,
-                  treasuryPenalty.stability,
-                ),
                 unrest: clampedStatDelta(
                   playerNationsTable.unrest,
                   treasuryPenalty.unrest,
+                ),
+              }
+            : {}),
+          ...(stabilityDeltaTotal !== 0
+            ? {
+                stability: clampedStatDelta(
+                  playerNationsTable.stability,
+                  stabilityDeltaTotal,
                 ),
               }
             : {}),
