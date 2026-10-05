@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   DOMESTIC_EVENTS, EVENT_CHANCE, EVENT_EVERY_TURNS, CIVIL_WAR_STABILITY_BELOW, CIVIL_WAR_CHANCE,
-  isRollTurn, rollsEvent, pickEventKind, triggersCivilWar, applyEffects, validateEventCatalog, getEventDef,
+  isRollTurn, rollsEvent, pickEventKind, eventKindsOnCooldown, pickEventKindWithCooldown, EVENT_REPEAT_COOLDOWN_TURNS, triggersCivilWar, applyEffects, validateEventCatalog, getEventDef,
 } from "./core";
 
 test("目錄:5 個事件、通過自檢;每個事件恰好 順應/鎮壓/拖延 各一", () => {
@@ -86,4 +86,35 @@ test("所有鎮壓選項:穩定度不會上升太多(鎮壓不能是免費午餐
     const cost = (crack.effects.stability ?? 0) + Math.min(0, crack.effects.parliamentSatisfaction ?? 0) + Math.min(0, crack.effects.militarySatisfaction ?? 0);
     assert.ok(cost < 0 || d.kind === "military_petition", `${d.kind} 鎮壓沒有代價`);
   }
+});
+
+test("重複冷卻：同種事件 32 回合內不能再發，第 32 回合起解禁", () => {
+  assert.equal(EVENT_REPEAT_COOLDOWN_TURNS, 32);
+  const h = [{ kind: "recall_wave", createdTick: 10 }];
+  assert.deepEqual(eventKindsOnCooldown(h, 10), ["recall_wave"]);
+  assert.deepEqual(eventKindsOnCooldown(h, 41), ["recall_wave"], "差 31 回合仍在冷卻");
+  assert.deepEqual(eventKindsOnCooldown(h, 42), [], "差 32 回合解禁");
+});
+
+test("重複冷卻：同種有多筆時以最近一次為準", () => {
+  const h = [{ kind: "recall_wave", createdTick: 2 }, { kind: "recall_wave", createdTick: 40 }];
+  assert.deepEqual(eventKindsOnCooldown(h, 60), ["recall_wave"]);
+});
+
+test("重複冷卻：抽選絕不抽到冷卻中的種類（隨機 20000 次）", () => {
+  const h = [{ kind: "recall_wave", createdTick: 50 }, { kind: "economic_crisis", createdTick: 48 }];
+  for (let i = 0; i < 20000; i++) {
+    const k = pickEventKindWithCooldown(Math.random, h, 60);
+    assert.ok(k !== null && k !== "recall_wave" && k !== "economic_crisis");
+  }
+});
+
+test("重複冷卻：全部種類都在冷卻 → 回傳 null（這回合不發），不會退回全池", () => {
+  const h = DOMESTIC_EVENTS.map((e, i) => ({ kind: e.kind, createdTick: 100 + i }));
+  assert.equal(pickEventKindWithCooldown(Math.random, h, 110), null);
+  assert.notEqual(pickEventKindWithCooldown(Math.random, h, 100 + 31 + DOMESTIC_EVENTS.length), null, "冷卻陸續解禁後又能抽");
+});
+
+test("重複冷卻：沒有歷史時行為與原本相同", () => {
+  assert.equal(pickEventKindWithCooldown(() => 0, [], 5), DOMESTIC_EVENTS[0]!.kind);
 });

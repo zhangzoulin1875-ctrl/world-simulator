@@ -14,7 +14,7 @@ import { runParliamentMigrations } from "../parliamentMigrations";
 import { runDomesticEventMigrations } from "./migrations";
 import { governmentLabel } from "../governments";
 import { createEvent, getPendingEvent, resolveEvent, runDomesticEventSettlement } from "./service";
-import { getEventDef, EVENT_DEADLINE_TURNS } from "./core";
+import { getEventDef, EVENT_DEADLINE_TURNS, EVENT_REPEAT_COOLDOWN_TURNS, DOMESTIC_EVENTS } from "./core";
 import { SOCIALIST_PARTY_NAME } from "./parliamentShift";
 import { setEventTextQueuerForTest, rewriteEventText } from "./text";
 
@@ -302,4 +302,48 @@ test("就算 AI 改寫了文字,選項的實際效果仍以程式目錄為準(AI
   const n = await load();
   assert.equal(n.money, 10_000 - 1500);
   assert.equal(n.satisfactionMilitary, 42);
+});
+
+/** 造一筆已處理完的歷史事件（直接用 createEvent 建立後標成 resolved，避免佔用 pending 唯一索引）。 */
+async function pastEvent(kind: string, tick: number) {
+  const ev = await open(kind, tick);
+  await db.update(domesticEventsTable).set({ status: "resolved" }).where(eq(domesticEventsTable.id, ev.id));
+}
+
+test("重複冷卻：全部種類剛發生過 → 擲中也不發新事件", async () => {
+  for (const [i, e] of DOMESTIC_EVENTS.entries()) await pastEvent(e.kind, 10 + i);
+  await setTick(20);
+  const r = await runDomesticEventSettlement(() => 0.0);
+  assert.equal(r.created, 0, "每一種都在 32 回合冷卻內");
+  assert.equal(await getPendingEvent(nationId), null);
+});
+
+test("重複冷卻：只剩一種冷卻結束 → 只會發那一種", async () => {
+  // 其他種類都在冷卻內，獨有 recall_wave 發生在很久以前。
+  const t = 100;
+  for (const e of DOMESTIC_EVENTS) await pastEvent(e.kind, e.kind === "recall_wave" ? t - EVENT_REPEAT_COOLDOWN_TURNS : t - 2);
+  await setTick(t);
+  const r = await runDomesticEventSettlement(() => 0.0);
+  assert.equal(r.created, 1);
+  assert.equal((await getPendingEvent(nationId))!.kind, "recall_wave");
+});
+
+test("重複冷卻：差 30 回合仍擋，差 32 回合才放行", async () => {
+  for (const e of DOMESTIC_EVENTS) await pastEvent(e.kind, 50);
+  // 擲骰只在偶數 tick。50 + 30 = 80（仍在冷卻），50 + 32 = 82（剛好解禁）。
+  await setTick(50 + EVENT_REPEAT_COOLDOWN_TURNS - 2);
+  const tooSoon = await runDomesticEventSettlement(() => 0.0);
+  assert.equal(tooSoon.created, 0, "差 30 回合還在冷卻");
+  assert.equal(await getPendingEvent(nationId), null);
+  await setTick(50 + EVENT_REPEAT_COOLDOWN_TURNS);
+  const ok = await runDomesticEventSettlement(() => 0.0);
+  assert.equal(ok.created, 1, "差 32 回合解禁");
+});
+
+test("重複冷卻：管理員手動投放不受冷卻限制", async () => {
+  await pastEvent("recall_wave", 10);
+  await setTick(12);
+  const { sendEventToNations } = await import("./service");
+  const r = await sendEventToNations("recall_wave", [nationId]);
+  assert.equal(r.sent.length, 1, "管理員刻意投放照常生效");
 });

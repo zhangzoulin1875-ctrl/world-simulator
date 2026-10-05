@@ -16,7 +16,7 @@ import {
   getEventDef,
   isRollTurn,
   rollsEvent,
-  pickEventKind,
+  pickEventKindWithCooldown,
   applyEffects,
   triggersCivilWar,
   type DomesticEventDef,
@@ -245,8 +245,10 @@ export async function runDomesticEventSettlement(rand: () => number = Math.rando
       if (!isRollTurn(tick)) continue;
       if (!rollsEvent(rand)) continue;
 
-      const recent = await listRecentEvents(n.id, 1);
-      const kind = pickEventKind(rand, recent[0] ? [recent[0].kind] : []); // 不連續兩次同一種
+      // 同一種事件 EVENT_REPEAT_COOLDOWN_TURNS 回合內不重發;全部種類都在冷卻就這回合不發事件。
+      const history = await listRecentEvents(n.id, 50);
+      const kind = pickEventKindWithCooldown(rand, history, tick);
+      if (!kind) continue;
       const def = getEventDef(kind);
       if (!def) continue;
       const created = await createEvent(n.id, def, tick);

@@ -11,6 +11,8 @@
 export const EVENT_EVERY_TURNS = 2;
 export const EVENT_CHANCE = 0.3;
 export const EVENT_DEADLINE_TURNS = 3;
+/** 同一種事件再次發生,至少要隔幾個回合(2026-10-06 使用者要求:不想看到事件重複)。 */
+export const EVENT_REPEAT_COOLDOWN_TURNS = 32;
 
 /** 鎮壓後低穩定度引發內戰的門檻與機率 */
 export const CIVIL_WAR_STABILITY_BELOW = 25;
@@ -147,6 +149,40 @@ export function pickEventKind(rand: () => number, exclude: readonly string[] = [
     if (r < 0) return e.kind;
   }
   return list[list.length - 1]!.kind;
+}
+
+/**
+ * 目前仍在冷卻的事件種類:該種事件最近一次發生的 tick 與現在相差不足 EVENT_REPEAT_COOLDOWN_TURNS。
+ * history 只需要 (kind, createdTick);同種有多筆時取最近的。
+ */
+export function eventKindsOnCooldown(
+  history: readonly { kind: string; createdTick: number }[],
+  currentTick: number,
+  cooldown: number = EVENT_REPEAT_COOLDOWN_TURNS,
+): string[] {
+  const latest = new Map<string, number>();
+  for (const h of history) {
+    const prev = latest.get(h.kind);
+    if (prev === undefined || h.createdTick > prev) latest.set(h.kind, h.createdTick);
+  }
+  const out: string[] = [];
+  for (const [kind, t] of latest) if (currentTick - t < cooldown) out.push(kind);
+  return out;
+}
+
+/**
+ * 抽事件並遵守重複冷卻。與 pickEventKind 不同:所有種類都在冷卻時回傳 null(這回合不發事件),
+ * 不會退回「全池重抽」——否則冷卻在事件種類少時形同虛設。
+ */
+export function pickEventKindWithCooldown(
+  rand: () => number,
+  history: readonly { kind: string; createdTick: number }[],
+  currentTick: number,
+  cooldown: number = EVENT_REPEAT_COOLDOWN_TURNS,
+): DomesticEventKind | null {
+  const blocked = eventKindsOnCooldown(history, currentTick, cooldown);
+  if (DOMESTIC_EVENTS.every((e) => blocked.includes(e.kind))) return null;
+  return pickEventKind(rand, blocked);
 }
 
 /** 鎮壓是否引爆內戰:只有帶 civilWarRisk 的選項,且「套用後」穩定度低於門檻才擲骰 */
