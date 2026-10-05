@@ -27,7 +27,8 @@ import {
 import { localDateString, localSlotInstant } from "./time";
 import { ERAS, getEraIndex } from "./mapRegionEras";
 import { computeAdjustedNationStats } from "./nationStats";
-import { applyRegionPopulationDelta } from "./regionPopulation";
+import { applyRegionPopulationDelta, loadRegionGrowthInputs } from "./regionPopulation";
+import { nationNetGrowth } from "./populationCapacity";
 import {
   populationGrowthAmount,
   scalePopulationGrowth,
@@ -501,6 +502,9 @@ async function doRunTurn(
     return { ran: false, reason: "already_ran", dateLabel };
   }
 
+  // 人口承載量的起伏種子:本時段認領時刻換算成「小時序號」。同一回合固定(重算一致)、
+  // 每回合單調遞增(起伏逐回合不同),不需要新欄位或亂數。
+  const turnIndex = Math.floor(claimInstant.getTime() / 3_600_000);
   const newGameDate = addYearsToGameDate(state.gameDate, state.yearsPerTurn);
   const newYear = yearOfGameDate(newGameDate);
   const newEra = eraForYear(newYear);
@@ -808,8 +812,14 @@ async function doRunTurn(
       // 人口增長：以「目前總人口」×有效增長率計算本回合變化量（可正可負），
       // Task #322 起改為依各掌控地區的目前實際人口權重分配到 region_controls
       // 的 population_bonus（每地區下限 0，隨領土移動）。
+      // 自然死亡率/承載量(logistic):各區淨成長 = 人口 × 增長率 × (1 − 人口/承載量),
+      // 接近承載量時趨近 0、超過時緩慢回落(見 populationCapacity.ts)。增長率仍是既有的
+      // 有效增長率(基礎+政策/科技),全域倍率照舊套用。回合序號用地區 id 當擾動種子。
+      const growthInputs = await loadRegionGrowthInputs(db, nation.id, statsEra);
       const populationGrowth = scalePopulationGrowth(
-        populationGrowthAmount(stats.population, stats.populationGrowthRatePct),
+        growthInputs.length > 0
+          ? nationNetGrowth(growthInputs, stats.populationGrowthRatePct, turnIndex)
+          : populationGrowthAmount(stats.population, stats.populationGrowthRatePct),
         state.populationGrowthMultiplierPct,
       );
       // 維護費扣款異常：付維護費前的可用金錢（金錢 + 稅收）不足以支付

@@ -3,8 +3,10 @@ import {
   db,
   regionControlsTable,
   mapRegionEraStatsTable,
+  mapRegionsTable,
 } from "@workspace/db";
 import { allocateProportionally } from "./war";
+import { regionCapacity, type RegionGrowthInput } from "./populationCapacity";
 
 /**
  * Task #322 — 人口成長改為「按地區累積」（region_controls.population_bonus）。
@@ -102,4 +104,43 @@ export async function applyRegionPopulationDelta(
     applied += d;
   }
   return applied;
+}
+
+/**
+ * 載入某國各掌控地區的「實際人口」與「承載量」,供 logistic 人口成長使用。
+ * 實際人口口徑與 applyRegionPopulationDelta 的權重一致:
+ *   max(0, round(percent × 時代人口 / 100) + 累積量)。
+ */
+export async function loadRegionGrowthInputs(
+  exec: Exec,
+  nationId: string,
+  era: string,
+): Promise<RegionGrowthInput[]> {
+  const rows = await exec
+    .select({
+      regionId: regionControlsTable.regionId,
+      percent: regionControlsTable.percent,
+      accrued: regionControlsTable.populationBonus,
+      eraPopulation: mapRegionEraStatsTable.population,
+      fertility: mapRegionsTable.soilFertility,
+    })
+    .from(regionControlsTable)
+    .innerJoin(mapRegionsTable, eq(mapRegionsTable.id, regionControlsTable.regionId))
+    .innerJoin(
+      mapRegionEraStatsTable,
+      and(
+        eq(mapRegionEraStatsTable.regionId, regionControlsTable.regionId),
+        eq(mapRegionEraStatsTable.era, era),
+      ),
+    )
+    .where(eq(regionControlsTable.nationId, nationId));
+  return rows.map((r) => ({
+    regionId: r.regionId,
+    population: Math.max(0, Math.round((r.percent * Number(r.eraPopulation)) / 100) + r.accrued),
+    capacity: regionCapacity({
+      eraPopulation: Number(r.eraPopulation),
+      percent: r.percent,
+      fertility: r.fertility,
+    }),
+  }));
 }

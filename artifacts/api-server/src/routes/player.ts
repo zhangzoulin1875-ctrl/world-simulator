@@ -1,3 +1,5 @@
+import { loadRegionGrowthInputs } from "../lib/regionPopulation";
+import { summarizeCapacity, type CapacitySummary } from "../lib/populationCapacity";
 import { scalesFromPopulation } from "../lib/nationScale";
 import { scaleByEra } from "../lib/eraCostScale";
 import { Router, type IRouter } from "express";
@@ -266,6 +268,7 @@ function serializeNation(
   },
   woundedTotal: number,
   currentTurnSpend: number,
+  capacity: CapacitySummary,
 ) {
   return {
     id: nation.id,
@@ -290,8 +293,14 @@ function serializeNation(
     productionTotal: stats.production,
     productionSpent: nation.productionSpent,
     population: Math.max(0, stats.population - nation.populationSpent),
-    // 人口增長率（%／回合；內政基礎值 + 政策/事件加減成，夾 ±上限）。
-    populationGrowthPct: Math.round(stats.populationGrowthRatePct * 10) / 10,
+    // 人口「實際淨成長率」(%／回合):有效增長率(內政基礎值 + 政策/事件加減成)套上承載量後
+    // 的期望值。接近承載量時趨近 0,超載時為負(緩慢回落)。不含起伏擾動,數字穩定。
+    populationGrowthPct: Math.round(capacity.netGrowthPct * 10) / 10,
+    // 未受承載量限制前的有效增長率(出生率),供介面說明「為什麼成長變慢」。
+    populationBirthRatePct: Math.round(stats.populationGrowthRatePct * 10) / 10,
+    // 全國人口承載量與使用率(>1 = 超載,正在緩慢回落)。
+    populationCapacity: capacity.capacity,
+    populationLoadRatio: Math.round(capacity.loadRatio * 1000) / 1000,
     money: nation.money,
     // Task #43 — 內政有效數值（基底 + 政策/事件持續性加減成後）。
     // 顯示用：最多小數點第一位（內部計算保留完整精度供回合結算使用）。
@@ -346,11 +355,13 @@ async function buildNationView(nation: PlayerNation) {
   // 玩家數據用「數據時代」計算：管理員改時代未勾同步時，數據不會被重設。
   const statsEra = gameState?.statsEra ?? currentEra;
   const eraBackgrounds = defaults?.eraBackgrounds ?? {};
-  const [stats, wounded, currentTurnSpend] = await Promise.all([
+  const [stats, wounded, currentTurnSpend, growthInputs] = await Promise.all([
     computeAdjustedNationStats(nation, statsEra),
     getWoundedStatus(nation.discordUserId, nation.id),
     loadCurrentTurnRecruitSpend(nation.id),
+    loadRegionGrowthInputs(db, nation.id, statsEra),
   ]);
+  const capacity = summarizeCapacity(growthInputs, stats.populationGrowthRatePct);
   return serializeNation(
     nation,
     stats,
@@ -362,6 +373,7 @@ async function buildNationView(nation: PlayerNation) {
     },
     wounded.woundedTotal,
     currentTurnSpend,
+    capacity,
   );
 }
 
