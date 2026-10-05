@@ -24,6 +24,7 @@ import { buildNationGeoCultureContext } from "./nationGeoCulture";
 import { effectiveNpcTechEra } from "./npcTech";
 import { computeNationStats, getCurrentGameYear, getEraSlugs } from "./nationStats";
 import { allocateProportionally } from "./war";
+import { applyRegionPopulationDelta } from "./regionPopulation";
 
 /**
  * Task #389 — NPC 國家自主軍事：常備軍（npc_armies）＋ NPC 專屬兵種模板。
@@ -303,16 +304,39 @@ export async function runNpcMilitaryTurn(): Promise<NpcMilitaryTurnSummary> {
         // Task #549 — 無專屬模板（AI 尚未設計成功）→ 當回合安全跳過生產。
         const templates = await loadNpcCombatTemplates(tx, npc.id, eraM);
         if (templates.length === 0) return { produced: 0, recovered };
-        const shares = allocateProportionally(
+        let shares = allocateProportionally(
           templates.map((t) => NPC_UNIT_WEIGHTS[t.category] ?? 5),
           produce,
         );
+        // 方案 A:補兵吃人口(與玩家同口徑:兵種 popCostPerUnit × 數量)。人口不足
+        // 時整批按比例縮減;戰爭傷亡不回人口,所以被打空的 NPC 會真的補不回來。
+        const popNeeded = shares.reduce(
+          (s, q, i) => s + q * Math.max(1, templates[i]!.popCostPerUnit),
+          0,
+        );
+        if (popNeeded <= 0) return { produced: 0, recovered };
+        const affordable = Math.min(1, population / popNeeded);
+        if (affordable < 1) {
+          shares = shares.map((q) => Math.floor(q * affordable));
+        }
+        const popToSpend = shares.reduce(
+          (s, q, i) => s + q * Math.max(1, templates[i]!.popCostPerUnit),
+          0,
+        );
+        if (popToSpend <= 0) return { produced: 0, recovered };
+        const popSpent = -(await applyRegionPopulationDelta(
+          tx,
+          npc.id,
+          statsEra,
+          -popToSpend,
+        ));
+        if (popSpent <= 0) return { produced: 0, recovered };
         let produced = 0;
         for (let i = 0; i < templates.length; i++) {
           const qty = shares[i] ?? 0;
           if (qty <= 0) continue;
           // 訓練佇列（功能開關開啟時）：NPC 同樣先入列，由回合推進依產能完成。
-          // NPC 招兵不扣國家資源，訂單上的資源欄位皆為 0。
+          // NPC 招兵只扣人口(上方已扣);金錢/生產力/木礦不收,訂單資源欄位為 0。
           if (queueOn) {
             await enqueueNpcOrderInTx(tx, {
               nationId: npc.id,
