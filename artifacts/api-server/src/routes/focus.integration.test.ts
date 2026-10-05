@@ -137,6 +137,19 @@ test("出邊 ≤3 的政體(神權制):全部出邊都在樹上,不會少", asyn
   assert.deepEqual(transitions, edgesFrom("theocracy").map((e) => e.focusId).sort());
 });
 
+test("分支表壞掉(例如線上 migration 落後)時,國策頁降級成不套用樹限制,不會整頁 500", async () => {
+  const { cookie } = await mk("君主專制", {}, false);
+  await pool.query("ALTER TABLE focus_branch_roots RENAME TO focus_branch_roots_bak");
+  try {
+    const r = await get(cookie);
+    assert.equal(r.status, 200, "抽選失敗也要能讀");
+    const j: any = await r.json();
+    assert.ok(j.focuses.length >= 5, "降級後顯示全部出口,而不是空白");
+  } finally {
+    await pool.query("ALTER TABLE focus_branch_roots_bak RENAME TO focus_branch_roots");
+  }
+});
+
 test("共產革命對所有非紅線終點的政體都可見;紅線終點(委員會制/社會主義委員會)不顯示", async () => {
   const seen: Record<string, boolean> = {};
   for (const g of ["貴族制", "君主立憲制", "總統制民主", "議會內閣制", "君主專制", "神權制", "軍事獨裁", "財閥共和", "邦聯制", "議會共和制", "選舉君主制", "二元君主制", "委員會制", "社會主義委員會制"]) {

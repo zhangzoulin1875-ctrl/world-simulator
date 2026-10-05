@@ -24,6 +24,7 @@ import { evaluateStart } from "./service";
 import { describeEffect } from "./describe";
 import { COMMUNIST_REVOLUTION_ID, REVOLUTION_EXCLUDED_GOVERNMENTS } from "./regimeFocuses";
 import { ensureBranches } from "./branchService";
+import { logger } from "../logger";
 
 type Nation = typeof playerNationsTable.$inferSelect;
 
@@ -102,7 +103,12 @@ export async function getFocusView(nation: Nation): Promise<FocusView> {
   const activeIds = new Set(actives.map((a) => a.focusId));
   // 隨機分支:第一次看樹時才抽並存起來,之後固定不變(見 branchService)
   const slugNow = governmentSlugByLabel(n.government);
-  const branches = slugNow ? new Set(await ensureBranches(n.id, slugNow)) : null;
+  // 抽選失敗(例如資料庫暫時性錯誤)不該讓整個國策頁壞掉:降級成「不套用樹限制」,錯誤只記日誌
+  let branches: Set<string> | null = null;
+  if (slugNow) {
+    try { branches = new Set(await ensureBranches(n.id, slugNow)); }
+    catch (err) { logger.error({ err, nationId: n.id, slugNow }, "focus branch draw failed; showing without tree limit"); }
+  }
   const facts = {
     branches,
     governmentLabel: n.government,

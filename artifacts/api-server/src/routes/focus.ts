@@ -30,7 +30,8 @@ router.get("/focus", async (req, res) => {
     res.json(await getFocusView(auth.nation));
   } catch (err) {
     logger.error({ err }, "focus view failed");
-    res.status(500).json({ error: "讀取國策樹失敗" });
+    // detail 只放錯誤訊息(不含堆疊),方便玩家截圖回報時直接看到真因
+    res.status(500).json({ error: "讀取國策樹失敗", detail: String((err as Error)?.message ?? err).slice(0, 300) });
   }
 });
 

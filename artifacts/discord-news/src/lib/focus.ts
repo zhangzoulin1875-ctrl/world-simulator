@@ -54,7 +54,7 @@ async function readError(res: Response): Promise<Error> {
   let msg = `請求失敗(${res.status})`;
   try {
     const j = await res.json();
-    if (j && typeof j.error === "string") msg = j.error;
+    if (j && typeof j.error === "string") msg = typeof j.detail === "string" && j.detail ? `${j.error}(${j.detail})` : j.error;
   } catch { /* 非 JSON 回應:沿用預設訊息 */ }
   return new Error(msg);
 }
