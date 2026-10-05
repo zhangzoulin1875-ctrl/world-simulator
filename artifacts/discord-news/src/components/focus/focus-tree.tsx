@@ -45,6 +45,9 @@ export function FocusTree({ view, busy, onStart }: Props) {
     return () => { ro.disconnect(); window.removeEventListener("resize", measure); };
   }, [layout]);
 
+  const rev = view.tree.revolution;
+  const revCard = rev ? cardById.get(rev.focusId) ?? null : null;
+  const winLabel = rev ? view.tree.nodes.find((n) => n.slug === rev.winGovernment)?.label ?? rev.winGovernment : "";
   const pickedNode = picked ? layout.nodes.find((n) => n.slug === picked) ?? null : null;
   // 選到的節點:列出「走到它」的轉型國策(從目前政體出發的那條)
   const incoming = pickedNode
@@ -137,6 +140,44 @@ export function FocusTree({ view, busy, onStart }: Props) {
           ))}
         </div>
       </div>
+
+      {rev && (
+        <div className="mt-2 rounded-lg border border-red-400/30 bg-red-500/5 p-2.5" data-testid="tree-revolution">
+          <div className="mb-1.5 text-[10px] text-red-200/70">單獨分支 · 不經過政體路線,任何政體都能走</div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="rounded-lg border border-red-400/60 bg-red-500/15 px-3 py-1.5 text-xs font-bold text-red-100" data-testid="tree-revolution-node">
+              {revCard?.title ?? "共產革命"}
+              <div className="text-[10px] font-normal text-red-100/70">
+                {revCard ? `${revCard.cost} 點 · ${revCard.turns} 回合` : "條件未達"}
+              </div>
+            </div>
+            <span className="text-red-300/70" aria-hidden>→</span>
+            <div className="rounded-lg border border-dashed border-red-400/40 px-3 py-1.5 text-[11px] text-red-100/80">
+              內戰(革命方僅約 35% 土地)
+            </div>
+            <span className="text-red-300/70" aria-hidden>→</span>
+            <div className="rounded-lg border border-dashed border-red-400/40 px-3 py-1.5 text-[11px] text-red-100/80">
+              打贏:{winLabel}
+            </div>
+            {revCard?.status === "available" && (
+              <button
+                type="button" disabled={busy} onClick={() => onStart(revCard)}
+                className="ml-auto shrink-0 rounded-md border border-red-300/50 bg-red-500/20 px-3 py-1 text-xs font-bold text-red-100 hover:bg-red-500/30 disabled:opacity-50"
+                data-testid="tree-revolution-start"
+              >發動革命</button>
+            )}
+            {revCard?.status === "active" && <span className="ml-auto text-[10px] text-amber-200">進行中</span>}
+          </div>
+          {revCard?.status === "locked" && revCard.lockedReason && (
+            <div className="mt-1.5 flex items-start gap-1 text-[11px] text-white/70" data-testid="tree-revolution-locked">
+              <Lock className="mt-0.5 h-3 w-3 shrink-0" />{revCard.lockedReason}
+            </div>
+          )}
+          <p className="mt-1.5 text-[10px] leading-relaxed text-white/45">
+            革命是人民奪權,舊政權不會停戰,直到一方被完全消滅。輸了等同被消滅。
+          </p>
+        </div>
+      )}
 
       {pickedNode && (
         <div className="mt-2 rounded-lg border border-white/15 bg-black/40 p-2.5" data-testid="tree-detail">

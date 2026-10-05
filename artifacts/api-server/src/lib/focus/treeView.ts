@@ -1,6 +1,7 @@
 import { FOUNDING_GOVERNMENT_SLUGS, GOVERNMENTS } from "../governments";
 import { REGIME_EDGES, edgesFrom, type RegimeEdge } from "./regimeGraph";
 import type { FocusTrack } from "./core";
+import { COMMUNIST_REVOLUTION_ID, REVOLUTION_EXCLUDED_GOVERNMENTS } from "./regimeFocuses";
 
 /**
  * 國策樹畫面用的資料(純函式,不碰資料庫)。
@@ -38,8 +39,20 @@ export interface TreeEdge {
   notDrawn: boolean;
 }
 
+/**
+ * 共產革命:樹上固定的「單獨分支」。不屬於政體圖的邊、不佔隨機名額,
+ * 任何政體都有(已經是紅線終點的除外)。打贏內戰才改制為委員會制。
+ */
+export interface RevolutionBranch {
+  focusId: string;
+  /** 打贏內戰後的政體 slug */
+  winGovernment: string;
+}
+
 export interface FocusTreeData {
   currentGovernment: string | null;
+  /** 單獨分支:共產革命;已是紅線終點(或政體未知)時為 null */
+  revolution: RevolutionBranch | null;
   /** 是否有套用分支限制(抽選失敗降級時為 false,畫面會提示) */
   limited: boolean;
   nodes: TreeNode[];
@@ -117,5 +130,9 @@ export function buildFocusTree(currentSlug: string | null, myBranches: ReadonlyS
       notDrawn: fromMe && !drawn,
     };
   });
-  return { currentGovernment: currentSlug, limited: myBranches !== null, nodes, edges };
+  const revolution: RevolutionBranch | null =
+    currentSlug && !REVOLUTION_EXCLUDED_GOVERNMENTS.includes(currentSlug)
+      ? { focusId: COMMUNIST_REVOLUTION_ID, winGovernment: "council_system" }
+      : null;
+  return { currentGovernment: currentSlug, revolution, limited: myBranches !== null, nodes, edges };
 }

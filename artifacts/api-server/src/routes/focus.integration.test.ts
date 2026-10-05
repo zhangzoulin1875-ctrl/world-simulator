@@ -165,6 +165,20 @@ test("GET /focus 帶 tree:14 個節點、目前政體唯一、邊的 walkable �
   assert.deepEqual(j.tree.edges.filter((e: any) => e.walkable).map((e: any) => e.focusId).sort(), listed, "樹上能走的 = 清單上看得到的");
 });
 
+test("tree.revolution:有共產革命單獨分支 ⇔ 清單上看得到該國策(紅線終點兩者都沒有)", async () => {
+  for (const gov of ["君主專制", "議會內閣制"]) {
+    const { cookie } = await mk(gov, {}, false);
+    const j: any = await (await get(cookie)).json();
+    const inList = j.focuses.some((f: any) => f.id === "regime.communist_revolution");
+    assert.equal(!!j.tree.revolution, inList, gov);
+    assert.equal(j.tree.revolution?.focusId, "regime.communist_revolution", gov);
+  }
+  const { cookie } = await mk("委員會制", {}, false);
+  const j: any = await (await get(cookie)).json();
+  assert.equal(j.tree.revolution, null);
+  assert.ok(!j.focuses.some((f: any) => f.id === "regime.communist_revolution"));
+});
+
 test("共產革命對所有非紅線終點的政體都可見;紅線終點(委員會制/社會主義委員會)不顯示", async () => {
   const seen: Record<string, boolean> = {};
   for (const g of ["貴族制", "君主立憲制", "總統制民主", "議會內閣制", "君主專制", "神權制", "軍事獨裁", "財閥共和", "邦聯制", "議會共和制", "選舉君主制", "二元君主制", "委員會制", "社會主義委員會制"]) {

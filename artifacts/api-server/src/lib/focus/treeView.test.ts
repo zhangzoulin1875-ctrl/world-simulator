@@ -53,8 +53,21 @@ test("降級(myBranches = null):不套用限制,出邊全部 walkable,limited=fa
   assert.ok(out.length > 0 && out.every((e) => e.walkable && !e.notDrawn));
 });
 
+test("共產革命是單獨分支:不在政體邊裡、不佔分支名額;除了紅線終點以外每個政體都有;打贏變委員會制", () => {
+  for (const g of GOVERNMENTS) {
+    const t = buildFocusTree(g.slug, new Set());
+    if (["council_system", "socialist_council"].includes(g.slug)) { assert.equal(t.revolution, null, g.slug); continue; }
+    assert.equal(t.revolution?.focusId, "regime.communist_revolution", g.slug);
+    assert.equal(t.revolution?.winGovernment, "council_system");
+  }
+  assert.ok(!REGIME_EDGES.some((e) => e.focusId === "regime.communist_revolution"));
+  // 就算一條分支都沒抽到,革命分支仍在
+  assert.ok(buildFocusTree("theocracy", new Set()).revolution);
+});
+
 test("未知政體(標籤對不上):不炸,沒有目前節點", () => {
   const t = buildFocusTree(null, null);
   assert.equal(t.nodes.filter((n) => n.isCurrent).length, 0);
   assert.ok(t.edges.every((e) => !e.walkable));
+  assert.equal(t.revolution, null);
 });

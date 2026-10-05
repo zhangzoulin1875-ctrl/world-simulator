@@ -57,8 +57,15 @@ export interface TreeEdge {
   notDrawn: boolean;
 }
 
+/** 共產革命:樹上固定的單獨分支(不是政體間的邊,不佔隨機名額) */
+export interface RevolutionBranch {
+  focusId: string;
+  winGovernment: string;
+}
+
 export interface FocusTreeData {
   currentGovernment: string | null;
+  revolution: RevolutionBranch | null;
   limited: boolean;
   nodes: TreeNode[];
   edges: TreeEdge[];
