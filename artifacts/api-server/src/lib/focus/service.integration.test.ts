@@ -336,16 +336,31 @@ test("轉型完成後,同時進行中的其他轉型國策作廢並退點", asyn
   assert.ok((await fstate()).points >= before + 14, "作廢的那條退回預扣點數");
 });
 
-test("共產革命國策:條件全滿足也不能推行(內戰未開放),不扣點、不換政體", async () => {
+test("共產革命國策:條件全滿足可以推行(預扣點數,啟動當下不換政體)", async () => {
   setCatalogForTest(FOCUS_CATALOG);
   await give(100);
   await db.update(focusStatesTable).set({ redLean: 90 }).where(eq(focusStatesTable.nationId, nationId));
   await db.update(playerNationsTable).set({ stability: 20 }).where(eq(playerNationsTable.id, nationId));
   const r = await startFocus(await load(), "regime.absolute_monarchy_red_revolution");
-  assert.equal(r.ok, false);
-  assert.ok(!r.ok && r.reason === "not_yet_available");
-  assert.equal((await fstate()).points, 100);
-  assert.equal((await load()).government, governmentLabel("absolute_monarchy"));
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal((await fstate()).points, 100 - 45, "預扣 45 點");
+  assert.equal((await load()).government, governmentLabel("absolute_monarchy"), "啟動時政體不變");
+});
+
+test("共產革命國策:紅線傾向不足或穩定度太高仍被擋,不扣點", async () => {
+  setCatalogForTest(FOCUS_CATALOG);
+  await give(100);
+  await db.update(focusStatesTable).set({ redLean: 10 }).where(eq(focusStatesTable.nationId, nationId));
+  await db.update(playerNationsTable).set({ stability: 20 }).where(eq(playerNationsTable.id, nationId));
+  const low = await startFocus(await load(), "regime.absolute_monarchy_red_revolution");
+  assert.equal(low.ok, false);
+  assert.ok(!low.ok && low.reason === "condition_failed");
+  await db.update(focusStatesTable).set({ redLean: 90 }).where(eq(focusStatesTable.nationId, nationId));
+  await db.update(playerNationsTable).set({ stability: 80 }).where(eq(playerNationsTable.id, nationId));
+  const calm = await startFocus(await load(), "regime.absolute_monarchy_red_revolution");
+  assert.equal(calm.ok, false);
+  assert.ok(!calm.ok && calm.reason === "condition_failed");
+  assert.equal((await fstate()).points, 100, "都沒扣點");
 });
 
 // ── 黑紅線傾向值被動增長 ──────────────────────────────────

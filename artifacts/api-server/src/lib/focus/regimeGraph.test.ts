@@ -96,12 +96,12 @@ test("共產革命比民主國家的紅線轉型更貴更慢、門檻更高、�
   assert.ok(rev.description.includes("35%") && rev.description.includes("內戰"));
 });
 
-test("民主國家沒有革命邊(他們用議會式轉型);革命國策在內戰機制完成前標為不可推行", () => {
+test("民主國家沒有革命邊(他們用議會式轉型);獨裁國家的革命國策已開放推行", () => {
   for (const g of ["parliamentary", "parliamentary_republic", "presidential_democracy", "constitutional_monarchy"]) {
     assert.ok(!REGIME_EDGES.some((e) => e.from === g && e.revolution), g);
   }
-  for (const f of buildRegimeFocuses().filter((f) => f.id.endsWith("_red_revolution"))) {
-    assert.ok(f.unavailableReason, f.id);
-  }
-  assert.ok(buildRegimeFocuses().filter((f) => !f.id.endsWith("_red_revolution")).every((f) => !f.unavailableReason));
+  const revs = buildRegimeFocuses().filter((f) => f.id.endsWith("_red_revolution"));
+  assert.equal(revs.length, 3, "君主專制/軍事獨裁/神權制各一條");
+  assert.ok(revs.every((f) => !f.unavailableReason), "全部已開放");
+  assert.ok(buildRegimeFocuses().every((f) => !f.unavailableReason));
 });

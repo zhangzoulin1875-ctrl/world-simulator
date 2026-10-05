@@ -102,7 +102,6 @@ function toFocus(edge: RegimeEdge): FocusDef {
     governments: [edge.from],
     conditions: conditionsFor(edge),
     milestone: true,
-    ...(edge.revolution ? { unavailableReason: "奪權內戰機制尚未開放" } : {}),
     effects: [{ kind: "transition", toGovernment: edge.to }, ...costEffectsFor(edge)],
   };
 }

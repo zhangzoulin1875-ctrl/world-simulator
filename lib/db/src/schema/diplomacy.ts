@@ -314,6 +314,11 @@ export const diplomacyWarsTable = pgTable(
     rebelNationId: uuid("rebel_nation_id").references(() => playerNationsTable.id, { onDelete: "set null" }),
     /** 奪權方意識形態:black | red | parliament(議會革命);決定勝利後的政體。 */
     rebelIdeology: text("rebel_ideology"),
+    /**
+     * 內戰結算當下的敗方 nation id(純記錄、刻意不設外鍵:不受 CASCADE/SET NULL 影響)。
+     * 用來在「標記結束後、刪國前」程序中斷時,精準補做淘汰,不靠土地推論以免誤殺。
+     */
+    loserNationId: uuid("loser_nation_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

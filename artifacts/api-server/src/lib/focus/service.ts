@@ -27,6 +27,9 @@ import {
 import { getCatalog, getFocusDef } from "./catalog";
 import type { FocusDef } from "./types";
 import { summarizeEffects } from "./effects";
+import { startCivilWar } from "../civilWarEngine";
+import { endCampaignsForNation } from "../warEngine/endCampaign";
+import { findEdge } from "./regimeGraph";
 import { afterRegimeTransition, applyRegimeTransition, type RegimeTransitionResult } from "../politicsSettlement";
 import { describeCondition, eraReached, firstFailedCondition, type ConditionFacts } from "./conditions";
 
@@ -92,6 +95,8 @@ export async function settleNationFocus(
   const result: FocusSettleResult = { pointsGained: 0, completed: [], stalled: false };
   // 交易提交後才執行的收尾(通知/筆記等外部副作用,失敗不回滾改制)
   const afterCommit: RegimeTransitionResult[] = [];
+  // 革命爆發後,國土被切走:進行中的戰役可能指向已不屬於該國的地區,提交後統一終止
+  let revolutionStarted = false;
 
   await db.transaction(async (tx) => {
     await lockNationFocus(tx, nation.id);
@@ -188,18 +193,39 @@ export async function settleNationFocus(
           logger.warn({ nationId: nation.id, focusId: a.focusId, government: fresh!.government }, "regime transition skipped: origin government changed");
           continue;
         }
-        const tr = await applyRegimeTransition(tx, fresh!, targetLabel, def.title);
-        afterCommit.push(tr);
-        // 政體變了:其他進行中的轉型國策(起點已不成立)一併作廢並退點
-        const others = await tx.select().from(focusActiveTable).where(eq(focusActiveTable.nationId, nation.id));
-        for (const o of others) {
-          const od = getFocusDef(o.focusId);
-          if (od && od.domain === "regime" && od.id !== def.id) {
-            await tx.delete(focusActiveTable).where(eq(focusActiveTable.id, o.id));
+        const edge = findEdge(governmentSlugByLabel(fresh!.government) ?? "", eff.transitionTo);
+        if (edge?.revolution) {
+          // 革命奪權:不是政府自己轉型。玩家是革命方,只留下 X% 土地,與新建的 NPC 舊政權開內戰;
+          // 政體維持原樣,打贏才改制(見 civilWarEngine.settleCivilWars)。
+          const [ps] = await tx.select({ tick: parliamentStateTable.tick }).from(parliamentStateTable).where(eq(parliamentStateTable.nationId, nation.id));
+          const started = await startCivilWar(tx, fresh!, "red", ps?.tick ?? 0, "共產革命", "rebel");
+          if (!started.started) {
+            // 無法開戰(沒有土地,或已在內戰中):不扣代價,退還預扣點數,讓玩家之後重選
             await tx
               .update(focusStatesTable)
-              .set({ points: sql`${focusStatesTable.points} + ${o.spentPoints}` })
+              .set({ points: sql`${focusStatesTable.points} + ${a.spentPoints}` })
               .where(eq(focusStatesTable.nationId, nation.id));
+            await tx.delete(focusCompletedTable).where(and(eq(focusCompletedTable.nationId, nation.id), eq(focusCompletedTable.focusId, a.focusId)));
+            result.completed.pop();
+            logger.warn({ nationId: nation.id, focusId: a.focusId, reason: started.reason }, "revolution focus skipped: civil war could not start");
+            continue;
+          }
+          revolutionStarted = true;
+          // 政體沒變,其他轉型國策仍有效,不作廢
+        } else {
+          const tr = await applyRegimeTransition(tx, fresh!, targetLabel, def.title);
+          afterCommit.push(tr);
+          // 政體變了:其他進行中的轉型國策(起點已不成立)一併作廢並退點
+          const others = await tx.select().from(focusActiveTable).where(eq(focusActiveTable.nationId, nation.id));
+          for (const o of others) {
+            const od = getFocusDef(o.focusId);
+            if (od && od.domain === "regime" && od.id !== def.id) {
+              await tx.delete(focusActiveTable).where(eq(focusActiveTable.id, o.id));
+              await tx
+                .update(focusStatesTable)
+                .set({ points: sql`${focusStatesTable.points} + ${o.spentPoints}` })
+                .where(eq(focusStatesTable.nationId, nation.id));
+            }
           }
         }
       }
@@ -227,6 +253,14 @@ export async function settleNationFocus(
     }
   });
   for (const tr of afterCommit) await afterRegimeTransition(nation, tr);
+  if (revolutionStarted) {
+    // 與國家被消滅/退出同一個收尾(不判勝負、通知對手);有外部副作用,故在交易提交後做
+    try {
+      await endCampaignsForNation(nation.id);
+    } catch (err) {
+      logger.error({ err, nationId: nation.id }, "revolution: failed to end campaigns after land split");
+    }
+  }
   return result;
 }
 

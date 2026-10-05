@@ -40,6 +40,10 @@ async function runWarMigrationsInner(): Promise<void> {
     ALTER TABLE diplomacy_wars
       ADD COLUMN IF NOT EXISTS rebel_ideology text
   `);
+  await db.execute(sql`
+    ALTER TABLE diplomacy_wars
+      ADD COLUMN IF NOT EXISTS loser_nation_id uuid
+  `);
   // pair 唯一改為 partial（僅進行中的戰爭唯一，歷史戰爭保留多筆）。
   // 先建新 partial index 再拆舊全域 index，順序保證不留下無唯一保護的空窗。
   await db.execute(sql`

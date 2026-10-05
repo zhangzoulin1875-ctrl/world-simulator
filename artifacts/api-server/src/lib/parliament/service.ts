@@ -10,6 +10,7 @@ import { recordTerritoryChanges } from "../territoryHistory";
 import { governmentLabel, DEFAULT_GOVERNMENT_SLUG } from "../governments";
 import { computeNationMilitaryAggregates } from "../militarySnapshots";
 import { startCivilWar } from "../civilWarEngine";
+import { endCampaignsForNation } from "../warEngine/endCampaign";
 import {
   allocateSeats, rubberStampParliament, parliamentTier, planRevolutionSplit, rulingParty,
   PARLIAMENT_SATISFACTION_START, type ComplianceSnapshot, type SeatedParty,
@@ -132,14 +133,24 @@ export async function applyRevolution(
   // 議會革命 = 議會式內戰;軍方叛變 = 黑線內戰。都是「打到一方被消滅」的奪權內戰。
   const ideology = cause === "military" ? "black" : "parliament";
   const label = cause === "military" ? "軍閥叛變" : "議會革命";
+  let landSplit = false;
   await db.transaction(async (tx) => {
     const r = await startCivilWar(tx, nation, ideology, tick, label);
+    if (r.started) landSplit = true;
     if (r.started || r.reason === "already_civil_war") return;
     // 沒有土地可切:後備處置 = 直接更替政體(維持原本行為)
     await tx.update(playerNationsTable)
       .set({ government: governmentLabel(DEFAULT_GOVERNMENT_SLUG) }).where(eq(playerNationsTable.id, nation.id));
     await tx.insert(parliamentLogTable).values({ nationId: nation.id, tick, kind: "revolution", summary: cause === "military" ? "軍方叛變奪權,政體被迫更替。" : "革命推翻舊政權,政體被迫更替。", satDelta: 0 });
   });
+  if (landSplit) {
+    // 國土被切走,進行中的戰役可能指向已不屬於該國的地區:提交後統一終止(有外部副作用,不能放交易內)
+    try {
+      await endCampaignsForNation(nation.id);
+    } catch (err) {
+      logger.error({ err, nationId: nation.id }, "revolution: failed to end campaigns after land split");
+    }
+  }
 }
 
 /** 全體結算入口：給回合引擎呼叫。單國失敗不影響其他國。 */
