@@ -98,3 +98,13 @@ test("目錄：模板文字不超過 AI 改寫的長度上限，且不含具體�
     assert.ok(!/[0-9０-９]{2,}/.test(all), `${d.kind} 文字含具體數字`);
   }
 });
+
+test("內戰風險不能太容易爆：門檻 ≤ 20、機率 ≤ 20%；穩定 35 時選任何鎮壓，平均爆內戰機率 < 5%", async () => {
+  const { CIVIL_WAR_STABILITY_BELOW, CIVIL_WAR_CHANCE } = await import("./core");
+  assert.ok(CIVIL_WAR_STABILITY_BELOW <= 20 && CIVIL_WAR_CHANCE <= 0.2);
+  const risky = DOMESTIC_EVENTS.flatMap((d) => d.choices.filter((c) => c.effects.civilWarRisk));
+  const avg = (stab: number) => risky.filter((c) => stab + (c.effects.stability ?? 0) < CIVIL_WAR_STABILITY_BELOW).length / risky.length * CIVIL_WAR_CHANCE;
+  assert.ok(avg(35) < 0.05, `穩定 35 平均 ${avg(35)}`);
+  assert.ok(avg(50) === 0, "穩定 50 以上不會爆");
+  assert.ok(avg(25) > 0, "穩定度很低時仍有風險，鎮壓不是免費午餐");
+});

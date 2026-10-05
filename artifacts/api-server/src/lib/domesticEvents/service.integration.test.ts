@@ -160,7 +160,7 @@ test("鎮壓後穩定度低於門檻且擲中:爆發內戰(civilWar=true);擲不
   const ev = await open("recall_wave");
   const hit = await resolveEvent(await load(), ev.id, "crackdown", { rand: () => 0.0 });
   assert.equal(hit.ok, true);
-  if (hit.ok) assert.equal(hit.civilWar, true, "穩定 30-20=10 < 25 且擲中");
+  if (hit.ok) assert.equal(hit.civilWar, true, "穩定 30-20=10 低於內戰門檻且擲中");
 
   await db.delete(domesticEventsTable).where(eq(domesticEventsTable.nationId, nationId));
   await db.update(playerNationsTable).set({ stability: 30, government: governmentLabel("parliamentary")! }).where(eq(playerNationsTable.id, nationId));

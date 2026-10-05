@@ -18,8 +18,8 @@ export const EVENT_DEADLINE_TURNS = 3;
 export const EVENT_REPEAT_COOLDOWN_TURNS = 32;
 
 /** 鎮壓後低穩定度引發內戰的門檻與機率 */
-export const CIVIL_WAR_STABILITY_BELOW = 25;
-export const CIVIL_WAR_CHANCE = 0.35;
+export const CIVIL_WAR_STABILITY_BELOW = 20;
+export const CIVIL_WAR_CHANCE = 0.2;
 
 /**
  * 事件種類 id(資料庫存的就是這個字串)。100 個事件不再用寫死的聯集型別,
