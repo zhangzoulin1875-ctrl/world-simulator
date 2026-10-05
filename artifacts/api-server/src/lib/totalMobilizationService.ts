@@ -15,7 +15,7 @@ import {
   totalMobilizationStatesTable,
   type TotalMobilizationState,
 } from "@workspace/db";
-import { isNull, or } from "drizzle-orm";
+import { isNull, ne, or } from "drizzle-orm";
 import {
   canStartMobilization,
   levyAmount,
@@ -288,6 +288,53 @@ export async function markMobilizationStopped(nationId: string, ex: Executor = d
     .update(totalMobilizationStatesTable)
     .set({ active: false, updatedAt: new Date() })
     .where(eq(totalMobilizationStatesTable.nationId, nationId));
+}
+
+/**
+ * 回合結算用:把「開啟中」的民兵模板校正成當前時代數值與 0 成本。
+ *  - 民兵卡片寫「隨時代成長」,但模板原本只在開啟那一刻寫入,開著不會成長,也吃不到平衡調整。
+ *  - 自癒:任何外部批次(遷移、管理員下限批次)若把民兵的維護費/生產力成本改成非 0,
+ *    下一回合就會被改回 0,避免再出現「說不收維護費卻被收」。
+ * 條件式 UPDATE(只在數值不同時寫入),沒有變化就不產生寫入。
+ */
+export async function syncActiveMilitiaTemplate(nationId: string, eraSlug: string, ex: Executor = db): Promise<void> {
+  const state = await getMobilizationState(nationId, ex);
+  if (!state?.active || state.templateId == null) return;
+  const m = militiaStatsForEra(eraSlug);
+  await ex
+    .update(militaryUnitTemplatesTable)
+    .set({
+      eraSlug,
+      hp: m.hp,
+      attack: m.attack,
+      defense: m.defense,
+      speed: m.speed,
+      accuracy: m.accuracy,
+      range: m.range,
+      description: `${m.label}:全民皆兵徵召的平民,量大質低,不占生產力、不收維護費`,
+      prodCostPer100: 0,
+      moneyCostPerUnit: 0,
+      upkeepPerUnit: 0,
+      prodUpkeepPerUnit: 0,
+      woodCostPerUnit: 0,
+      oreCostPerUnit: 0,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(militaryUnitTemplatesTable.id, state.templateId),
+        or(
+          ne(militaryUnitTemplatesTable.hp, m.hp),
+          ne(militaryUnitTemplatesTable.attack, m.attack),
+          ne(militaryUnitTemplatesTable.defense, m.defense),
+          ne(militaryUnitTemplatesTable.accuracy, m.accuracy),
+          ne(militaryUnitTemplatesTable.eraSlug, eraSlug),
+          ne(militaryUnitTemplatesTable.upkeepPerUnit, 0),
+          ne(militaryUnitTemplatesTable.prodUpkeepPerUnit, 0),
+          ne(militaryUnitTemplatesTable.prodCostPer100, 0),
+        ),
+      ),
+    );
 }
 
 /**

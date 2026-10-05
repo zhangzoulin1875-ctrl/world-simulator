@@ -105,7 +105,8 @@ async function runMilitaryMigrationsInner(): Promise<void> {
       ADD COLUMN IF NOT EXISTS ore_cost_per_unit integer NOT NULL DEFAULT 0
   `);
   // Task #406 — 一次性回填：既有模板的維護費對半拆成「金錢＋生產力」兩軌，
-  // 各套 0.1 下限。自我限制：prod_upkeep_per_unit = 0 只在未回填時成立
+  // 各套 0.1 下限。例外:「全民皆兵民兵」模板刻意全部為 0(不占生產力、不收維護費),
+  // 不得被回填。自我限制：prod_upkeep_per_unit = 0 只在未回填時成立
   // （回填後至少 0.1），重開機不會再次對半。必須在種子 upsert 之前執行，
   // 讓種子的新值（已是拆分後數值）覆蓋預設模板。
   await db.execute(sql`
@@ -113,6 +114,7 @@ async function runMilitaryMigrationsInner(): Promise<void> {
       prod_upkeep_per_unit = GREATEST(0.1, upkeep_per_unit * 0.5),
       upkeep_per_unit = GREATEST(0.1, upkeep_per_unit * 0.5)
     WHERE prod_upkeep_per_unit = 0
+      AND name <> '全民皆兵民兵'
   `);
 
   await db.execute(sql`
@@ -326,6 +328,7 @@ async function runMilitaryMigrationsInner(): Promise<void> {
     WHERE prod_cost_per_100 < GREATEST(1, CEIL(
           (GREATEST(hp, 0) + GREATEST(attack, 0) + GREATEST(defense, 0)) / 210.0
         ))
+      AND name <> '全民皆兵民兵'
   `);
   if ((repriced.rowCount ?? 0) > 0) {
     logger.info(

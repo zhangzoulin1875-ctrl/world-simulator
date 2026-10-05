@@ -484,14 +484,21 @@ export function applyTechBonuses(
       0,
       Math.round(template.moneyCostPerUnit * factor("moneyCost") * eraScale),
     ),
-    upkeepPerUnit: Math.max(
-      MIN_UPKEEP_PER_UNIT,
-      Math.round(template.upkeepPerUnit * factor("upkeep") * upkeepScale * 100) / 100,
-    ),
-    prodUpkeepPerUnit: Math.max(
-      MIN_UPKEEP_PER_UNIT,
-      Math.round(template.prodUpkeepPerUnit * factor("upkeep") * 100) / 100,
-    ),
+    // 原值為 0 的模板(全民皆兵民兵)是刻意免維護,不套 0.1 下限;其餘兵種照舊。
+    upkeepPerUnit:
+      template.upkeepPerUnit <= 0
+        ? 0
+        : Math.max(
+            MIN_UPKEEP_PER_UNIT,
+            Math.round(template.upkeepPerUnit * factor("upkeep") * upkeepScale * 100) / 100,
+          ),
+    prodUpkeepPerUnit:
+      template.prodUpkeepPerUnit <= 0
+        ? 0
+        : Math.max(
+            MIN_UPKEEP_PER_UNIT,
+            Math.round(template.prodUpkeepPerUnit * factor("upkeep") * 100) / 100,
+          ),
     // Task #406 — 原料成本固定，不吃科技加成。
     woodCostPerUnit: template.woodCostPerUnit,
     oreCostPerUnit: template.oreCostPerUnit,

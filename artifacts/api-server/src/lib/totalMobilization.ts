@@ -34,22 +34,24 @@ export interface MilitiaStats {
 /**
  * 各時代民兵的預設數值。刻意低於正規兵(量大質低),隨時代成長;
  * 數值代表「拿當時代最普通的武器徵召的平民」,不是精銳。
+ * 2026-10-05 玩家回報民兵太弱:整體約 +35%(血量/攻擊/防禦)、命中 +8 點(上限 85)。
+ * 民兵免維護、免生產力,強度只調到「能用」,不追上正規兵。
  */
 export const MILITIA_BY_ERA: Readonly<Record<string, MilitiaStats>> = {
-  classical: { hp: 8, attack: 3, defense: 2, speed: 4, accuracy: 35, range: "melee", label: "持矛平民" },
-  roman: { hp: 9, attack: 3, defense: 3, speed: 4, accuracy: 36, range: "melee", label: "輔助民兵" },
-  early_medieval: { hp: 9, attack: 4, defense: 3, speed: 4, accuracy: 37, range: "melee", label: "鄉勇" },
-  high_medieval: { hp: 10, attack: 4, defense: 4, speed: 4, accuracy: 38, range: "melee", label: "農民徵召兵" },
-  renaissance: { hp: 10, attack: 5, defense: 4, speed: 4, accuracy: 40, range: "ranged", label: "火繩槍民兵" },
-  discovery: { hp: 11, attack: 6, defense: 4, speed: 4, accuracy: 42, range: "ranged", label: "殖民地民兵" },
-  scientific: { hp: 11, attack: 7, defense: 5, speed: 4, accuracy: 44, range: "ranged", label: "燧發槍民兵" },
-  enlightenment: { hp: 12, attack: 8, defense: 5, speed: 4, accuracy: 46, range: "ranged", label: "國民衛隊" },
-  industrial: { hp: 13, attack: 10, defense: 6, speed: 4, accuracy: 50, range: "ranged", label: "後膛槍民兵" },
-  ww1: { hp: 14, attack: 13, defense: 7, speed: 4, accuracy: 54, range: "ranged", label: "後備役步兵" },
-  ww2: { hp: 15, attack: 16, defense: 8, speed: 4, accuracy: 58, range: "ranged", label: "人民自衛隊" },
-  cold_war: { hp: 16, attack: 20, defense: 9, speed: 4, accuracy: 62, range: "ranged", label: "預備役民兵" },
-  modern: { hp: 17, attack: 25, defense: 10, speed: 4, accuracy: 66, range: "ranged", label: "全民國防志願兵" },
-  future: { hp: 18, attack: 30, defense: 12, speed: 4, accuracy: 70, range: "ranged", label: "外骨骼後備役" },
+  classical: { hp: 11, attack: 4, defense: 3, speed: 4, accuracy: 43, range: "melee", label: "持矛平民" },
+  roman: { hp: 12, attack: 4, defense: 4, speed: 4, accuracy: 44, range: "melee", label: "輔助民兵" },
+  early_medieval: { hp: 12, attack: 5, defense: 4, speed: 4, accuracy: 45, range: "melee", label: "鄉勇" },
+  high_medieval: { hp: 14, attack: 5, defense: 5, speed: 4, accuracy: 46, range: "melee", label: "農民徵召兵" },
+  renaissance: { hp: 14, attack: 7, defense: 5, speed: 4, accuracy: 48, range: "ranged", label: "火繩槍民兵" },
+  discovery: { hp: 15, attack: 8, defense: 5, speed: 4, accuracy: 50, range: "ranged", label: "殖民地民兵" },
+  scientific: { hp: 15, attack: 9, defense: 7, speed: 4, accuracy: 52, range: "ranged", label: "燧發槍民兵" },
+  enlightenment: { hp: 16, attack: 11, defense: 7, speed: 4, accuracy: 54, range: "ranged", label: "國民衛隊" },
+  industrial: { hp: 18, attack: 14, defense: 8, speed: 4, accuracy: 58, range: "ranged", label: "後膛槍民兵" },
+  ww1: { hp: 19, attack: 18, defense: 9, speed: 4, accuracy: 62, range: "ranged", label: "後備役步兵" },
+  ww2: { hp: 20, attack: 22, defense: 11, speed: 4, accuracy: 66, range: "ranged", label: "人民自衛隊" },
+  cold_war: { hp: 22, attack: 27, defense: 12, speed: 4, accuracy: 70, range: "ranged", label: "預備役民兵" },
+  modern: { hp: 23, attack: 34, defense: 14, speed: 4, accuracy: 74, range: "ranged", label: "全民國防志願兵" },
+  future: { hp: 24, attack: 40, defense: 16, speed: 4, accuracy: 78, range: "ranged", label: "外骨骼後備役" },
 };
 
 /** 取某時代的民兵數值;未知時代退回古典。 */

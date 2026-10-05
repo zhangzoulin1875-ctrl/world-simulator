@@ -35,7 +35,7 @@ import {
 } from "./politics";
 import { computeTurnFinance, effectiveTaxEfficiencyPct } from "./economy";
 import { settleMercenaryRent } from "./mercenaryService";
-import { tickMobilizationStability } from "./totalMobilizationService";
+import { syncActiveMilitiaTemplate, tickMobilizationStability } from "./totalMobilizationService";
 import { upkeepShortfallMilitaryPenalty } from "./militaryPolitics";
 import {
   runPoliticsSettlement,
@@ -869,6 +869,12 @@ async function doRunTurn(
       const wearinessPolicyDelta = stats.warWearinessPolicyDelta;
       // 全民皆兵:開啟期間每回合固定扣一點穩定度(僅玩家;NPC 不使用)。
       // 與國庫危機的穩定度懲罰加總後,在同一條 UPDATE 內一次寫入(同欄位不能 set 兩次)。
+      if (!nation.isNpc && nation.discordUserId) {
+        // 同步開啟中的民兵模板(隨時代成長、成本維持 0);失敗不影響回合結算。
+        await syncActiveMilitiaTemplate(nation.id, statsEra).catch((err) =>
+          logger.warn({ err, nationId: nation.id }, "sync militia template failed"),
+        );
+      }
       const mobilizationStabilityDelta =
         !nation.isNpc && nation.discordUserId
           ? await tickMobilizationStability(nation.id)

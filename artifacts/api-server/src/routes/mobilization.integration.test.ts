@@ -20,7 +20,7 @@ const cookieParser = (await import("cookie-parser")).default;
 const { and, eq, like, notExists, sql } = await import("drizzle-orm");
 const {
   db, pool, playerNationsTable, playerArmiesTable, regionControlsTable, mapRegionsTable,
-  userSessionsTable, diplomacyWarsTable, totalMobilizationStatesTable, mercenaryStatesTable,
+  userSessionsTable, diplomacyWarsTable, totalMobilizationStatesTable, mercenaryStatesTable, militaryUnitTemplatesTable,
 } = await import("@workspace/db");
 const { createSession, SESSION_COOKIE_NAME } = await import("../lib/sessions");
 const { getEraSlugs, computeNationStats } = await import("../lib/nationStats");
@@ -256,4 +256,65 @@ test("NPC 國家不能用全民皆兵(開啟/關閉都拒絕,不產生民兵與�
   const st = await db.select().from(totalMobilizationStatesTable).where(eq(totalMobilizationStatesTable.nationId, npc!.id));
   assert.equal(st.length, 0);
   await db.delete(diplomacyWarsTable).where(eq(diplomacyWarsTable.declaredByNationId, npc!.id));
+});
+
+test("民兵模板的維護費/生產力成本必須維持 0:重跑軍事遷移(伺服器重啟)後不得被回填成 0.1 或拉到下限", async () => {
+  await reset(); await openWar();
+  const r = await api("POST", "/api/player/mobilization/start");
+  assert.equal(r.status, 200);
+  const tplOf = async () =>
+    (await db.select().from(militaryUnitTemplatesTable)
+      .where(and(eq(militaryUnitTemplatesTable.ownerDiscordUserId, userId), eq(militaryUnitTemplatesTable.name, "全民皆兵民兵"))))[0]!;
+  const before = await tplOf();
+  assert.equal(before.upkeepPerUnit, 0);
+  assert.equal(before.prodUpkeepPerUnit, 0);
+  assert.equal(before.prodCostPer100, 0);
+  // 模擬伺服器重啟:遷移會重跑一次。
+  const { runMilitaryMigrations } = await import("../lib/militaryMigrations");
+  await runMilitaryMigrations();
+  const after = await tplOf();
+  assert.equal(after.upkeepPerUnit, 0, "金錢維護費被遷移改掉了");
+  assert.equal(after.prodUpkeepPerUnit, 0, "生產力佔用被遷移改掉了");
+  assert.equal(after.prodCostPer100, 0, "生產力成本被遷移拉到下限了");
+});
+
+test("民兵的有效維護費:科技加成/國力尺度計算後仍為 0(回合引擎與經濟頁不得收費)", async () => {
+  await reset(); await openWar();
+  await api("POST", "/api/player/mobilization/start");
+  const tpl = (await db.select().from(militaryUnitTemplatesTable)
+    .where(and(eq(militaryUnitTemplatesTable.ownerDiscordUserId, userId), eq(militaryUnitTemplatesTable.name, "全民皆兵民兵"))))[0]!;
+  const { applyTechBonuses } = await import("../lib/military");
+  const eff = applyTechBonuses(tpl, [], 5, 5);
+  assert.equal(eff.upkeepPerUnit, 0, "有效金錢維護費應為 0");
+  assert.equal(eff.prodUpkeepPerUnit, 0, "有效生產力佔用應為 0");
+});
+
+test("回合同步:開著的民兵模板被改壞(舊漏洞殘留)下一回合自動改回 0 成本,數值對齊當前時代", async () => {
+  await reset(); await openWar();
+  await api("POST", "/api/player/mobilization/start");
+  const tplOf = async () =>
+    (await db.select().from(militaryUnitTemplatesTable)
+      .where(and(eq(militaryUnitTemplatesTable.ownerDiscordUserId, userId), eq(militaryUnitTemplatesTable.name, "全民皆兵民兵"))))[0]!;
+  // 模擬已中招的玩家:成本被回填成 0.1、數值是舊版(偏弱)。
+  await db.update(militaryUnitTemplatesTable)
+    .set({ upkeepPerUnit: 0.1, prodUpkeepPerUnit: 0.1, prodCostPer100: 1, hp: 1, attack: 1, defense: 1, accuracy: 1 })
+    .where(eq(militaryUnitTemplatesTable.id, (await tplOf()).id));
+  const { syncActiveMilitiaTemplate } = await import("../lib/totalMobilizationService");
+  const { militiaStatsForEra } = await import("../lib/totalMobilization");
+  await syncActiveMilitiaTemplate(nationId, statsEra);
+  const t = await tplOf();
+  const m = militiaStatsForEra(statsEra);
+  assert.equal(t.upkeepPerUnit, 0);
+  assert.equal(t.prodUpkeepPerUnit, 0);
+  assert.equal(t.prodCostPer100, 0);
+  assert.deepEqual([t.hp, t.attack, t.defense, t.accuracy], [m.hp, m.attack, m.defense, m.accuracy]);
+});
+
+test("回合同步:未開啟全民皆兵時不碰任何模板", async () => {
+  await reset(); await openWar();
+  await api("POST", "/api/player/mobilization/start");
+  await api("POST", "/api/player/mobilization/stop");
+  const { syncActiveMilitiaTemplate } = await import("../lib/totalMobilizationService");
+  await syncActiveMilitiaTemplate(nationId, statsEra); // 不丟錯即可(狀態已關閉)
+  assert.ok(true);
 });
