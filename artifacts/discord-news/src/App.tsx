@@ -220,7 +220,10 @@ function App() {
         buster: CACHE_BUSTER,
         dehydrateOptions: {
           // 只持久化成功的查詢；錯誤 / 進行中的查詢不寫入本機。
-          shouldDehydrateQuery: (query) => query.state.status === "success",
+          // 國內事件是「待處理的強制彈窗」:若從 localStorage 還原舊快取,
+          // 重新整理時會先閃出已經處理過的事件(再點就是 409)。一律不持久化,永遠讀伺服器最新狀態。
+          shouldDehydrateQuery: (query) =>
+            query.state.status === "success" && query.queryKey[0] !== "domestic-events",
         },
       }}
     >

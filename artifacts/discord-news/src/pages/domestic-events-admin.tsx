@@ -88,6 +88,7 @@ export default function DomesticEventsAdmin() {
   const [target, setTarget] = useState<string>("all"); // "all" 或某個國家 id
   const [rewrite, setRewrite] = useState(true);
   const [sending, setSending] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
 
@@ -111,11 +112,12 @@ export default function DomesticEventsAdmin() {
   useEffect(() => { void load(); }, [load]);
 
   const selected = data?.catalog.find((c) => c.kind === kind);
+  const targetLabel = target === "all" ? `所有玩家(${players.length} 個國家)` : (players.find((p) => p.id === target)?.name ?? "這個國家");
 
   const send = async () => {
     if (!selected || sending) return;
-    const label = target === "all" ? `所有玩家(${players.length} 個國家)` : (players.find((p) => p.id === target)?.name ?? "這個國家");
-    if (!window.confirm(`確定把「${selected.title}」投放給${label}?`)) return;
+    setConfirming(false);
+    setResult(null);
     setSending(true);
     try {
       const res = await authedFetch("/api/admin/domestic-events/send", {
@@ -181,7 +183,7 @@ export default function DomesticEventsAdmin() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>事件</Label>
-              <Select value={kind} onValueChange={setKind}>
+              <Select value={kind} onValueChange={(v) => { setKind(v); setConfirming(false); }}>
                 <SelectTrigger data-testid="select-event-kind"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {data.catalog.map((c) => <SelectItem key={c.kind} value={c.kind}>{c.title}</SelectItem>)}
@@ -190,7 +192,7 @@ export default function DomesticEventsAdmin() {
             </div>
             <div className="space-y-1.5">
               <Label>投放對象</Label>
-              <Select value={target} onValueChange={setTarget}>
+              <Select value={target} onValueChange={(v) => { setTarget(v); setConfirming(false); }}>
                 <SelectTrigger data-testid="select-event-target"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">所有玩家({players.length})</SelectItem>
@@ -223,13 +225,25 @@ export default function DomesticEventsAdmin() {
             <Label htmlFor="rewrite" className="text-sm font-normal">AI 改寫文字(會用到 AI 額度;關閉則直接用模板)</Label>
           </div>
 
-          <Button onClick={send} disabled={sending || !selected || (target !== "all" && players.length === 0)} data-testid="button-send-event">
-            {sending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />}投放
-          </Button>
+          {confirming && selected ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm" data-testid="confirm-send">
+              <span>確定把「{selected.title}」投放給{targetLabel}?</span>
+              <Button size="sm" onClick={send} disabled={sending} data-testid="button-confirm-send">確定投放</Button>
+              <Button size="sm" variant="outline" onClick={() => setConfirming(false)} data-testid="button-cancel-send">取消</Button>
+            </div>
+          ) : (
+            <Button onClick={() => setConfirming(true)} disabled={sending || !selected || (target !== "all" && players.length === 0)} data-testid="button-send-event">
+              {sending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />}投放
+            </Button>
+          )}
 
           {result && (
             <div className="space-y-1 rounded-lg border p-3 text-sm" data-testid="send-result">
-              <p className="font-medium">送達 {result.sent.length} 國{result.skipped.length > 0 ? `,略過 ${result.skipped.length} 國` : ""}</p>
+              <p className={`font-medium ${result.sent.length === 0 ? "text-amber-600 dark:text-amber-400" : ""}`}>
+                {result.sent.length === 0 && result.skipped.length === 0
+                  ? "沒有送達任何國家:目前沒有可投放的玩家國(NPC 不接受事件)。"
+                  : `送達 ${result.sent.length} 國${result.skipped.length > 0 ? `,略過 ${result.skipped.length} 國` : ""}`}
+              </p>
               {result.sent.length > 0 && <p className="text-xs text-muted-foreground">送達:{result.sent.map((s) => s.nationName || "(未命名)").join("、")}</p>}
               {result.skipped.map((s) => (
                 <p key={s.nationId} className="text-xs text-muted-foreground">略過 {s.nationName || s.nationId.slice(0, 8)}:{SKIP_REASON[s.reason]}</p>

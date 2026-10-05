@@ -1,10 +1,29 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Newspaper, Loader2, Hourglass } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { CHOICE_STYLE, useDomesticEvents, useResolveDomesticEvent } from "@/lib/domesticEvents";
+
+/**
+ * 新手教學(歡迎彈窗 / 互動導覽)進行中時,事件彈窗要先等。
+ * 原因:兩個 modal 同時開會讓 Radix 鎖住頁面(body pointer-events: none),
+ * 事件彈窗雖然畫在上面,按鈕卻點不到。教學由別的元件管理、狀態不外露,
+ * 這裡直接觀察 DOM,等教學結束才顯示事件,不改動教學程式碼。
+ */
+const TUTORIAL_SELECTOR = '[data-testid="dialog-welcome"], [data-testid="tour-overlay"]';
+function useTutorialActive(): boolean {
+  const [active, setActive] = useState(() => typeof document !== "undefined" && document.querySelector(TUTORIAL_SELECTOR) !== null);
+  useEffect(() => {
+    const check = () => setActive(document.querySelector(TUTORIAL_SELECTOR) !== null);
+    check();
+    const mo = new MutationObserver(check);
+    mo.observe(document.body, { childList: true, subtree: true });
+    return () => mo.disconnect();
+  }, []);
+  return active;
+}
 
 /**
  * 國內隨機事件:全遊戲共用的強制彈窗。
@@ -22,7 +41,8 @@ export function DomesticEventGate({ children }: { children: React.ReactNode }) {
   const [result, setResult] = useState<{ title: string; outcome: string; civilWar: boolean } | null>(null);
 
   const pending = inGame ? (data?.pending ?? null) : null;
-  const open = inGame && (pending !== null || result !== null);
+  const tutorialActive = useTutorialActive();
+  const open = inGame && !tutorialActive && (pending !== null || result !== null);
 
   const choose = async (choiceId: string) => {
     if (!pending || resolve.isPending) return;
@@ -39,9 +59,10 @@ export function DomesticEventGate({ children }: { children: React.ReactNode }) {
   return (
     <>
       {children}
+      {open && <div className="fixed inset-0 z-[190] bg-black/80" aria-hidden data-testid="event-backdrop" />}
       <Dialog open={open} onOpenChange={() => { /* 強制:不允許用點外面或 Esc 關閉 */ }}>
         <DialogContent
-          className="max-w-lg border-amber-300/30 bg-zinc-950 text-zinc-100 [&>button]:hidden"
+          className="z-[200] max-w-lg border-amber-300/30 bg-zinc-950 text-zinc-100 [&>button.absolute]:hidden"
           onPointerDownOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(e) => e.preventDefault()}
           onInteractOutside={(e) => e.preventDefault()}
