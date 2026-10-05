@@ -32,6 +32,23 @@ export function parliamentTier(governmentSlug: string | null | undefined): Parli
   return GOVERNMENT_TIER[governmentSlug ?? ""] ?? "semi";
 }
 
+/**
+ * 有效議會層級:政體層級 + 實際席次。
+ * 專制政體預設是橡皮圖章;但若議會裡出現「非忠誠黨」過半(例如國內事件讓社會黨取得多數),
+ * 橡皮圖章失效,議會開始問政,升級為 semi(要求上限 -8、可寫國情報告、滿意度歸零會革命)。
+ * 不升到 democracy:專制下議會不該能大砍(上限 25),保留政體差異。
+ * 社會黨被逐出(回到單一忠誠黨)後自動恢復橡皮圖章。
+ */
+export function effectiveParliamentTier(
+  baseTier: ParliamentTier,
+  parties: readonly { stance: ParliamentStance; seats: number }[],
+  total: number = 100,
+): ParliamentTier {
+  if (baseTier !== "autocracy") return baseTier;
+  const activeMajority = parties.some((p) => p.stance !== "loyalist" && p.seats * 2 > total);
+  return activeMajority ? "semi" : "autocracy";
+}
+
 // ── 常數 ──────────────────────────────────────────────────────────────
 export const PARLIAMENT_TOTAL_SEATS = 100;
 export const PARLIAMENT_SATISFACTION_START = 60;

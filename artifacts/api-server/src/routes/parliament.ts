@@ -8,7 +8,7 @@ import { logger } from "../lib/logger";
 import { tierOfNation } from "../lib/parliament/service";
 import {
   STANCE_LABELS, canSubmitReport, parliamentAlert, reportBonus, clampSat,
-  MAX_PENALTY, DEMAND_INTERVAL_TURNS, type ParliamentStance,
+  MAX_PENALTY, DEMAND_INTERVAL_TURNS, effectiveParliamentTier, type ParliamentStance,
 } from "../lib/parliament/core";
 import {
   validateReportText, reportCooldownLeft, REPORT_COST_MONEY, REPORT_COOLDOWN_TICKS,
@@ -37,13 +37,16 @@ async function buildView(nationId: string, govLabel: string | null) {
     .where(eq(parliamentPartiesTable.nationId, nationId)).orderBy(desc(parliamentPartiesTable.seats), parliamentPartiesTable.id);
   const log = await db.select().from(parliamentLogTable)
     .where(eq(parliamentLogTable.nationId, nationId)).orderBy(desc(parliamentLogTable.id)).limit(20);
-  const { tier } = await tierOfNation({ government: govLabel });
+  const { tier: baseTier } = await tierOfNation({ government: govLabel });
+  // 專制下若議會被事件改成非忠誠黨過半,橡皮圖章失效,以半專制規則問政
+  const tier = effectiveParliamentTier(baseTier, parties.map((p) => ({ stance: p.stance as ParliamentStance, seats: p.seats })));
+  const awakened = baseTier === "autocracy" && tier !== "autocracy";
   const sat = state?.satisfaction ?? 60;
   const demand = (state?.activeDemand ?? null) as { stance: string; text: string; issuedTick: number; levels: string[] } | null;
   const tick = state?.tick ?? 0;
   return {
     ready: !!state,
-    tier, tierLabel: TIER_LABEL[tier],
+    tier, tierLabel: awakened ? "專制(議會已不再是橡皮圖章)" : TIER_LABEL[tier],
     satisfaction: sat, alert: parliamentAlert(sat),
     totalSeats: 100,
     parties: parties.map((p) => ({
@@ -79,7 +82,10 @@ router.post("/parliament/report", async (req, res) => {
   const auth = await requirePlayer(req, res); if (!auth) return;
   const { nation } = auth;
   try {
-    const { tier } = await tierOfNation(nation);
+    const { tier: baseTier } = await tierOfNation(nation);
+    const seats = await db.select({ stance: parliamentPartiesTable.stance, seats: parliamentPartiesTable.seats })
+      .from(parliamentPartiesTable).where(eq(parliamentPartiesTable.nationId, nation.id));
+    const tier = effectiveParliamentTier(baseTier, seats.map((p) => ({ stance: p.stance as ParliamentStance, seats: p.seats })));
     if (!canSubmitReport(tier)) { res.status(403).json({ error: "專制政體的議會只是橡皮圖章,不需要國情報告" }); return; }
     const v = validateReportText((req.body ?? {}).text);
     if (!v.ok) { res.status(400).json({ error: v.error }); return; }

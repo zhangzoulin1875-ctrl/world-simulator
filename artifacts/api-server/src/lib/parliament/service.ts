@@ -12,7 +12,7 @@ import { computeNationMilitaryAggregates } from "../militarySnapshots";
 import { startCivilWar } from "../civilWarEngine";
 import { endCampaignsForNation } from "../warEngine/endCampaign";
 import {
-  allocateSeats, rubberStampParliament, parliamentTier, planRevolutionSplit, rulingParty,
+  allocateSeats, rubberStampParliament, parliamentTier, effectiveParliamentTier, planRevolutionSplit, rulingParty,
   PARLIAMENT_SATISFACTION_START, type ComplianceSnapshot, type SeatedParty,
   type ParliamentStance, type ParliamentTier,
 } from "./core";
@@ -86,7 +86,10 @@ export async function settleNationParliament(
   };
 
   let parties = await loadParties(nation.id);
-  const tierChanged = (tier === "autocracy") !== (parties.length === 1 && parties[0]?.stance === "loyalist");
+  // 專制政體但議會被事件改成非忠誠黨過半(社會黨取得多數)時,這不是「層級變了」,
+  // 而是事件造成的議會結構,不能被重建成橡皮圖章。以有效層級判斷,真正換政體才重建。
+  const effTier = effectiveParliamentTier(tier, parties);
+  const tierChanged = (effTier === "autocracy") !== (parties.length === 1 && parties[0]?.stance === "loyalist");
   const stale = state.lastPartiesTick === null || state.tick - state.lastPartiesTick >= PARTY_REFRESH_EVERY_TICKS;
   if (parties.length === 0 || tierChanged || stale) {
     // 國內事件(社會黨取得多數)造成的議會結構要延續:定期重建時不能把它洗掉。
@@ -111,8 +114,10 @@ export async function settleNationParliament(
     commerceUp: false,
   };
 
+  // 專制下若議會被事件(社會黨取得多數)改成非忠誠黨過半,橡皮圖章失效,改以「半專制」規則問政。
+  const planTier = effectiveParliamentTier(tier, parties);
   const plan = planParliamentTurn({
-    tier, tick: state.tick, satisfaction: state.satisfaction, lastDemandTick: state.lastDemandTick,
+    tier: planTier, tick: state.tick, satisfaction: state.satisfaction, lastDemandTick: state.lastDemandTick,
     activeDemand: state.activeDemand as any, parties, snapshot, militarySatisfaction: nation.satisfactionMilitary,
   });
 

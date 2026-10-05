@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  parliamentTier, allocateSeats, rubberStampParliament, rulingParty,
+  parliamentTier, allocateSeats, rubberStampParliament, rulingParty, effectiveParliamentTier,
   judgeCompliance, complianceDelta, demandPeriodDelta, naturalDrift,
   reportBonus, canSubmitReport, parliamentAlert, shouldRevolt,
   planRevolutionSplit, fallbackMessage, isDemandDue, GOVERNMENT_TIER,
@@ -136,4 +136,21 @@ test("要求三回合一次", () => {
   assert.equal(isDemandDue(10, null), true);
   assert.equal(isDemandDue(12, 10), false);
   assert.equal(isDemandDue(13, 10), true);
+});
+
+test("有效層級:專制 + 單一忠誠黨 = 橡皮圖章", () => {
+  assert.equal(effectiveParliamentTier("autocracy", [{ stance: "loyalist", seats: 100 }]), "autocracy");
+});
+test("有效層級:專制 + 社會黨過半 = 升為半專制(議會開始問政)", () => {
+  assert.equal(effectiveParliamentTier("autocracy", [{ stance: "welfare", seats: 55 }, { stance: "loyalist", seats: 45 }]), "semi");
+});
+test("有效層級:專制 + 非忠誠黨未過半(50 席整)= 仍是橡皮圖章", () => {
+  assert.equal(effectiveParliamentTier("autocracy", [{ stance: "welfare", seats: 50 }, { stance: "loyalist", seats: 50 }]), "autocracy");
+});
+test("有效層級:忠誠黨過半不算,社會黨被逐出後恢復", () => {
+  assert.equal(effectiveParliamentTier("autocracy", [{ stance: "loyalist", seats: 60 }, { stance: "welfare", seats: 40 }]), "autocracy");
+});
+test("有效層級:半專制/民主不受影響", () => {
+  assert.equal(effectiveParliamentTier("semi", [{ stance: "loyalist", seats: 100 }]), "semi");
+  assert.equal(effectiveParliamentTier("democracy", [{ stance: "welfare", seats: 10 }]), "democracy");
 });

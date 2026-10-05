@@ -10,7 +10,7 @@ import {
 import { logger } from "../logger";
 import { applyRevolution, tierOfNation } from "../parliament/service";
 import { partyColor } from "../parliament/parties";
-import { rulingParty, clampSat, PARLIAMENT_SATISFACTION_START, type ParliamentStance, type SeatedParty } from "../parliament/core";
+import { rulingParty, clampSat, PARLIAMENT_SATISFACTION_START, effectiveParliamentTier, type ParliamentStance, type SeatedParty } from "../parliament/core";
 import {
   EVENT_DEADLINE_TURNS,
   getEventDef,
@@ -163,8 +163,12 @@ export async function resolveEvent(
       })
       .where(eq(playerNationsTable.id, nation.id));
 
-    // 2) 議會滿意度(獨裁層級的議會滿意度固定,不受事件影響)
-    if (next.parliamentDelta !== 0 && tier !== "autocracy") {
+    // 2) 議會滿意度(橡皮圖章議會的滿意度固定,不受事件影響;
+    //    但專制下議會已被社會黨過半時橡皮圖章失效,視同半專制,事件照常影響議會滿意度)
+    const seatRows = await tx.select({ stance: parliamentPartiesTable.stance, seats: parliamentPartiesTable.seats })
+      .from(parliamentPartiesTable).where(eq(parliamentPartiesTable.nationId, nation.id));
+    const liveTier = effectiveParliamentTier(tier, seatRows.map((r) => ({ stance: r.stance as ParliamentStance, seats: r.seats })));
+    if (next.parliamentDelta !== 0 && liveTier !== "autocracy") {
       await tx
         .update(parliamentStateTable)
         .set({ satisfaction: sql`LEAST(100, GREATEST(0, ${parliamentStateTable.satisfaction} + ${next.parliamentDelta}))` })
