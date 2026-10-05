@@ -280,11 +280,14 @@ export interface SplitPlan {
  *    直到總控制度約達 40%。
  *  - 完全沒有地區 → 改走政體更替（regime_change）。
  */
-export function planRevolutionSplit(regions: readonly RegionShare[]): SplitPlan {
+export function planRevolutionSplit(
+  regions: readonly RegionShare[],
+  ratio: number = REVOLUTION_SPLIT_RATIO,
+): SplitPlan {
   const owned = regions.filter((r) => r.percent > 0);
   if (owned.length === 0) return { mode: "regime_change", transfers: [] };
   const total = owned.reduce((s, r) => s + r.percent, 0);
-  let need = Math.round(total * REVOLUTION_SPLIT_RATIO * 100) / 100;
+  let need = Math.round(total * ratio * 100) / 100;
   const ranked = [...owned].sort(
     (a, b) => (b.oppositionStrength ?? 0) - (a.oppositionStrength ?? 0) || a.regionId - b.regionId,
   );

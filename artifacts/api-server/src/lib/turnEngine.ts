@@ -60,6 +60,7 @@ import {
 import { runNpcMilitaryTurn } from "./npcMilitary";
 import { runRecruitQueueTurn } from "./recruitQueue";
 import { runNpcExtinctionCheck } from "./npcExtinction";
+import { settleCivilWars } from "./civilWarEngine";
 import { endCampaignsForLocallyEliminatedNpcs } from "./warEngine/npcLocalCollapse";
 import { recoveryTick } from "./warEngine/recovery";
 import { recordNationMilitarySnapshots } from "./militarySnapshots";
@@ -1162,6 +1163,18 @@ async function doRunTurn(
   // 結束其進行中戰役，再硬刪該國家（各關聯表 ON DELETE CASCADE ＝與各國停戰）。
   // 置於軍事結算之後，讓下游政治／超事件／內閣／新聞跳過已滅亡的 NPC。
   // 獨立 try/catch，失敗只記 log，不阻斷回合。
+  // 奪權內戰勝負判定(一方土地歸零即結束並結算:革命成功改制 / 平定內亂)。
+  // 必須在 NPC 除名「之前」:除名會連戰爭列一起 CASCADE 刪除,之後就沒人能領取勝利結算。
+  // 每回合重跑、可自癒;獨立 try/catch,不阻斷回合。
+  try {
+    const cw = await settleCivilWars();
+    if (cw.incumbentWon + cw.rebelWon + cw.failed > 0) {
+      logger.info(cw, "turn engine: civil wars settled");
+    }
+  } catch (err) {
+    logger.error({ err }, "turn engine: civil war settlement failed");
+  }
+
   try {
     const extinction = await runNpcExtinctionCheck();
     summary.npcExtinction = { deletedCount: extinction.deletedCount };

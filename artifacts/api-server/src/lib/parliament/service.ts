@@ -9,6 +9,7 @@ import { canonicalPair } from "../diplomacy";
 import { recordTerritoryChanges } from "../territoryHistory";
 import { governmentLabel, DEFAULT_GOVERNMENT_SLUG } from "../governments";
 import { computeNationMilitaryAggregates } from "../militarySnapshots";
+import { startCivilWar } from "../civilWarEngine";
 import {
   allocateSeats, rubberStampParliament, parliamentTier, planRevolutionSplit, rulingParty,
   PARLIAMENT_SATISFACTION_START, type ComplianceSnapshot, type SeatedParty,
@@ -128,44 +129,16 @@ export async function settleNationParliament(
 export async function applyRevolution(
   nation: Nation, tick: number, cause: "parliament" | "military" = "parliament",
 ): Promise<void> {
+  // 議會革命 = 議會式內戰;軍方叛變 = 黑線內戰。都是「打到一方被消滅」的奪權內戰。
+  const ideology = cause === "military" ? "black" : "parliament";
+  const label = cause === "military" ? "軍閥叛變" : "議會革命";
   await db.transaction(async (tx) => {
-    const controls = await tx.select({ regionId: regionControlsTable.regionId, percent: regionControlsTable.percent, name: mapRegionsTable.name })
-      .from(regionControlsTable)
-      .innerJoin(mapRegionsTable, eq(mapRegionsTable.id, regionControlsTable.regionId))
-      .where(eq(regionControlsTable.nationId, nation.id));
-    const plan = planRevolutionSplit(controls.map((c) => ({ regionId: c.regionId, percent: c.percent })));
-    if (plan.mode === "regime_change" || plan.transfers.length === 0) {
-      await tx.update(playerNationsTable)
-        .set({ government: governmentLabel(DEFAULT_GOVERNMENT_SLUG) }).where(eq(playerNationsTable.id, nation.id));
-      await tx.insert(parliamentLogTable).values({ nationId: nation.id, tick, kind: "revolution", summary: cause === "military" ? "軍方叛變奪權,政體被迫更替。" : "革命推翻舊政權,政體被迫更替。", satDelta: 0 });
-      return;
-    }
-    const nameOf = new Map(controls.map((c) => [c.regionId, c.name]));
-    const first = plan.transfers[0]!;
-    const [rebel] = await tx.insert(playerNationsTable).values({
-      name: `${nameOf.get(first.regionId) ?? "叛亂"}${cause === "military" ? "軍閥政權" : "獨立政權"}`.slice(0, 25).replace(/[\s\p{P}]/gu, ""),
-      government: governmentLabel(DEFAULT_GOVERNMENT_SLUG), isNpc: true,
-    }).returning();
-    if (!rebel) throw new Error("建立分裂政權失敗");
-    const changes: Parameters<typeof recordTerritoryChanges>[1] = [];
-    for (const t of plan.transfers) {
-      const cur = controls.find((c) => c.regionId === t.regionId)!;
-      const left = Math.max(0, cur.percent - Math.round(t.percent));
-      const moved = cur.percent - left;
-      if (moved <= 0) continue;
-      if (left <= 0) await tx.delete(regionControlsTable).where(and(eq(regionControlsTable.nationId, nation.id), eq(regionControlsTable.regionId, t.regionId)));
-      else await tx.update(regionControlsTable).set({ percent: left }).where(and(eq(regionControlsTable.nationId, nation.id), eq(regionControlsTable.regionId, t.regionId)));
-      await tx.insert(regionControlsTable).values({ regionId: t.regionId, nationId: rebel.id, percent: moved });
-      changes.push(
-        { nationId: nation.id, regionId: t.regionId, percentBefore: cur.percent, percentAfter: left, changeType: "revolution", reason: `議會革命:${moved}% 控制度被「${rebel.name}」奪走` },
-        { nationId: rebel.id, regionId: t.regionId, percentBefore: 0, percentAfter: moved, changeType: "revolution", reason: `議會革命:自「${nation.name}」分裂獨立` },
-      );
-    }
-    await recordTerritoryChanges(tx, changes);
-    const { low, high } = canonicalPair(rebel.id, nation.id);
-    await tx.insert(diplomacyRelationsTable).values({ nationAId: low, nationBId: high, score: -100 }).onConflictDoNothing();
-    await tx.insert(diplomacyWarsTable).values({ nationAId: low, nationBId: high, declaredByNationId: rebel.id }).onConflictDoNothing();
-    await tx.insert(parliamentLogTable).values({ nationId: nation.id, tick, kind: "revolution", summary: `${cause === "military" ? "軍閥叛變" : "革命爆發"}:「${rebel.name}」奪取 ${changes.length / 2} 處領地並向你宣戰。`, satDelta: 0 });
+    const r = await startCivilWar(tx, nation, ideology, tick, label);
+    if (r.started || r.reason === "already_civil_war") return;
+    // 沒有土地可切:後備處置 = 直接更替政體(維持原本行為)
+    await tx.update(playerNationsTable)
+      .set({ government: governmentLabel(DEFAULT_GOVERNMENT_SLUG) }).where(eq(playerNationsTable.id, nation.id));
+    await tx.insert(parliamentLogTable).values({ nationId: nation.id, tick, kind: "revolution", summary: cause === "military" ? "軍方叛變奪權,政體被迫更替。" : "革命推翻舊政權,政體被迫更替。", satDelta: 0 });
   });
 }
 
