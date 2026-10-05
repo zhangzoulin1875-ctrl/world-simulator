@@ -122,7 +122,7 @@ after(async () => { anthropic.messages.create = realCreate; await cleanup(); awa
 async function expectedBirthRate() {
   const n = await loadNation();
   const { computeAdjustedNationStats } = await import("./nationStats");
-  const st = await computeAdjustedNationStats(n, ERA, undefined, undefined, 100);
+  const st = await computeAdjustedNationStats(n, ERA, undefined, 100);
   return st.populationGrowthRatePct;
 }
 
