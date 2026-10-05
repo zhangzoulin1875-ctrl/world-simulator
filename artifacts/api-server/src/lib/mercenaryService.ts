@@ -34,6 +34,7 @@ import { computeUnitCategoryAverages } from "./gameBalance";
 import { getStatsEraSlug } from "./nationStats";
 import { cancelQueueOrdersForNation } from "./recruitQueue";
 import { mobilizationBlocksContract } from "./totalMobilization";
+import { allocateProportionally } from "./war";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Executor = typeof db | Tx;
@@ -662,6 +663,27 @@ export interface MercenaryLegionUnit {
 }
 
 /**
+ * 海上登陸戰役:同一國家派進這場戰役的僱傭兵,總兵力不得超過登陸容許量(純函式)。
+ *
+ * 僱傭兵兵力由國力/公司戰力動態算出,與登陸容許量(基準 5000、指南針 ×10)無關,
+ * 原本派進跨海戰役完全不受限(實測白鴉單欄位近 7 萬人,三欄位二十萬級)。
+ * 與手動 PUT /legions、內閣自動組軍團同一口徑:每國在該場的總投入 ≤ cap。
+ * 各欄位按原比例縮、總和恰為 cap(largest remainder);至少保留 1 人避免欄位歸零;
+ * cap 為 null 或總量未超過 → 原樣回傳。
+ */
+export function capMercenaryTroopsToSeaLanding(
+  troopsBySlot: ReadonlyArray<number>,
+  cap: number | null,
+): number[] {
+  if (cap === null || !Number.isFinite(cap)) return [...troopsBySlot];
+  const limit = Math.max(0, Math.floor(cap));
+  const total = troopsBySlot.reduce((a, b) => a + Math.max(0, b), 0);
+  if (total <= limit) return [...troopsBySlot];
+  if (limit === 0) return troopsBySlot.map(() => 0);
+  return allocateProportionally(troopsBySlot, limit);
+}
+
+/**
  * 某場戰役中,所有「已派遣到這場戰役」的僱傭兵,換算成 nationId + slot → 虛擬單位。
  * 戰力依「當下」的國力與全服平均重算,所以會隨時代與科技自然成長。
  */
@@ -681,12 +703,45 @@ export async function loadMercenaryUnitsForCampaign(
     )
     .where(eq(mercenaryDeploymentsTable.campaignId, campaignId));
   const out = new Map<string, MercenaryLegionUnit>();
+  // 海上登陸戰役:只有「進攻方」受登陸容許量限制(防守方在本土作戰)。
+  const [camp] = rows.length
+    ? await db
+        .select({
+          isSeaLanding: warCampaignsTable.isSeaLanding,
+          seaLandingTroopCap: warCampaignsTable.seaLandingTroopCap,
+          attackerNationId: warCampaignsTable.attackerNationId,
+        })
+        .from(warCampaignsTable)
+        .where(eq(warCampaignsTable.id, campaignId))
+        .limit(1)
+    : [];
+  const parts = rows.length
+    ? await db
+        .select({
+          nationId: warCampaignParticipantsTable.nationId,
+          side: warCampaignParticipantsTable.side,
+        })
+        .from(warCampaignParticipantsTable)
+        .where(eq(warCampaignParticipantsTable.campaignId, campaignId))
+    : [];
+  const sideOf = (nationId: string): "attacker" | "defender" =>
+    (parts.find((p) => p.nationId === nationId)?.side as
+      | "attacker"
+      | "defender"
+      | undefined) ??
+    (camp?.attackerNationId === nationId ? "attacker" : "defender");
+  const seaCapFor = (nationId: string): number | null =>
+    camp?.isSeaLanding && camp.seaLandingTroopCap != null && sideOf(nationId) === "attacker"
+      ? camp.seaLandingTroopCap
+      : null;
+
+  const built: Array<{ st: (typeof rows)[number]; unit: MercenaryLegionUnit }> = [];
   for (const st of rows) {
     if (!st.companyId) continue;
     const quotes = await quoteCompanies(st.nationId);
     const q = quotes.find((x) => x.company.id === st.companyId);
     if (!q) continue;
-    out.set(`${st.nationId}:${st.slot}`, {
+    built.push({ st, unit: {
       unitRowId: MERCENARY_UNIT_ROW_ID,
       templateId: 0,
       name: q.company.name,
@@ -702,6 +757,26 @@ export async function loadMercenaryUnitsForCampaign(
       antiCavalryPct: 0,
       antiRangedPct: 0,
       siegePct: 0,
+    } });
+  }
+
+  // 依國家分組,套用海上登陸容許量(同國多欄位共用一個總量上限)。
+  const byNation = new Map<string, typeof built>();
+  for (const b of built) {
+    const list = byNation.get(b.st.nationId) ?? [];
+    list.push(b);
+    byNation.set(b.st.nationId, list);
+  }
+  for (const [nationId, list] of byNation) {
+    const capped = capMercenaryTroopsToSeaLanding(
+      list.map((b) => b.unit.quantity),
+      seaCapFor(nationId),
+    );
+    list.forEach((b, i) => {
+      out.set(`${b.st.nationId}:${b.st.slot}`, {
+        ...b.unit,
+        quantity: capped[i] ?? b.unit.quantity,
+      });
     });
   }
   return out;

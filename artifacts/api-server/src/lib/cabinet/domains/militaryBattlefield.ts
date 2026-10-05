@@ -19,6 +19,7 @@ import { legionInitialMorale } from "../../militaryPolitics";
 import { effectiveMilitaryObedience } from "../../politics";
 import { loadResearchedMilitaryTechs } from "../../militaryTechData";
 import {
+  allocateProportionally,
   computeAvailable,
   validateLegionsInput,
   WAR_ORDER_TYPES,
@@ -40,6 +41,42 @@ import {
 
 // ── 戰場指揮：為進行中戰役下達本週期指令 ───────────────────────
 
+/**
+ * 海上登陸戰役的攻方總兵力上限:把軍團配置按比例縮到 cap 以內(純函式)。
+ *
+ * 內閣元帥/AI 託管自動組軍團原本會把全國可用兵力 100% 投入,無視海上登陸容許量
+ * (玩家回報:對方在單場跨海戰役派出十幾萬人)。手動 PUT /legions 本來就有同樣檢查,
+ * 這裡補上自動路徑。總和 ≤ cap;cap 為 null 或總兵力未超過 → 原樣回傳。
+ * 以 allocateProportionally(largest remainder)分配,各兵種按原比例縮、總和恰為 cap。
+ */
+export function capLegionsToSeaLanding(
+  legions: LegionInput[],
+  cap: number | null,
+): LegionInput[] {
+  if (cap === null || !Number.isFinite(cap)) return legions;
+  const flat: Array<{ li: number; ui: number; qty: number }> = [];
+  legions.forEach((l, li) =>
+    l.units.forEach((u, ui) => flat.push({ li, ui, qty: Math.max(0, u.quantity) })),
+  );
+  const total = flat.reduce((s, f) => s + f.qty, 0);
+  const limit = Math.max(0, Math.floor(cap));
+  if (total <= limit) return legions;
+  const shares = allocateProportionally(
+    flat.map((f) => f.qty),
+    limit,
+  );
+  const scaled = new Map<string, number>();
+  flat.forEach((f, i) => scaled.set(`${f.li}:${f.ui}`, shares[i] ?? 0));
+  return legions
+    .map((l, li) => ({
+      ...l,
+      units: l.units
+        .map((u, ui) => ({ ...u, quantity: scaled.get(`${li}:${ui}`) ?? 0 }))
+        .filter((u) => u.quantity > 0),
+    }))
+    .filter((l) => l.units.length > 0);
+}
+
 /** 把全國可用兵力（未派遣他役、未在傷兵池）編成軍團 A／B。 */
 export async function autoFormLegions(nation: PlayerNation, eraSlug: string): Promise<void> {
   const userId = nation.discordUserId;
@@ -49,6 +86,8 @@ export async function autoFormLegions(nation: PlayerNation, eraSlug: string): Pr
       id: warCampaignsTable.id,
       attackerNationId: warCampaignsTable.attackerNationId,
       defenderNationId: warCampaignsTable.defenderNationId,
+      isSeaLanding: warCampaignsTable.isSeaLanding,
+      seaLandingTroopCap: warCampaignsTable.seaLandingTroopCap,
     })
     .from(warCampaignsTable)
     .where(
@@ -141,7 +180,7 @@ export async function autoFormLegions(nation: PlayerNation, eraSlug: string): Pr
         if (availableUnits.length === 0) return;
 
         const isDefender = campaign.defenderNationId === nation.id;
-        const legions: LegionInput[] = [
+        const formed: LegionInput[] = [
           {
             slot: "A",
             garrisoningCity: isDefender,
@@ -161,6 +200,11 @@ export async function autoFormLegions(nation: PlayerNation, eraSlug: string): Pr
               .filter((u) => u.quantity > 0),
           },
         ].filter((l) => l.units.length > 0);
+        // 海上登陸戰役:攻方總投入不得超過登陸容許量(與手動 PUT /legions 同一口徑)。
+        const legions = capLegionsToSeaLanding(
+          formed,
+          campaign.isSeaLanding && !isDefender ? campaign.seaLandingTroopCap : null,
+        );
         if (validateLegionsInput(legions) !== null) return;
 
         // Task #402 — 初始士氣 = 有效軍方服從度（含 militaryObedience 政策偏移）。
