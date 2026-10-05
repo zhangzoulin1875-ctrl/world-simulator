@@ -10,6 +10,7 @@ import { PolicyPanel } from "./policy-panel";
 import { MilitaryPanel } from "./military-panel";
 import { MilitaryDemandCard } from "./military-demand-card";
 import { ParliamentPanel } from "@/components/parliament/parliament-panel";
+import { ConstitutionPanel } from "@/components/parliament/constitution-panel";
 import { FocusPanel } from "@/components/focus/focus-panel";
 import { PoliticsHistoryTimeline } from "./politics-history-timeline";
 
@@ -64,6 +65,7 @@ export function PoliticsScreen({
 
         {/* Task #402 — 軍方面板 */}
         <ParliamentPanel />
+        <ConstitutionPanel />
         <MilitaryDemandCard />
         <MilitaryPanel overview={overview} />
 
