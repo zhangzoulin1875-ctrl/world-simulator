@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 const { eq, like, and, isNull, sql } = await import("drizzle-orm");
 const { db, pool, playerNationsTable, regionControlsTable, diplomacyWarsTable, parliamentStateTable, parliamentPartiesTable, parliamentLogTable, territoryChangeHistoryTable } = await import("@workspace/db");
 const { runParliamentMigrations } = await import("../parliamentMigrations");
-const { settleNationParliament, runParliamentSettlement } = await import("./service");
+const { settleNationParliament, runParliamentSettlement, ensureParliamentSeeded } = await import("./service");
 
 const MARK = "ParlT"; const run = randomBytes(3).toString("hex");
 const made: string[] = [];
@@ -106,4 +106,24 @@ test("全體結算：單國失敗不影響其他國，回傳統計", async () =>
   await mkNation("議會內閣制"); await mkNation("君主立憲制");
   const r = await runParliamentSettlement();
   assert.ok(r.nations >= 2); assert.equal(r.failed, 0);
+});
+
+test("新建國尚未跑過回合：讀取議會時補建政黨（民主 5 黨 100 席），冪等不重複建", async () => {
+  const n = await mkNation("議會內閣制");
+  const before = await db.select().from(parliamentPartiesTable).where(eq(parliamentPartiesTable.nationId, n.id));
+  assert.equal(before.length, 0, "尚未結算前沒有政黨");
+  assert.equal(await ensureParliamentSeeded(n), true);
+  const ps = await db.select().from(parliamentPartiesTable).where(eq(parliamentPartiesTable.nationId, n.id));
+  assert.equal(ps.length, 5);
+  assert.equal(ps.reduce((a, p) => a + p.seats, 0), 100);
+  assert.equal(await ensureParliamentSeeded(n), false, "已有政黨 → 不再重建");
+  const again = await db.select().from(parliamentPartiesTable).where(eq(parliamentPartiesTable.nationId, n.id));
+  assert.deepEqual(again.map((p) => p.id).sort(), ps.map((p) => p.id).sort());
+});
+
+test("新建國補建：專制政體 → 單一政黨 100 席", async () => {
+  const n = await mkNation("軍事獨裁");
+  assert.equal(await ensureParliamentSeeded(n), true);
+  const ps = await db.select().from(parliamentPartiesTable).where(eq(parliamentPartiesTable.nationId, n.id));
+  assert.equal(ps.length, 1); assert.equal(ps[0]!.seats, 100);
 });

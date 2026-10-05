@@ -5,7 +5,7 @@ import {
 } from "@workspace/db";
 import { getSession, readSessionToken } from "../lib/sessions";
 import { logger } from "../lib/logger";
-import { tierOfNation } from "../lib/parliament/service";
+import { tierOfNation, ensureParliamentSeeded } from "../lib/parliament/service";
 import {
   STANCE_LABELS, canSubmitReport, parliamentAlert, reportBonus, clampSat,
   MAX_PENALTY, DEMAND_INTERVAL_TURNS, effectiveParliamentTier, type ParliamentStance,
@@ -74,7 +74,11 @@ async function buildView(nationId: string, govLabel: string | null) {
 
 router.get("/parliament", async (req, res) => {
   const auth = await requirePlayer(req, res); if (!auth) return;
-  try { res.json(await buildView(auth.nation.id, auth.nation.government)); }
+  try {
+    // 新建國後議會黨要等下一個回合結算才會建立;沒有政黨時當場補建,避免議會頁顯示 0 席。
+    await ensureParliamentSeeded(auth.nation).catch((err) => logger.warn({ err, nationId: auth.nation.id }, "parliament: lazy seed failed"));
+    res.json(await buildView(auth.nation.id, auth.nation.government));
+  }
   catch (err) { logger.error({ err }, "parliament view failed"); res.status(500).json({ error: "讀取議會失敗" }); }
 });
 

@@ -69,6 +69,27 @@ async function loadParties(nationId: string): Promise<SeatedParty[]> {
   return rows.map((r) => ({ id: String(r.id), name: r.name, stance: r.stance as ParliamentStance, weight: r.weight, seats: r.seats }));
 }
 
+/**
+ * 確保該國已有議會狀態與政黨。新建國後議會黨要等下一個回合結算才會建立,
+ * 這段空窗期議會頁會顯示 0 席。讀取議會時若沒有政黨,就當場用與回合結算相同的
+ * 規則式邏輯補建(冪等:已有政黨就什麼都不做)。回傳是否有補建。
+ */
+export async function ensureParliamentSeeded(nation: Nation): Promise<boolean> {
+  const existing = await db.select({ id: parliamentPartiesTable.id }).from(parliamentPartiesTable)
+    .where(eq(parliamentPartiesTable.nationId, nation.id)).limit(1);
+  if (existing.length > 0) return false;
+  const { tier, slug } = await tierOfNation(nation);
+  const state = await ensureState(nation.id);
+  const war = await atWarFlag(nation.id);
+  const facts: NationFacts = {
+    nationName: nation.name ?? "本國", tier, stability: nation.stability, warWeariness: nation.warWeariness,
+    militarySatisfaction: nation.satisfactionMilitary, atWar: war.atWar, taxRatePct: nation.taxRatePct,
+    governmentSlug: slug,
+  };
+  await rebuildParties(nation, state, facts);
+  return true;
+}
+
 /** 單國單回合結算。回傳是否發生革命。 */
 export async function settleNationParliament(
   nation: Nation,
