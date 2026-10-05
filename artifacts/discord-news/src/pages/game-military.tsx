@@ -7,6 +7,7 @@ import {
   Loader2,
   Lock,
   Pencil,
+  Rocket,
   Sparkles,
   Swords,
   Trash2,
@@ -102,6 +103,15 @@ function MilitaryScreen({
                 {overview.currentEraLabel}
               </span>
             </div>
+            <Link
+              href="/game/missile"
+              className="flex items-center gap-1.5 rounded-lg border border-red-300/30 bg-red-500/15 px-3 py-1.5 text-sm font-semibold backdrop-blur transition hover:bg-red-500/30"
+              title="導彈系統（1960 年後解鎖）"
+              data-testid="link-missile"
+            >
+              <Rocket className="h-4 w-4 text-red-300" />
+              導彈
+            </Link>
           </div>
           <div className="flex items-start gap-2">
             <GameNotifications />

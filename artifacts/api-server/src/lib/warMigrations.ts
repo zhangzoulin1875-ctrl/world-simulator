@@ -53,6 +53,35 @@ async function runWarMigrationsInner(): Promise<void> {
   `);
   await db.execute(sql`DROP INDEX IF EXISTS diplomacy_wars_pair_uidx`);
 
+  // ── 導彈發射紀錄(1960 年後解鎖的導彈系統)─────────────────────
+  // (attacker_nation_id, turn_key) 唯一 = 每國每回合限射一發。故意不設外鍵:國家被刪後保留歷史。
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS missile_strikes (
+      id serial PRIMARY KEY,
+      attacker_nation_id uuid NOT NULL,
+      attacker_name text NOT NULL,
+      target_nation_id uuid NOT NULL,
+      target_name text NOT NULL,
+      region_id integer NOT NULL,
+      region_name text NOT NULL,
+      missile_type text NOT NULL,
+      turn_key text NOT NULL,
+      cost_money bigint NOT NULL,
+      population_lost bigint NOT NULL DEFAULT 0,
+      buildings_downgraded integer NOT NULL DEFAULT 0,
+      buildings_destroyed integer NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT NOW()
+    )
+  `);
+  await db.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS missile_strikes_attacker_turn_uidx
+      ON missile_strikes (attacker_nation_id, turn_key)
+  `);
+  await db.execute(sql`
+    CREATE INDEX IF NOT EXISTS missile_strikes_target_idx
+      ON missile_strikes (target_nation_id, created_at)
+  `);
+
   // ── 戰役主表 ──────────────────────────────────────────────
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS war_campaigns (

@@ -516,3 +516,41 @@ export const cityWallsTable = pgTable("city_walls", {
 });
 
 export type CityWall = typeof cityWallsTable.$inferSelect;
+
+
+/**
+ * 導彈發射紀錄(1960 年後解鎖的導彈系統)。同時是:
+ *  - 「每國每回合限射一發」的依據:turn_key = 發射當下 world_game_state.last_turn_at 的毫秒字串,
+ *    (attacker_nation_id, turn_key) 唯一 → 併發/連點只有一發成功。
+ *  - 戰報:目標國、地區、實際造成的人口與建築損失。
+ * 無外鍵到 nation(國家被刪後紀錄保留為歷史),故存 nation 名稱快照。
+ */
+export const missileStrikesTable = pgTable(
+  "missile_strikes",
+  {
+    id: serial("id").primaryKey(),
+    attackerNationId: uuid("attacker_nation_id").notNull(),
+    attackerName: text("attacker_name").notNull(),
+    targetNationId: uuid("target_nation_id").notNull(),
+    targetName: text("target_name").notNull(),
+    regionId: integer("region_id").notNull(),
+    regionName: text("region_name").notNull(),
+    /** medium | tactical_nuke | strategic_nuke */
+    missileType: text("missile_type").notNull(),
+    turnKey: text("turn_key").notNull(),
+    costMoney: bigint("cost_money", { mode: "number" }).notNull(),
+    populationLost: bigint("population_lost", { mode: "number" }).notNull().default(0),
+    buildingsDowngraded: integer("buildings_downgraded").notNull().default(0),
+    buildingsDestroyed: integer("buildings_destroyed").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    oncePerTurn: uniqueIndex("missile_strikes_attacker_turn_uidx").on(
+      t.attackerNationId,
+      t.turnKey,
+    ),
+    targetIdx: index("missile_strikes_target_idx").on(t.targetNationId, t.createdAt),
+  }),
+);
+
+export type MissileStrike = typeof missileStrikesTable.$inferSelect;

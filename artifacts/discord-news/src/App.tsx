@@ -33,6 +33,7 @@ import WorldMap from "@/pages/world-map";
 import GameHome from "@/pages/game-home";
 import GameNews from "@/pages/game-news";
 import GameMilitary from "@/pages/game-military";
+import GameMissile from "@/pages/game-missile";
 import GameWarRoom from "@/pages/game-war-room";
 import GameTech from "@/pages/game-tech";
 import GameTechnology from "@/pages/game-technology";
@@ -71,6 +72,7 @@ function Router() {
       <Route path="/game/military/war/:id">{() => <AutopilotGate><GameWarRoom /></AutopilotGate>}</Route>
       <Route path="/game/military/tech">{() => <AutopilotGate><GameTech /></AutopilotGate>}</Route>
       <Route path="/game/military">{() => <AutopilotGate><GameMilitary /></AutopilotGate>}</Route>
+      <Route path="/game/missile">{() => <AutopilotGate><GameMissile /></AutopilotGate>}</Route>
       <Route path="/game/technology">{() => <AutopilotGate><GameTechnology /></AutopilotGate>}</Route>
       <Route path="/game/diplomacy">{() => <AutopilotGate><GameDiplomacy /></AutopilotGate>}</Route>
       <Route path="/game/politics">{() => <AutopilotGate><GamePolitics /></AutopilotGate>}</Route>
