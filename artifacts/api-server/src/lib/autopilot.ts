@@ -119,9 +119,25 @@ export function makeVirtualMinister(
   } as CabinetMinister;
 }
 
-/** 託管永不自動核准的動作鍵（玩家本人才能決定）。 */
+/**
+ * 託管永不自動核准的動作鍵（玩家本人才能決定）。
+ *
+ * 內閣把這些事項送審批,是刻意「把最後決定權留給玩家」:
+ *  - declare_war:開戰。
+ *  - demolish_city_building:拆除建築,不退款、不可逆(內閣設計為永不自動執行)。
+ *  - disband_units:裁撤部隊,不退還資源的破壞性動作(內閣設計為一律送玩家批准)。
+ *  - recruit_units / purchase_units:內閣只有在「超出生產力/購買預算」或「財政警告
+ *    (招募後赤字、國庫撐不過緩衝回合)」時才會把招兵/購買送審批;未超出時直接自動執行、
+ *    不經審批。所以託管看到的這兩類 pending 必然是被護欄攔下的,若一律核准等於整個
+ *    預算與財政護欄在託管下形同虛設(風格的預算比例也失去意義)。
+ * 託管因此只能做「內閣在同樣授權下本來就會自動執行」的事;被攔下的事項一律否決清除。
+ */
 export const NEVER_AUTO_APPROVE_ACTIONS: ReadonlySet<string> = new Set([
   "declare_war",
+  "demolish_city_building",
+  "disband_units",
+  "recruit_units",
+  "purchase_units",
 ]);
 
 /** 自動核准並執行該國所有 pending 審批（原子領取 → applyApproval）。回傳處理筆數。 */
