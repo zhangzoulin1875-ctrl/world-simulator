@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import {
   db,
   playerNationsTable,
@@ -6,13 +6,17 @@ import {
   focusStatesTable,
   focusActiveTable,
   focusCompletedTable,
+  diplomacyWarsTable,
 } from "@workspace/db";
 import { logger } from "../logger";
 import { computeNationStats, getCurrentEraSlug } from "../nationStats";
 import { parliamentTier } from "../parliament/core";
+import { computeNationMilitaryAggregates } from "../militarySnapshots";
+import { armyPopulationRatioPct } from "../militaryPolitics";
 import { governmentLabel, governmentSlugByLabel } from "../governments";
 import {
   advanceFocus,
+  calculatePassiveLeanDeltas,
   checkStartFocus,
   pointsCap,
   politicalPointsPerTurn,
@@ -64,7 +68,18 @@ export interface FocusSettleResult {
  * 單一國家的國策結算:發點數 → 推進進行中的 → 完成者寫入並套用一次性效果。
  * 政變鎖定期間進度不動(與「鎖死政策」語意一致),但點數仍照發。
  */
-export async function settleNationFocus(nation: Nation, eraSlug: string): Promise<FocusSettleResult> {
+/** 批次預先查好的事實(避免每國各查一次);單獨呼叫 settleNationFocus 時可省略。 */
+export interface SettleBatchFacts {
+  atWarNationIds?: ReadonlySet<string>;
+  armyPopulationByNation?: ReadonlyMap<string, number>;
+  rand?: () => number;
+}
+
+export async function settleNationFocus(
+  nation: Nation,
+  eraSlug: string,
+  batch: SettleBatchFacts = {},
+): Promise<FocusSettleResult> {
   const state = await ensureFocusState(nation.id);
   const sat = await parliamentSatisfactionOf(nation.id);
   const slug = governmentSlugByLabel(nation.government);
@@ -93,6 +108,36 @@ export async function settleNationFocus(nation: Nation, eraSlug: string): Promis
       await tx
         .update(focusStatesTable)
         .set({ points: sql`${focusStatesTable.points} + ${gained}`, updatedAt: new Date() })
+        .where(eq(focusStatesTable.nationId, nation.id));
+    }
+
+    // 黑紅線傾向值的被動增長/衰減:與國策推進無關,政變鎖定期間照樣累積。
+    // 在鎖內以 SQL 原子加減並夾在 [0,100],不會蓋掉國策完成的一次性 lean 效果。
+    const [lean] = await tx
+      .select({ black: focusStatesTable.blackLean, red: focusStatesTable.redLean })
+      .from(focusStatesTable)
+      .where(eq(focusStatesTable.nationId, nation.id));
+    const passive = calculatePassiveLeanDeltas(
+      {
+        satisfactionMilitary: nation.satisfactionMilitary,
+        atWar: batch.atWarNationIds?.has(nation.id) ?? false,
+        armyRatioPct: armyPopulationRatioPct(batch.armyPopulationByNation?.get(nation.id) ?? 0, stats.population),
+        tier,
+        stability: nation.stability,
+        politicalSupport: nation.politicalSupport,
+        parliamentSatisfaction: sat,
+        blackLean: lean?.black ?? 0,
+        redLean: lean?.red ?? 0,
+      },
+      batch.rand,
+    );
+    if (passive.blackDelta !== 0 || passive.redDelta !== 0) {
+      await tx
+        .update(focusStatesTable)
+        .set({
+          blackLean: sql`LEAST(100, GREATEST(0, ${focusStatesTable.blackLean} + ${passive.blackDelta}))`,
+          redLean: sql`LEAST(100, GREATEST(0, ${focusStatesTable.redLean} + ${passive.redDelta}))`,
+        })
         .where(eq(focusStatesTable.nationId, nation.id));
     }
 
@@ -189,11 +234,21 @@ export async function settleNationFocus(nation: Nation, eraSlug: string): Promis
 export async function runFocusSettlement(): Promise<{ nations: number; completed: number; failed: number }> {
   const nations = await db.select().from(playerNationsTable);
   const eraSlug = await getCurrentEraSlug();
+  // 批次查一次:戰爭中的國家 + 各國軍隊人口(傾向值被動增長要用)
+  const wars = await db
+    .select({ a: diplomacyWarsTable.nationAId, b: diplomacyWarsTable.nationBId })
+    .from(diplomacyWarsTable)
+    .where(isNull(diplomacyWarsTable.endedAt));
+  const atWarNationIds = new Set<string>();
+  for (const w of wars) { atWarNationIds.add(w.a); atWarNationIds.add(w.b); }
+  const aggs = await computeNationMilitaryAggregates().catch(() => new Map<string, { armyPopulation: number }>());
+  const armyPopulationByNation = new Map<string, number>();
+  for (const [id, v] of aggs) armyPopulationByNation.set(id, v.armyPopulation ?? 0);
   let completed = 0;
   let failed = 0;
   for (const n of nations) {
     try {
-      const r = await settleNationFocus(n, eraSlug);
+      const r = await settleNationFocus(n, eraSlug, { atWarNationIds, armyPopulationByNation });
       completed += r.completed.length;
     } catch (err) {
       failed++;

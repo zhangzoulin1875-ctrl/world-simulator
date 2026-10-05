@@ -347,3 +347,61 @@ test("共產革命國策:條件全滿足也不能推行(內戰未開放),不扣�
   assert.equal((await fstate()).points, 100);
   assert.equal((await load()).government, governmentLabel("absolute_monarchy"));
 });
+
+// ── 黑紅線傾向值被動增長 ──────────────────────────────────
+const setNation = (p: Record<string, unknown>) => db.update(playerNationsTable).set(p as never).where(eq(playerNationsTable.id, nationId));
+
+test("傾向值:民怨沸騰的國家每回合累積紅線,寫進資料庫", async () => {
+  await setNation({ stability: 20, politicalSupport: 15 });
+  await setSat(20);
+  await give(0);
+  for (let i = 0; i < 5; i++) await settleNationFocus(await load(), ERA, { rand: () => 0 });
+  const s = await fstate();
+  assert.equal(s.redLean, 10, "5 回合 × +2");
+  assert.equal(s.blackLean, 0);
+});
+
+test("傾向值:軍國擴張累積黑線(用批次事實:戰爭中、軍隊占比高)", async () => {
+  await setNation({ satisfactionMilitary: 85 });
+  await give(0);
+  const n = await load();
+  await settleNationFocus(n, ERA, { atWarNationIds: new Set([nationId]), armyPopulationByNation: new Map([[nationId, 1e12]]), rand: () => 0 });
+  assert.equal((await fstate()).blackLean, 2);
+});
+
+test("傾向值:政變鎖定期間照樣累積(不像國策推進那樣被凍結)", async () => {
+  await setNation({ stability: 20, politicalSupport: 15, coupPolicyLockTurns: 3 });
+  await setSat(20);
+  await give(0);
+  await settleNationFocus(await load(), ERA, { rand: () => 0 });
+  assert.equal((await fstate()).redLean, 2);
+});
+
+test("傾向值:穩定的國家會讓既有紅線衰減,且不低於 0", async () => {
+  await setNation({ stability: 80 });
+  await give(0);
+  await db.update(focusStatesTable).set({ redLean: 1 }).where(eq(focusStatesTable.nationId, nationId));
+  for (let i = 0; i < 4; i++) await settleNationFocus(await load(), ERA, { rand: () => 0 });
+  assert.equal((await fstate()).redLean, 0);
+});
+
+test("傾向值:被動增長與國策完成的一次性 lean 效果同回合並存,互不覆蓋", async () => {
+  const def: FocusDef = {
+    id: "test.lean_both", title: "測試", description: "d", domain: "military", track: "black", slot: "main", requires: [], cost: 1, turns: 1,
+    effects: [{ kind: "lean", side: "black", value: 10 }],
+  } as unknown as FocusDef;
+  setCatalogForTest([def]);
+  await setNation({ satisfactionMilitary: 85 });
+  await give(20);
+  const r = await startFocus(await load(), "test.lean_both");
+  assert.equal(r.ok, true, JSON.stringify(r));
+  await settleNationFocus(await load(), ERA, { atWarNationIds: new Set([nationId]), rand: () => 0 });
+  // 被動:(85-60)*0.04 + 0.5 = 1.5 → rand=0 進位為 2;一次性 +10 → 共 12
+  assert.equal((await fstate()).blackLean, 12);
+});
+
+test("傾向值:runFocusSettlement 批次版可正常跑完(含批次查戰爭/軍隊),不報錯", async () => {
+  await give(0);
+  const r = await runFocusSettlement();
+  assert.equal(r.failed, 0);
+});

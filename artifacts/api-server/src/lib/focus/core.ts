@@ -160,3 +160,68 @@ export const START_BLOCK_TEXT: Record<StartBlockReason, string> = {
   insufficient_points: "政治點數不足",
   policy_locked: "政變後政策鎖定期間無法啟動國策",
 };
+
+// ── 黑紅線傾向值:被動增長與衰減(每回合,NPC 與玩家一視同仁)─────────────
+// 目標節奏:長期不滿/軍國化要累積「數天到一週以上」(一天 8 回合)才摸到轉型門檻。
+
+export interface PassiveLeanInput {
+  satisfactionMilitary: number;
+  atWar: boolean;
+  /** 軍隊占人口百分比 */
+  armyRatioPct: number;
+  tier: "autocracy" | "semi" | "democracy";
+  stability: number;
+  politicalSupport: number;
+  parliamentSatisfaction: number;
+  blackLean: number;
+  redLean: number;
+}
+
+/** 單回合期望變動量(小數,尚未進位),上下限 ±2。 */
+export function passiveLeanRates(i: PassiveLeanInput): { black: number; red: number } {
+  let bg = 0;
+  if (i.satisfactionMilitary >= 60) bg += (i.satisfactionMilitary - 60) * 0.04;
+  if (i.atWar) bg += 0.5;
+  if (i.armyRatioPct >= 8) bg += 0.5;
+  bg = Math.min(2, bg);
+  let bd = 0;
+  if (i.tier === "democracy") bd += 1.0;
+  else if (i.tier === "semi") bd += 0.3;
+  if (!i.atWar && i.satisfactionMilitary < 60 && i.blackLean > 0) bd += 0.3;
+
+  let rg = 0;
+  if (i.stability < 40) rg += (40 - i.stability) * 0.04;
+  if (i.politicalSupport < 40) rg += (40 - i.politicalSupport) * 0.03;
+  if (i.parliamentSatisfaction < 40) rg += (40 - i.parliamentSatisfaction) * 0.03;
+  rg = Math.min(2, rg);
+  let rd = 0;
+  if (i.stability >= 60) rd += (i.stability - 50) * 0.03;
+  if (i.stability >= 50 && i.redLean > 0) rd += 0.3;
+
+  return { black: clamp(bg - bd, -2, 2), red: clamp(rg - rd, -2, 2) };
+}
+
+/**
+ * 小數變動量 → 整數(欄位是整數):機率進位,期望值等於原值。
+ * 例 +0.4 有 40% 機率 +1、60% 機率 0;-1.3 有 70% 機率 -1、30% 機率 -2。
+ * rand 預設 Math.random,測試時可注入。
+ */
+export function stochasticRound(x: number, rand: () => number = Math.random): number {
+  const base = Math.trunc(x);
+  const frac = Math.abs(x - base);
+  if (frac === 0) return base;
+  return base + (rand() < frac ? Math.sign(x) : 0);
+}
+
+export function calculatePassiveLeanDeltas(
+  i: PassiveLeanInput,
+  rand: () => number = Math.random,
+): { blackDelta: number; redDelta: number } {
+  const r = passiveLeanRates(i);
+  let blackDelta = stochasticRound(r.black, rand);
+  let redDelta = stochasticRound(r.red, rand);
+  // 不會把值推出 [0,100](SQL 也會夾,這裡讓回傳值如實反映)
+  blackDelta = clamp(blackDelta, -i.blackLean, 100 - i.blackLean);
+  redDelta = clamp(redDelta, -i.redLean, 100 - i.redLean);
+  return { blackDelta: blackDelta + 0, redDelta: redDelta + 0 }; // +0 把 -0 正規化成 0
+}
