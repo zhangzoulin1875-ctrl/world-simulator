@@ -210,6 +210,11 @@ export const playerNationsTable = pgTable("player_nations", {
    */
   isNpc: boolean("is_npc").notNull().default(false),
   /**
+   * NPC 來源:'wild' = 玩家攻打空地時即時生成的對抗 AI 國(戰役出兵受 WILD_NPC_CAMPAIGN_TROOP_CAP 限制);
+   * 'natural' = 其他(自然生成、後台建立的 AI 國、內戰、無主國家升格),不受限。既有資料預設 natural。
+   */
+  npcOrigin: text("npc_origin").notNull().default("natural"),
+  /**
    * Task #176 — NPC 每領域科技時代指標（軍事／社會／生產）。
    * NPC 不使用玩家的「已研發科技列 + 三選一抽牌」機制（那些表以
    * discord_user_id NOT NULL 為鍵，NPC 無法擁有）。改以三個輕量時代指標

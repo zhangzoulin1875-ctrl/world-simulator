@@ -33,6 +33,11 @@ async function runMilitaryMigrationsInner(): Promise<void> {
     ALTER TABLE player_nations
       ADD COLUMN IF NOT EXISTS population_spent bigint NOT NULL DEFAULT 0
   `);
+  // NPC 來源(wild=攻打空地即時生成的對抗 AI 國,戰役出兵有上限;natural=其餘不受限)。
+  await db.execute(sql`
+    ALTER TABLE player_nations
+      ADD COLUMN IF NOT EXISTS npc_origin text NOT NULL DEFAULT 'natural'
+  `);
   // Task #510 — 兵種設計次數制（0–5，建國滿 5、每回合 +1）。DEFAULT 5 讓
   // 既有列（含無主/NPC 國家）一次性補滿 5 次。
   await db.execute(sql`

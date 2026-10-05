@@ -45,6 +45,8 @@ export const NPC_DEFENDER_TROOP_RATIO = 0.008;
 export const NPC_UNCLAIMED_DEFENDER_TROOP_RATIO = 0.002;
 export const NPC_TROOP_MIN = 5_000;
 export const NPC_TROOP_MAX = 3_000_000;
+/** 空地生成的對抗 AI 國(npc_origin='wild')單局戰役出兵上限。自然 NPC 與後台 AI 國不受限。 */
+export const WILD_NPC_CAMPAIGN_TROOP_CAP = 50_000;
 
 /**
  * NPC 開戰時自動組建的目標兵力(純函式,DB-free,供單元測試)。
@@ -57,14 +59,20 @@ export function npcCampaignTroops(params: {
   population: number;
   isDefender: boolean;
   unclaimed?: boolean;
+  /** 該 NPC 的來源;'wild' 時套用 WILD_NPC_CAMPAIGN_TROOP_CAP。 */
+  npcOrigin?: string;
 }): number {
   const ratio = params.isDefender
     ? params.unclaimed
       ? NPC_UNCLAIMED_DEFENDER_TROOP_RATIO
       : NPC_DEFENDER_TROOP_RATIO
     : NPC_TROOP_RATIO;
+  const cap =
+    params.npcOrigin === "wild"
+      ? Math.min(NPC_TROOP_MAX, WILD_NPC_CAMPAIGN_TROOP_CAP)
+      : NPC_TROOP_MAX;
   return Math.min(
-    NPC_TROOP_MAX,
+    cap,
     Math.max(NPC_TROOP_MIN, Math.floor(params.population * ratio)),
   );
 }

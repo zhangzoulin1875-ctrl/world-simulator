@@ -41,3 +41,17 @@ test("進攻方與一般防守方的比例不受影響", () => {
   // unclaimed 旗標只對防守方生效
   assert.equal(npcCampaignTroops({ population: pop, isDefender: false, unclaimed: true }), 40_000);
 });
+
+
+test("空地生成 NPC(wild):單局出兵封頂 5 萬;自然/後台 NPC 不受限", () => {
+  const big = { population: 900_000_000, isDefender: true } as const;
+  // 一般防守方比例 0.8% × 9 億 = 720 萬 → 夾 NPC_TROOP_MAX(300 萬),自然 NPC 不受 5 萬限制
+  assert.ok(npcCampaignTroops({ ...big, npcOrigin: "natural" }) > 50_000);
+  assert.ok(npcCampaignTroops({ ...big }) > 50_000);
+  // wild:即使以一般防守比例(非 unclaimed)計算,也封頂 5 萬
+  assert.equal(npcCampaignTroops({ ...big, npcOrigin: "wild" }), 50_000);
+  assert.equal(npcCampaignTroops({ ...big, unclaimed: true, npcOrigin: "wild" }), 50_000);
+  // 小國不被拉高:仍走原公式與下限
+  assert.equal(npcCampaignTroops({ population: 1_000, isDefender: true, npcOrigin: "wild" }), 5_000);
+  assert.equal(npcCampaignTroops({ population: 10_000_000, isDefender: true, unclaimed: true, npcOrigin: "wild" }), 20_000);
+});

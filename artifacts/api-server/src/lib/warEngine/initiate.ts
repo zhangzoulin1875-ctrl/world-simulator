@@ -83,7 +83,7 @@ import { getNavalLandingProfile } from "./status";
  * AI 世界寫入序列化，避免同一空地被重複建國造成 Σ(percent) > 100。攻擊方必須是
  * 真實玩家，否則會產生永不結算的 NPC↔NPC 戰爭列（見記憶：npc-npc-inert-war）。
  */
-async function foundOrPromoteUnownedDefender(params: {
+export async function foundOrPromoteUnownedDefender(params: {
   attacker: PlayerNation;
   /** 攻擊方出發地區 ID；若與 defenderRegionId 相同，判定無人剩餘時排除攻擊方自身持分。 */
   attackerRegionId: number;
@@ -162,6 +162,7 @@ async function foundOrPromoteUnownedDefender(params: {
           name: `${defenderRegionName}王國`,
           government: governmentLabel(DEFAULT_GOVERNMENT_SLUG),
           isNpc: true,
+          npcOrigin: "wild",
         })
         .returning();
       if (!created) throw new WarActionError(500, "建立 NPC 防守方失敗");
@@ -585,6 +586,7 @@ export async function initiateCampaign(params: {
       population: stats.population,
       isDefender: side.id === defender.id,
       unclaimed: unclaimedDefender,
+      npcOrigin: side.npcOrigin,
     });
     // 海上登陸戰役：攻擊方（含 NPC）兵力受容許量上限限制。
     if (isSeaLanding && side.id === attacker.id && seaLandingTroopCap !== null) {
