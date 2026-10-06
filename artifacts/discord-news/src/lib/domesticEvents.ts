@@ -85,3 +85,21 @@ export const CHOICE_STYLE: Record<string, string> = {
   crackdown: "border-red-400/50 bg-red-500/10 hover:bg-red-500/20",
   delay: "border-white/20 bg-white/5 hover:bg-white/10",
 };
+
+
+/**
+ * 強制事件彈窗是否該顯示。
+ * - 不在遊戲頁 / 教學進行中:不顯示;
+ * - AI 託管中:不顯示(操作已鎖定,且彈窗會蓋住「解除託管」造成死結;事件到期自動「拖延」);
+ * - 其餘:有待處理事件或結果要看才顯示。
+ */
+export function shouldShowEventDialog(i: {
+  inGame: boolean;
+  tutorialActive: boolean;
+  autopilotLocked: boolean;
+  hasPending: boolean;
+  hasResult: boolean;
+}): boolean {
+  if (!i.inGame || i.tutorialActive || i.autopilotLocked) return false;
+  return i.hasPending || i.hasResult;
+}

@@ -4,7 +4,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
-import { CHOICE_STYLE, useDomesticEvents, useResolveDomesticEvent } from "@/lib/domesticEvents";
+import { CHOICE_STYLE, shouldShowEventDialog, useDomesticEvents, useResolveDomesticEvent } from "@/lib/domesticEvents";
+import { useAutopilot } from "@/lib/autopilot";
 
 /**
  * 新手教學(歡迎彈窗 / 互動導覽)進行中時,事件彈窗要先等。
@@ -42,7 +43,16 @@ export function DomesticEventGate({ children }: { children: React.ReactNode }) {
 
   const pending = inGame ? (data?.pending ?? null) : null;
   const tutorialActive = useTutorialActive();
-  const open = inGame && !tutorialActive && (pending !== null || result !== null);
+  // AI 託管中:操作已鎖定,不彈強制選擇(否則玩家得先解除託管才能選、
+  // 但彈窗又蓋住「解除託管」,形成死結)。事件到期會自動採取「拖延」,不會懸著。
+  const { isLocked: autopilotLocked } = useAutopilot({ enabled: inGame });
+  const open = shouldShowEventDialog({
+    inGame,
+    tutorialActive,
+    autopilotLocked,
+    hasPending: pending !== null,
+    hasResult: result !== null,
+  });
 
   const choose = async (choiceId: string) => {
     if (!pending || resolve.isPending) return;

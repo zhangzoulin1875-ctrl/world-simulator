@@ -36,7 +36,7 @@ export function AutopilotGate({ children }: AutopilotGateProps) {
   return (
     <div className="relative min-h-screen">
       <div
-        className="fixed top-0 inset-x-0 z-[9999] flex items-center justify-between border-b border-amber-500/30 bg-black/90 px-4 py-2.5 text-white shadow-lg backdrop-blur"
+        className="pointer-events-auto fixed top-0 inset-x-0 z-[9999] flex items-center justify-between border-b border-amber-500/30 bg-black/90 px-4 py-2.5 text-white shadow-lg backdrop-blur"
         data-testid="banner-autopilot-locked"
       >
         <div className="flex items-center gap-2 text-sm font-medium">
