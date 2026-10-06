@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { callGameAi } from "../gameAi";
+import { callGameAiParsed } from "../gameAi";
 import { logger } from "../logger";
 import type { CabinetStyle } from "@workspace/db";
 import {
@@ -15,18 +15,29 @@ import {
  * 解析失敗直接丟錯（呼叫端回 502），絕不寫入半套資料。
  */
 
+/** 數字欄位寬鬆化：接受 "75"、72.5，夾在 0–100 並四捨五入（模型常回字串或小數）。 */
+const score = z.preprocess(
+  (v) => (typeof v === "string" && v.trim() !== "" ? Number(v) : v),
+  z.number().finite().transform((n) => Math.max(0, Math.min(100, Math.round(n)))),
+);
+
+/** 文字欄位寬鬆化：超長就截斷而不是整批作廢（「一句話」常寫超長）。 */
+const text = (max: number) =>
+  z.string().trim().min(1).transform((s) => (s.length > max ? s.slice(0, max) : s));
+
 const candidateSchema = z.object({
-  name: z.string().trim().min(1).max(40),
-  origin: z.string().trim().min(1).max(200),
+  name: text(40),
+  origin: text(200),
   style: z.object({
-    overreach: z.number().int().min(0).max(100),
-    timidity: z.number().int().min(0).max(100),
-    description: z.string().trim().min(1).max(300),
+    overreach: score,
+    timidity: score,
+    description: text(300),
   }),
 });
 
+// 至少 3 位才可用；多於 3 位只取前三位（過去 4 位或 2 位都會整批失敗）。
 const candidatesSchema = z.object({
-  candidates: z.array(candidateSchema).length(3),
+  candidates: z.array(candidateSchema).min(3).transform((a) => a.slice(0, 3)),
 });
 
 export interface GeneratedCandidate {
@@ -36,11 +47,18 @@ export interface GeneratedCandidate {
 }
 
 function parseAiJson(raw: string): unknown {
-  const cleaned = raw
+  let cleaned = raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
     .replace(/^```json\s*/i, "")
     .replace(/^```\s*/i, "")
     .replace(/```\s*$/i, "")
     .trim();
+  // 模型偶爾在 JSON 前後多寫說明文字：取第一個 { 到最後一個 }。
+  const a = cleaned.indexOf("{");
+  const b = cleaned.lastIndexOf("}");
+  if (a > 0 || (b >= 0 && b < cleaned.length - 1)) {
+    if (a >= 0 && b > a) cleaned = cleaned.slice(a, b + 1);
+  }
   return JSON.parse(cleaned);
 }
 
@@ -76,22 +94,16 @@ export async function generateMinisterCandidates(params: {
     "僅回覆 JSON 物件。",
   ].join("\n");
 
-  const message = await callGameAi("cabinet.candidates", "quality", {
-    system: systemPrompt,
-    messages: [{ role: "user", content: userPrompt }],
-  });
-
-  const block = message.content[0];
-  const raw = block && block.type === "text" ? block.text : "";
-
   let parsed: z.infer<typeof candidatesSchema>;
   try {
-    parsed = candidatesSchema.parse(parseAiJson(raw));
-  } catch (err) {
-    logger.error(
-      { err, raw: raw.slice(0, 500) },
-      "cabinet minister candidates parse failed",
+    parsed = await callGameAiParsed(
+      "cabinet.candidates",
+      "quality",
+      { system: systemPrompt, messages: [{ role: "user", content: userPrompt }] },
+      (raw) => candidatesSchema.parse(parseAiJson(raw)),
     );
+  } catch (err) {
+    logger.error({ err }, "cabinet minister candidates parse failed after retries");
     throw new Error("內閣人選生成格式不正確，請再試一次");
   }
 

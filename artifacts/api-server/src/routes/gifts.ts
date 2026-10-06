@@ -27,7 +27,7 @@ import { notifyGiftReceived } from "../lib/gameNotify";
  *
  * - Admin only（requireAdmin，Bearer ADMIN_TOKEN）；前端 raw fetch，不進
  *   OpenAPI spec（與其他管理端點一致）。
- * - 永久資源（科技點數／金錢）：只加值（amount ≥ 1），以單一原子 UPDATE
+ * - 永久資源（科技點數／金錢／木材／礦石）：只加值（amount ≥ 1），以單一原子 UPDATE
  *   （SET x = LEAST(x + amount, 上限)）遞增，併發安全、免 read-modify-write；
  *   相加先轉 bigint 再封頂，避免 int4 溢位。
  * - 暫時 buff（滿意度／人口增長率，Task #355）：以 discord_user_id 為鍵寫入
@@ -63,16 +63,17 @@ async function applyPermanentGift(
 ): Promise<AffectedNation[]> {
   const { resource, amount, target } = request;
   const spec = GIFT_RESOURCE_SPECS[resource];
-  const column =
-    resource === "techPoints"
-      ? playerNationsTable.techPoints
-      : playerNationsTable.money;
+  const columns = {
+    techPoints: playerNationsTable.techPoints,
+    money: playerNationsTable.money,
+    wood: playerNationsTable.wood,
+    ore: playerNationsTable.ore,
+  } as const;
+  if (!(resource in columns)) throw new Error(`不是永久資源：${resource}`);
+  const column = columns[resource as keyof typeof columns];
   // 先轉 bigint 相加再封頂（LEAST），回寫時 int8→int4 由 Postgres 隱式轉換。
   const nextValue = sql`LEAST(${column}::bigint + ${amount}::bigint, ${spec.max}::bigint)`;
-  const setPatch =
-    resource === "techPoints"
-      ? { techPoints: nextValue }
-      : { money: nextValue };
+  const setPatch = { [resource]: nextValue } as Record<string, SQL>;
 
   const where = targetWhere(target);
   const update = db.update(playerNationsTable).set(setPatch);

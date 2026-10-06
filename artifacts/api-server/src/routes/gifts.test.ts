@@ -81,6 +81,8 @@ async function readNation(id: string) {
     .select({
       techPoints: playerNationsTable.techPoints,
       money: playerNationsTable.money,
+      wood: playerNationsTable.wood,
+      ore: playerNationsTable.ore,
     })
     .from(playerNationsTable)
     .where(eq(playerNationsTable.id, id))
@@ -272,6 +274,72 @@ test("對指定玩家發金錢 → 精確增加（int8 路徑）", async () => {
   assert.equal(r.status, 200);
   const after = await readNation(playerNationId);
   assert.equal(after.money, before.money + 2000);
+});
+
+test("對指定玩家發木材與礦石 → 各自精確增加，不影響其他資源", async () => {
+  const before = await readNation(playerNationId);
+  const w = await postGift({
+    resource: "wood",
+    amount: 750,
+    target: { type: "nation", nationId: playerNationId },
+  });
+  assert.equal(w.status, 200);
+  const o = await postGift({
+    resource: "ore",
+    amount: 320,
+    target: { type: "nation", nationId: playerNationId },
+  });
+  assert.equal(o.status, 200);
+  const after = await readNation(playerNationId);
+  assert.equal(after.wood, before.wood + 750);
+  assert.equal(after.ore, before.ore + 320);
+  assert.equal(after.money, before.money, "金錢不應被動到");
+  assert.equal(after.techPoints, before.techPoints, "科技點數不應被動到");
+});
+
+test("木材發放：玩家與 NPC 的木材互不影響（只動指定國家）", async () => {
+  const npcBefore = await readNation(npcNationId);
+  const r = await postGift({
+    resource: "wood",
+    amount: 10,
+    target: { type: "nation", nationId: playerNationId },
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.affectedCount, 1);
+  const npcAfter = await readNation(npcNationId);
+  assert.equal(npcAfter.wood, npcBefore.wood);
+});
+
+test("礦石超過上限 → 400；數量非整數 → 400", async () => {
+  const tooBig = await postGift({
+    resource: "ore",
+    amount: 1_000_000_000_000_001,
+    target: { type: "nation", nationId: playerNationId },
+  });
+  assert.equal(tooBig.status, 400);
+  const frac = await postGift({
+    resource: "wood",
+    amount: 1.5,
+    target: { type: "nation", nationId: playerNationId },
+  });
+  assert.equal(frac.status, 400);
+});
+
+test("木材發放後玩家收到站內通知，文案含「木材」", async () => {
+  await db
+    .delete(playerNotificationsTable)
+    .where(eq(playerNotificationsTable.discordUserId, playerUserId));
+  const r = await postGift({
+    resource: "wood",
+    amount: 5,
+    target: { type: "nation", nationId: playerNationId },
+  });
+  assert.equal(r.status, 200);
+  const rows = await db
+    .select({ body: playerNotificationsTable.body })
+    .from(playerNotificationsTable)
+    .where(eq(playerNotificationsTable.discordUserId, playerUserId));
+  assert.ok(rows.some((n) => n.body.includes("木材")), "通知應提到木材");
 });
 
 test("對 NPC（無 Discord 帳號）發放 → affectedCount 1、notifiedCount 0", async () => {

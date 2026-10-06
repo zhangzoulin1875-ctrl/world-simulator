@@ -3,7 +3,7 @@
  * 供 routes/gifts.ts 與單元測試共用。
  *
  * 兩類資源：
- * - 永久（techPoints／money）：一次性加值（amount ≥ 1），原子 SQL 遞增並封頂。
+ * - 永久（techPoints／money／wood／ore）：一次性加值（amount ≥ 1），原子 SQL 遞增並封頂。
  * - 暫時（satisfaction 滿意度／populationGrowth 人口增長率，Task #355）：管理員
  *   指定持續回合數（durationTurns），每回合遞減並於歸零後自動失效還原。滿意度另
  *   需指定方向（法律／文化／宗教／權利或全部）。暫時 buff 以 discord_user_id 為鍵，
@@ -15,6 +15,8 @@ import { POLITICS_DIRECTIONS, type PoliticsDirection } from "./politics";
 export type GiftResource =
   | "techPoints"
   | "money"
+  | "wood"
+  | "ore"
   | "satisfaction"
   | "populationGrowth";
 
@@ -50,6 +52,9 @@ export const GIFT_RESOURCE_SPECS: Record<
 > = {
   techPoints: { label: "科技點數", max: 2_000_000_000, temporary: false },
   money: { label: "金錢", max: 1_000_000_000_000_000, temporary: false },
+  // wood／ore 為 bigint 欄位（mode: number）；上限與金錢一致，仍在 JS 安全整數內。
+  wood: { label: "木材", max: 1_000_000_000_000_000, temporary: false },
+  ore: { label: "礦石", max: 1_000_000_000_000_000, temporary: false },
   satisfaction: { label: "滿意度", max: 100, temporary: true },
   populationGrowth: { label: "人口增長率", max: 100, temporary: true },
 };
@@ -73,6 +78,8 @@ function isGiftResource(v: unknown): v is GiftResource {
   return (
     v === "techPoints" ||
     v === "money" ||
+    v === "wood" ||
+    v === "ore" ||
     v === "satisfaction" ||
     v === "populationGrowth"
   );
@@ -134,7 +141,7 @@ export function parseGiftRequest(
 ): { request: GiftRequest } | { error: string } {
   const { resource, amount } = body;
   if (!isGiftResource(resource)) {
-    return { error: "資源類型必須是科技點數、金錢、滿意度或人口增長率" };
+    return { error: "資源類型必須是科技點數、金錢、木材、礦石、滿意度或人口增長率" };
   }
   const spec = GIFT_RESOURCE_SPECS[resource];
   if (!isPositiveIntInRange(amount, 1, spec.max)) {

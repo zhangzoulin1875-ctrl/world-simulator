@@ -30,11 +30,15 @@ import {
   Coins,
   Smile,
   Users,
+  TreePine,
+  Pickaxe,
 } from "lucide-react";
 
 type GiftResource =
   | "techPoints"
   | "money"
+  | "wood"
+  | "ore"
   | "satisfaction"
   | "populationGrowth";
 type GiftTargetType = "all" | "allPlayers" | "allNpcs" | "nation";
@@ -57,6 +61,8 @@ interface NationsPayload {
 const RESOURCE_MAX: Record<GiftResource, number> = {
   techPoints: 2_000_000_000,
   money: 1_000_000_000_000_000,
+  wood: 1_000_000_000_000_000,
+  ore: 1_000_000_000_000_000,
   satisfaction: 100,
   populationGrowth: 100,
 };
@@ -64,6 +70,8 @@ const RESOURCE_MAX: Record<GiftResource, number> = {
 const RESOURCE_LABEL: Record<GiftResource, string> = {
   techPoints: "科技點數",
   money: "金錢",
+  wood: "木材",
+  ore: "礦石",
   satisfaction: "滿意度",
   populationGrowth: "人口增長率",
 };
@@ -532,6 +540,18 @@ export default function GiftResources() {
                   <span className="flex items-center gap-2">
                     <Coins className="h-4 w-4 text-amber-500" />
                     金錢
+                  </span>
+                </SelectItem>
+                <SelectItem value="wood">
+                  <span className="flex items-center gap-2">
+                    <TreePine className="h-4 w-4 text-green-600" />
+                    木材
+                  </span>
+                </SelectItem>
+                <SelectItem value="ore">
+                  <span className="flex items-center gap-2">
+                    <Pickaxe className="h-4 w-4 text-stone-500" />
+                    礦石
                   </span>
                 </SelectItem>
                 <SelectItem value="satisfaction">
