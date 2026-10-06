@@ -20,6 +20,8 @@ export interface PlanInput {
   snapshot: ComplianceSnapshot;       // 本回合玩家行為
   /** 專制下的軍方滿意度（0–100）；用來讓專制議會「只看軍方」。null = 不適用。 */
   militarySatisfaction: number | null;
+  /** 目前是否有任何進行中的戰爭(不分攻守);決定抗議措辭是否能提到戰事。預設視為和平。 */
+  atWar?: boolean;
 }
 
 export interface PlanLogEntry { kind: "demand" | "judgement" | "revolution" | "constitution"; summary: string; satDelta: number }
@@ -78,7 +80,7 @@ export function planParliamentTurn(inp: PlanInput): PlanResult {
   if (!active && isDemandDue(tick, lastDemandTick)) {
     const ruling = rulingParty(inp.parties);
     if (ruling) {
-      const msg = fallbackMessage(ruling.stance, ruling.name, inp.tier);
+      const msg = fallbackMessage(ruling.stance, ruling.name, inp.tier, inp.atWar === true);
       protestText = msg.protest;
       if (msg.demand) {
         active = { stance: msg.demand.stance, text: msg.demand.text, issuedTick: tick, levels: [] };

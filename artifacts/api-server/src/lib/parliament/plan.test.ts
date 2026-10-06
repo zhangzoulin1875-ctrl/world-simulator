@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { planParliamentTurn, type PlanInput } from "./plan";
-import type { ComplianceSnapshot, SeatedParty } from "./core";
+import { fallbackMessage, type ComplianceSnapshot, type ParliamentStance, type SeatedParty } from "./core";
 
 const parties: SeatedParty[] = [
   { id: "a", name: "鷹派黨", stance: "militarist", weight: 60, seats: 60 },
@@ -97,4 +97,35 @@ test("要求在期內不會重複提出新的", () => {
   const first = planParliamentTurn(base());
   const second = planParliamentTurn(base({ tick: first.tick, satisfaction: first.satisfaction, lastDemandTick: first.lastDemandTick, activeDemand: first.activeDemand as any }));
   assert.equal(second.logs.filter((l) => l.kind === "demand").length, 0);
+});
+
+// ── 回歸:沒有戰爭時,議會不可抱怨「連年征戰」(使用者回報) ───────────────
+const pacifistRuling: SeatedParty[] = [
+  { id: "p", name: "和平黨", stance: "pacifist", weight: 70, seats: 70 },
+  { id: "m", name: "鷹派黨", stance: "militarist", weight: 30, seats: 30 },
+];
+
+test("和平派執政但國家沒有戰爭:抗議不得提到征戰/流血", () => {
+  const r = planParliamentTurn(base({ parties: pacifistRuling, atWar: false }));
+  assert.ok(r.protestText, "仍要有抗議內容");
+  assert.doesNotMatch(r.protestText!, /征戰|流血/);
+  assert.equal(r.activeDemand!.stance, "pacifist"); // 政策要求照常提出
+});
+
+test("沒傳 atWar 視為和平(預設值安全)", () => {
+  const r = planParliamentTurn(base({ parties: pacifistRuling }));
+  assert.doesNotMatch(r.protestText!, /征戰|流血/);
+});
+
+test("和平派執政且確實在打仗:才可以抱怨連年征戰", () => {
+  const r = planParliamentTurn(base({ parties: pacifistRuling, atWar: true }));
+  assert.match(r.protestText!, /征戰/);
+});
+
+test("所有立場在和平時的抗議都不得提到戰事", () => {
+  const stances: ParliamentStance[] = ["militarist", "pacifist", "fiscal_hawk", "welfare", "religious", "secular", "mercantile"];
+  for (const st of stances) {
+    const m = fallbackMessage(st, "測試黨", "democracy", false);
+    assert.doesNotMatch(m.protest, /連年征戰|流血|戰火/, `${st}: ${m.protest}`);
+  }
 });

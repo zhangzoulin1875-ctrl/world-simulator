@@ -331,11 +331,15 @@ export function fallbackMessage(
   stance: ParliamentStance,
   partyName: string,
   tier: ParliamentTier,
+  /** 目前是否有進行中的戰爭;抗議是「描述現況」,不能在和平時宣稱連年征戰。未提供視為和平。 */
+  atWar: boolean = false,
 ): ParliamentMessage {
   const PROTEST: Record<ParliamentStance, string> = {
     loyalist: "議會一致擁護領袖。",
     militarist: "近來邊防鬆弛，軍備落後於鄰國，令議員憂心。",
-    pacifist: "連年征戰使民不聊生，議員要求停止無謂的流血。",
+    pacifist: atWar
+      ? "連年征戰使民不聊生，議員要求停止無謂的流血。"
+      : "國家雖處和平，議員仍憂心軍備擴張會把國家拖進戰爭，要求節制軍費。",
     fiscal_hawk: "賦稅沉重、國庫揮霍，議員對財政紀律極為不滿。",
     welfare: "民生困頓、福利不足，議員認為政府忽視了百姓。",
     religious: "信仰日漸式微，議員認為國家失去了精神根基。",

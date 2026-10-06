@@ -142,6 +142,7 @@ export async function settleNationParliament(
   const plan = planParliamentTurn({
     tier: planTier, tick: state.tick, satisfaction: state.satisfaction, lastDemandTick: state.lastDemandTick,
     activeDemand: state.activeDemand as any, parties, snapshot, militarySatisfaction: nation.satisfactionMilitary,
+    atWar: war.atWar,
   });
 
   // 沒有通過憲法 → 議會滿意度每回合小扣(有下限,單憑此事不會逼出革命;專制橡皮圖章不罰)。
