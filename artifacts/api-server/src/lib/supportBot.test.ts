@@ -200,10 +200,10 @@ test("目的型問題：改寫會分類為 goal 並給出多個機制角度；�
   assert.equal(a, "1. 目標拆解…");
   assert.equal(calls.length, 2);
   const msg = calls[1].messages[0].content as string;
-  assert.ok(msg.includes(GOAL_GUIDE.slice(0, 30)), "帶有推理指引");
-  assert.match(msg, /目標拆解/);
-  assert.match(msg, /代價與風險/);
-  assert.match(msg, /絕對不要編造不存在的按鈕/);
+  assert.ok(msg.includes(GOAL_GUIDE.slice(0, 20)), "帶有『推導做法』的方向提醒");
+  assert.match(msg, /推導出合理可行的做法/);
+  assert.match(msg, /不要提出依據裡沒有的功能/);
+  assert.ok(!msg.includes("目標拆解") && !msg.includes("代價與風險"), "不再要求固定五段格式");
   // 多個機制的檔案都被帶進依據（不只擠在同一個）
   for (const f of ["populationCapacity.ts", "growth.ts", "food.ts"]) assert.ok(msg.includes(f), `缺少 ${f}`);
   assert.ok(!msg.includes("unrelated.ts"));
@@ -230,7 +230,7 @@ test("疑似 Bug：帶 bug 指引（請玩家提供資料、不斷言）", async
   await answerQuestion("人口突然變0是bug嗎 capacity");
   const msg = calls[1].messages[0].content as string;
   assert.match(msg, /疑似異常/);
-  assert.match(msg, /不要斷言是 Bug/);
+  assert.match(msg, /不要直接斷言是 Bug/);
   __setCodeIndexForTest(null);
 });
 
@@ -269,6 +269,8 @@ test("goal 型但索引不可用 → 仍給推理指引＋明講沒有程式碼�
 test("prompt 允許串連機制做推論，但禁止編造", () => {
   assert.match(SUPPORT_SYSTEM_PROMPT, /串起來做合理推論/);
   assert.match(SUPPORT_SYSTEM_PROMPT, /絕對不要編造數字、按鈕或功能/);
+  assert.match(SUPPORT_SYSTEM_PROMPT, /不需要固定格式、標題或出處標註/);
+  assert.ok(!SUPPORT_SYSTEM_PROMPT.includes("句尾標註出處"), "不再強制標出處");
 });
 
 // ── 防胡編／上古機制／問A答B ─────────────────────────────────────────────
@@ -324,52 +326,13 @@ test("問A答B：問『稅收』卻只搜到糧食 → 不把糧食當依據，�
   __setCodeIndexForTest(null);
 });
 
-test("胡編：第一版引用不存在的檔案＋憑空數字 → 要求修正，採用修正版", async () => {
-  resetRewriteCache(); __setCodeIndexForTest(mixedIdx());
-  let answers = 0;
-  const calls = stubAi((p) => {
-    if (/程式碼搜尋助手/.test(p.system ?? "")) return '{"kind":"rule","keywords":["capacity","承載量"],"angles":[]}';
-    answers++;
-    return answers === 1
-      ? "人口超過上限每回合損失 37% [ghostFile.ts]"
-      : "人口超過承載量時每回合最多減少 6% [populationCapacity.ts]";
-  });
-  const a = await answerQuestion("人口 承載量 超過會怎樣");
-  assert.equal(a, "人口超過承載量時每回合最多減少 6% [populationCapacity.ts]");
-  assert.equal(answers, 2);
-  const fix = calls.at(-1).messages.at(-1).content as string;
-  assert.match(fix, /ghostFile\.ts/);
-  assert.match(fix, /37/);
-  __setCodeIndexForTest(null);
-});
 
-test("胡編：修正後仍編造 → 保底清除數字與出處並加提醒（不會輸出編造內容）", async () => {
+test("直接作答：不論回答長怎樣都原樣送出，只問一次 AI（沒有驗證、重答、清洗）", async () => {
   resetRewriteCache(); __setCodeIndexForTest(mixedIdx());
-  stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"rule","keywords":["capacity","承載量"],"angles":[]}' : "損失 88% [ghost.ts]"));
+  const weird = "損失 37% 人口，依 [ghost.ts]，沒有任何格式";
+  const calls = stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"rule","keywords":["capacity","承載量"],"angles":[]}' : weird));
   const a = await answerQuestion("人口 承載量 超過會怎樣");
-  assert.ok(!a.includes("88") && !a.includes("ghost.ts"));
-  assert.match(a, /數值待確認/);
-  __setCodeIndexForTest(null);
-});
-
-test("乾淨的回答只問一次 AI（不浪費額度）", async () => {
-  resetRewriteCache(); __setCodeIndexForTest(mixedIdx());
-  const calls = stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"rule","keywords":["capacity","承載量"],"angles":[]}' : "最多減少 6% [populationCapacity.ts]"));
-  await answerQuestion("人口 承載量 超過會怎樣");
+  assert.equal(a, weird, "不改寫、不附加提醒");
   assert.equal(calls.filter((c) => !/程式碼搜尋助手/.test(c.system ?? "")).length, 1);
-  __setCodeIndexForTest(null);
-});
-
-test("修正呼叫失敗 → 不讓整則失敗，改用清理後的第一版", async () => {
-  resetRewriteCache(); __setCodeIndexForTest(mixedIdx());
-  let n = 0;
-  anthropic.messages.create = (async (p: any) => {
-    if (/程式碼搜尋助手/.test(p.system ?? "")) return { content: [{ type: "text", text: '{"kind":"rule","keywords":["capacity","承載量"],"angles":[]}' }], usage: { input_tokens: 1, output_tokens: 1 } };
-    n++; if (n === 2) throw new Error("429");
-    return { content: [{ type: "text", text: "損失 91% [ghost.ts]" }], usage: { input_tokens: 1, output_tokens: 1 } };
-  }) as unknown as Create;
-  const a = await answerQuestion("人口 承載量 超過會怎樣");
-  assert.ok(!a.includes("91") && !a.includes("ghost.ts"));
-  assert.match(a, /數值待確認/);
   __setCodeIndexForTest(null);
 });
