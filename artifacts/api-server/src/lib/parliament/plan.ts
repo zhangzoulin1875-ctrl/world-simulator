@@ -2,7 +2,7 @@ import {
   type ParliamentTier, type ParliamentStance, type ComplianceLevel, type ComplianceSnapshot,
   type SeatedParty, DEMAND_INTERVAL_TURNS, PARLIAMENT_SATISFACTION_AFTER_REVOLUTION, MAX_PENALTY,
   clampSat, judgeCompliance, complianceDelta, naturalDrift, shouldRevolt, rulingParty,
-  isDemandDue, fallbackMessage,
+  isDemandDue, fallbackMessage, COMPLIANCE_LABELS,
 } from "./core";
 
 /**
@@ -66,7 +66,7 @@ export function planParliamentTurn(inp: PlanInput): PlanResult {
     sat = clampSat(sat + d);
     logs.push({
       kind: "judgement",
-      summary: `「${active.text}」本回合判定:${level}${inp.snapshot.wrotePolicy ? "" : "(本期未頒布任何政策,預設輕度違背)"}`,
+      summary: `「${active.text}」本回合判定:${COMPLIANCE_LABELS[level]}`,
       satDelta: d,
     });
     // 三回合期滿 → 結案

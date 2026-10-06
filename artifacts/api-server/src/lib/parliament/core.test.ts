@@ -9,7 +9,7 @@ import {
 } from "./core";
 
 const snap = (o: Partial<ComplianceSnapshot> = {}): ComplianceSnapshot => ({
-  atWar: false, militarySpendChange: 0, taxChange: 0, wrotePolicy: true,
+  atWar: false, militarySpendChange: 0, taxChange: 0,
   religionLean: 0, commerceUp: false, ...o,
 });
 
@@ -53,9 +53,18 @@ test("執政黨平手取 id 字典序小者（確定性）", () => {
   assert.equal(r!.id, "a");
 });
 
-test("沒寫政策 → 預設輕度違背（任何立場）", () => {
-  for (const st of ["militarist", "pacifist", "fiscal_hawk", "welfare", "religious", "secular", "mercantile"] as const) {
-    assert.equal(judgeCompliance(st, snap({ wrotePolicy: false })), "minor", st);
+test("什麼都沒做(沒有任何變化)→ 只依實際狀態判定,不會因為「沒頒布政策」被扣", () => {
+  // 和平黨:沒打仗、軍費沒漲 → 遵守
+  assert.equal(judgeCompliance("pacifist", snap({})), "complied");
+  // 節流減稅:稅率沒漲 → 遵守
+  assert.equal(judgeCompliance("fiscal_hawk", snap({})), "complied");
+  // 民生福利:稅沒降、軍費沒漲 → 遵守
+  assert.equal(judgeCompliance("welfare", snap({})), "complied");
+  // 忠誠:永遠遵守
+  assert.equal(judgeCompliance("loyalist", snap({})), "complied");
+  // 擴軍/宗教/世俗/商貿:要求的是「主動作為」,沒變化 = 輕度違背(這是狀態判定,不是「沒頒布」)
+  for (const st of ["militarist", "religious", "secular", "mercantile"] as const) {
+    assert.equal(judgeCompliance(st, snap({})), "minor", st);
   }
 });
 

@@ -3,7 +3,7 @@
  *
  * 設計決定（2026-10-04，使用者確認）：
  *  - 政體分三檔：專制（橡皮圖章）／半專制（可提政策要求，單次扣分上限 -8）／民主（全額）。
- *  - 議會三回合提一次要求；要求期間「每回合」都判定是否遵守；沒寫政策視為輕度違背。
+ *  - 議會三回合提一次要求；要求期間「每回合」都判定是否遵守；只看國家實際狀態(戰爭、軍費、稅率…),不要求玩家每回合主動頒布政策。
  *  - 議會對玩家說的話分兩種：「抗議內容」（不滿什麼）與「政策要求」（要你做什麼）。
  *  - 席次數字由公式算出；AI 只負責黨名與敘述。玩家唯讀。
  */
@@ -163,8 +163,6 @@ export interface ComplianceSnapshot {
   militarySpendChange: number;
   /** 稅率相對上回合的變化（百分點），正 = 加稅。 */
   taxChange: number;
-  /** 本回合玩家有沒有寫入任何政策（沒寫 = 預設輕度違背）。 */
-  wrotePolicy: boolean;
   /** 本回合政策是否朝宗教方向 / 世俗方向（-1 世俗、0 無、+1 宗教）。 */
   religionLean: -1 | 0 | 1;
   /** 本回合貿易 / 建設商業投資是否增加。 */
@@ -182,13 +180,14 @@ export const COMPLIANCE_LABELS: Record<ComplianceLevel, string> = {
 
 /**
  * 單回合遵守判定（純規則，不靠 AI）。
- * 沒寫政策 → 預設「輕度違背」（除非該要求本來就是「維持現狀」類，這裡不特別處理）。
+ * 只看國家實際狀態:什麼都沒做 = 「沒有變化」,依各立場規則判定
+ * (例如和平黨 + 沒打仗 + 軍費沒漲 = 遵守)。不會因為「沒頒布政策」而被扣分;
+ * 想補救滿意度請用國情報告。
  */
 export function judgeCompliance(
   stance: ParliamentStance,
   s: ComplianceSnapshot,
 ): ComplianceLevel {
-  if (!s.wrotePolicy) return "minor";
   switch (stance) {
     case "militarist":
       if (s.militarySpendChange >= 0.05) return "complied";

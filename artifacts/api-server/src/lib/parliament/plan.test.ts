@@ -8,7 +8,7 @@ const parties: SeatedParty[] = [
   { id: "b", name: "和平黨", stance: "pacifist", weight: 40, seats: 40 },
 ];
 const snap = (o: Partial<ComplianceSnapshot> = {}): ComplianceSnapshot => ({
-  atWar: false, militarySpendChange: 0, taxChange: 0, wrotePolicy: true, religionLean: 0, commerceUp: false, ...o,
+  atWar: false, militarySpendChange: 0, taxChange: 0, religionLean: 0, commerceUp: false, ...o,
 });
 const base = (o: Partial<PlanInput> = {}): PlanInput => ({
   tier: "democracy", tick: 0, satisfaction: 60, lastDemandTick: null, activeDemand: null,
@@ -26,24 +26,47 @@ test("民主：第一次結算就提出要求（含抗議 + 政策要求兩種�
 });
 
 test("專制：橡皮圖章——不提要求、不扣分、滿意度鎖高、不革命", () => {
-  const r = planParliamentTurn(base({ tier: "autocracy", satisfaction: 0, snapshot: snap({ wrotePolicy: false }) }));
+  const r = planParliamentTurn(base({ tier: "autocracy", satisfaction: 0, snapshot: snap({}) }));
   assert.equal(r.activeDemand, null); assert.equal(r.revolt, false);
   assert.equal(r.satisfaction, 80); assert.equal(r.logs.length, 0);
 });
 
-test("要求期間每回合都判定；沒寫政策 = 輕度違背；三回合後結案", () => {
+test("要求期間每回合都判定(依實際國家狀態);三回合後結案", () => {
   let s = planParliamentTurn(base());                    // tick1 提出
   let st = { sat: s.satisfaction, tick: s.tick, last: s.lastDemandTick, act: s.activeDemand };
   const seen: string[] = [];
   for (let i = 0; i < 3; i++) {
-    const r = planParliamentTurn(base({ tick: st.tick, satisfaction: st.sat, lastDemandTick: st.last, activeDemand: st.act as any, snapshot: snap({ wrotePolicy: false }) }));
+    const r = planParliamentTurn(base({ tick: st.tick, satisfaction: st.sat, lastDemandTick: st.last, activeDemand: st.act as any, snapshot: snap({}) }));
     const j = r.logs.find((l) => l.kind === "judgement");
     assert.ok(j, `第 ${i + 1} 回合必須判定`);
-    assert.match(j!.summary, /預設輕度違背/);
+    assert.doesNotMatch(j!.summary, /預設輕度違背|未頒布/);
     seen.push(j!.summary);
     st = { sat: r.satisfaction, tick: r.tick, last: r.lastDemandTick, act: r.activeDemand };
   }
   assert.equal(seen.length, 3);
+});
+
+test("迴歸:議會要求避戰,玩家本來就沒打仗、什麼政策也沒頒布 → 整個要求期不扣分(滿意度只升不降)", () => {
+  for (const tier of ["semi", "democracy"] as const) {
+    const act = { stance: "pacifist" as const, text: "請避免發動戰爭並節制軍費。", issuedTick: 1, levels: [] as string[] };
+    let st = { sat: 60, tick: 1, last: 1 as number | null, act: act as any };
+    for (let i = 0; i < 3; i++) {
+      const r = planParliamentTurn(base({ tier, tick: st.tick, satisfaction: st.sat, lastDemandTick: st.last, activeDemand: st.act, snapshot: snap({}) }));
+      const j = r.logs.find((l) => l.kind === "judgement")!;
+      assert.equal(j.satDelta >= 0, true, `${tier} 第 ${i + 1} 回合不該扣分: ${j.summary}`);
+      assert.match(j.summary, /遵守/);
+      st = { sat: r.satisfaction, tick: r.tick, last: r.lastDemandTick, act: r.activeDemand };
+    }
+    assert.ok(st.sat >= 60, `${tier} 期末滿意度 ${st.sat} 應 ≥ 60`);
+  }
+});
+
+test("真的違背仍會扣:要求避戰,但玩家發動戰爭 → 扣分", () => {
+  const act = { stance: "pacifist" as const, text: "請避免發動戰爭並節制軍費。", issuedTick: 1, levels: [] as string[] };
+  const r = planParliamentTurn(base({ tier: "democracy", tick: 1, satisfaction: 60, lastDemandTick: 1, activeDemand: act as any, snapshot: snap({ atWar: true, militarySpendChange: 0.2 }) }));
+  const j = r.logs.find((l) => l.kind === "judgement")!;
+  assert.ok(j.satDelta < 0);
+  assert.match(j.summary, /嚴重違背/);
 });
 
 function runPeriod(tier: "semi" | "democracy", s: Partial<ComplianceSnapshot>) {

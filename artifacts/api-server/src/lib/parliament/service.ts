@@ -132,7 +132,6 @@ export async function settleNationParliament(
     atWar: war.aggressor,
     militarySpendChange: Number.isFinite(armyChange) ? armyChange : 0,
     taxChange: state.prevTaxRate === null ? 0 : nation.taxRatePct - state.prevTaxRate,
-    wrotePolicy: state.prevPolicyCount === null ? true : policyCount > state.prevPolicyCount,
     religionLean: 0,
     commerceUp: false,
   };

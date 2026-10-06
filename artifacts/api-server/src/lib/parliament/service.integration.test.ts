@@ -59,7 +59,7 @@ test("要求期每回合判定並寫紀錄；三回合後結案", async () => {
   const logs = await db.select().from(parliamentLogTable).where(eq(parliamentLogTable.nationId, n.id));
   const j = logs.filter((l) => l.kind === "judgement");
   assert.ok(j.length >= 3, `判定紀錄 ${j.length}`);
-  assert.ok(j.every((l) => /預設輕度違背|判定/.test(l.summary)));
+  assert.ok(j.every((l) => /判定/.test(l.summary) && !/預設輕度違背|未頒布/.test(l.summary)));
 });
 
 test("半專制(君主立憲)：3 黨", async () => {

@@ -140,7 +140,7 @@ export function ParliamentPanel() {
               <div className="mb-1 text-xs font-semibold text-sky-300">政策要求{v.demand ? `(${v.demand.stanceLabel})` : ""}</div>
               {v.demand ? (<>
                 <p className="text-sm text-white/85">{v.demand.text}</p>
-                <p className="mt-2 text-[11px] text-white/50">進度 {v.demand.turnsElapsed}/{v.demand.turnsTotal} 回合 · 每回合都會判定,未頒布政策視為輕度違背;本期最多扣 {v.maxPenalty} 點</p>
+                <p className="mt-2 text-[11px] text-white/50">進度 {v.demand.turnsElapsed}/{v.demand.turnsTotal} 回合 · 每回合依國家實際政策與狀態判定(不需要每回合頒布新政策);本期最多扣 {v.maxPenalty} 點。滿意度掉了可以用國情報告補救</p>
                 {v.demand.levels.length > 0 && <div className="mt-1 flex flex-wrap gap-1.5 text-[11px]">
                   {v.demand.levels.map((l, i) => <span key={i} className={LEVEL_STYLE[l] ?? "text-white/60"}>第{i + 1}回合:{LEVEL_LABEL[l] ?? l}</span>)}</div>}
               </>) : <p className="text-sm text-white/55">目前沒有進行中的要求,議會每 3 回合會提出新的要求。</p>}

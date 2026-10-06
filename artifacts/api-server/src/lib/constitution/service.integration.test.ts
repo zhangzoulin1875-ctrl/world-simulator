@@ -103,15 +103,14 @@ test("並發存草稿不會產生兩列，也不會丟錯", async () => {
   assert.equal(rows.length, 1);
 });
 
-test("議會結算：民主國沒憲法 → 滿意度每回合 -1，並留下日誌", async () => {
+test("議會結算：民主國沒憲法 → 憲法懲罰每回合 -1，並留下日誌", async () => {
   const nat = await mkNation("議會內閣制");
   await settleNationParliament(nat, null, 0); // 第一次結算會建議會狀態與政黨
-  const s1 = await satOf(nat.id);
   await settleNationParliament(nat, null, 0);
-  const s2 = await satOf(nat.id);
-  assert.ok(s2 < s1 || s2 === NO_CONSTITUTION_SAT_FLOOR, `應下降：${s1} -> ${s2}`);
-  const logs = await db.execute(sql`select summary from parliament_log where nation_id = ${nat.id} and summary like '%沒有憲法%'`);
-  assert.ok(logs.rows.length >= 1);
+  // 只看「憲法懲罰」這一筆:議會自己的政策要求判定(遵守 +2 等)另計,不能混進來。
+  const logs = await db.execute(sql`select sat_delta from parliament_log where nation_id = ${nat.id} and summary like '%沒有憲法%'`);
+  assert.ok(logs.rows.length >= 1, "應留下憲法懲罰日誌");
+  assert.ok(logs.rows.every((r: any) => Number(r.sat_delta) === -1), "每筆憲法懲罰都是 -1");
 });
 
 test("議會結算：通過憲法後不再有「沒有憲法」扣分；專制橡皮圖章從來不扣", async () => {
@@ -135,7 +134,8 @@ test("議會結算：通過憲法後不再有「沒有憲法」扣分；專制�
 test("議會結算：滿意度已在下限時，憲法懲罰不再追加（不會單憑此事把人踩到歸零）", async () => {
   const nat = await mkNation("議會內閣制");
   await settleNationParliament(nat, null, 0);
-  await db.update(parliamentStateTable).set({ satisfaction: NO_CONSTITUTION_SAT_FLOOR }).where(eq(parliamentStateTable.nationId, nat.id));
+  // 設在下限以下一截:議會自己的判定一回合最多 +2,仍不會爬過下限,懲罰函式因此不該出手。
+  await db.update(parliamentStateTable).set({ satisfaction: NO_CONSTITUTION_SAT_FLOOR - 5 }).where(eq(parliamentStateTable.nationId, nat.id));
   await db.execute(sql`delete from parliament_log where nation_id = ${nat.id}`);
   await settleNationParliament(nat, null, 0);
   const pen = await db.execute(sql`select 1 from parliament_log where nation_id = ${nat.id} and summary like '%沒有憲法%'`);
