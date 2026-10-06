@@ -7,7 +7,7 @@
  * 每分鐘都在碰 DB → Neon 全月 720 小時常醒，月中額度就會燒完。
  *
  * 解法：所有「何時該做事」的資訊其實都存在 DB 的時間戳欄位裡
- * （world_sim_next_run_at、ai_judgment_next_run_at、finance_next_run_at、
+ * （world_sim_next_run_at、ai_judgment_next_run_at、
  * war_campaigns.next_resolve_at、條約 expires_at、回合時段表…）。
  * 快取一次「下次到期時間」到記憶體，每分鐘的 tick 只做純記憶體比對：
  * 還沒到期就直接返回（零 DB 查詢）；到期才去 DB 做原本的原子認領
@@ -186,7 +186,6 @@ async function readSnapshot(): Promise<Snapshot> {
       w.ai_judgment_next_run_at AS aj_next,
       w.settlement_blackout_start_hour AS bstart,
       w.settlement_blackout_end_hour AS bend,
-      w.finance_next_run_at AS fin_next,
       w.turn_times AS turn_times,
       w.last_turn_at AS last_turn_at,
       (SELECT MIN(next_resolve_at) FROM war_campaigns WHERE status = 'active') AS war_next,

@@ -9,7 +9,6 @@ import {
   isWithinBlackout,
   computeNextRunAtWithBlackout,
 } from "./settlementBlackout";
-import { runFinanceSettlement } from "./financeSettlement";
 import {
   blackoutFloor,
   noteGameActivity,
@@ -265,76 +264,6 @@ async function tickWarSettlement(): Promise<void> {
 }
 
 /**
- * 財政政策獨立排程：原子認領一次財政結算。
- * 僅在 finance_next_run_at 已到期（或從未設定）時執行，並把下次到期時間前進 4 小時。
- * 若靜默時段啟用，到期時間延到時段結束後（與戰役結算邏輯一致）。
- * 回傳 true = 本次成功認領並執行；false = 尚未到期或並發已被搶先。
- */
-export async function claimFinanceSettlementSchedule(
-  now: Date,
-  blackoutStartHour: number,
-  blackoutEndHour: number,
-): Promise<boolean> {
-  const nextRunAt = computeNextRunAtWithBlackout(
-    now,
-    FINANCE_SETTLEMENT_FREQUENCY_MINUTES,
-    blackoutStartHour,
-    blackoutEndHour,
-  );
-  const res = await db.execute(sql`
-    UPDATE world_game_state
-    SET finance_next_run_at = ${nextRunAt.toISOString()}
-    WHERE id = 1
-      AND (finance_next_run_at IS NULL OR finance_next_run_at <= NOW())
-    RETURNING id
-  `);
-  return res.rows.length > 0;
-}
-
-/** 財政結算固定頻率（分鐘）：每 4 小時執行一次，不依賴每日回合。 */
-export const FINANCE_SETTLEMENT_FREQUENCY_MINUTES = 240;
-
-// 財政結算迴圈的同步重入鎖（避免同一迴圈自我重入；runFinanceSettlement 本身
-// 亦有 settlementInFlight 守門，此鎖為額外防禦層）。
-let financeSettlementTickRunning = false;
-
-/**
- * 財政政策結算迴圈（每分鐘掃描）：finance_next_run_at 到期即結算，
- * 不再等每日回合 — 玩家提交政策後最多 4 小時（加上靜默時段）即可得到判定。
- * 遵守結算靜默時段（與戰役結算同一設定）；靜默時段內跳過，到期的結算
- * 會在時段結束後的第一個 tick 執行。
- * 每日回合仍保留財政結算呼叫（向後相容），但若此迴圈先跑且無待判定想法，
- * 回合中的 runFinanceSettlement 亦只是空跑（各國無 pending idea → 立即回傳）。
- */
-async function tickFinanceSettlement(): Promise<void> {
-  if (financeSettlementTickRunning) return;
-  financeSettlementTickRunning = true;
-  try {
-    // 省電喚醒快取：未到期就純記憶體返回。
-    if (await skipIfNotDue("financeSettlement")) return;
-    const cfg = await readAiJudgmentScheduleConfig();
-    if (!cfg) return;
-    const now = new Date();
-    if (isWithinBlackout(now, cfg.blackoutStartHour, cfg.blackoutEndHour)) {
-      return;
-    }
-    const claimed = await claimFinanceSettlementSchedule(
-      now,
-      cfg.blackoutStartHour,
-      cfg.blackoutEndHour,
-    );
-    if (!claimed) return;
-    const summary = await runFinanceSettlement();
-    noteGameActivity();
-    logger.info({ summary }, "finance settlement tick ran");
-  } catch (err) {
-    logger.error({ err }, "finance settlement tick failed");
-  } finally {
-    financeSettlementTickRunning = false;
-  }
-}
-
-/**
  * 註冊四個迴圈的喚醒計算（快照單一 SQL 讀到的原始欄位 → 下次到期 ms）。
  * 詳情見 schedulerWake.ts；未到期時每分鐘 tick 不碰 DB（Neon 省電）。
  */
@@ -361,13 +290,6 @@ function registerWorldSchedulerWakes(): void {
       sanitizeBlackoutHour(raw["bend"]),
     );
   });
-  registerSchedulerWake("financeSettlement", (raw) =>
-    blackoutFloor(
-      toMs(raw["fin_next"]) ?? 0,
-      sanitizeBlackoutHour(raw["bstart"]),
-      sanitizeBlackoutHour(raw["bend"]),
-    ),
-  );
 }
 
 /** 啟動排程迴圈（於 bootstrap 後呼叫）。 */
@@ -385,10 +307,7 @@ export function startWorldSchedulerLoops(): void {
     void tickWarSettlement();
     setInterval(() => void tickWarSettlement(), SCHEDULER_TICK_MS);
   }, 60_000);
-  setTimeout(() => {
-    void tickFinanceSettlement();
-    setInterval(() => void tickFinanceSettlement(), SCHEDULER_TICK_MS);
-  }, 75_000);
+  // 財政結算不再有獨立的現實時間迴圈：與政治一樣，只在每回合結算（turnEngine）時執行。
   logger.info(
     "world scheduler loops started (npc-evolution / ai-judgment / war-settlement / finance-settlement)",
   );

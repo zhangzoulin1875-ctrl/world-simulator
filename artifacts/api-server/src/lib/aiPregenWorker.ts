@@ -302,8 +302,9 @@ async function tick(): Promise<void> {
       }
     }
 
-    // 每種類的下次結算時間（fiscal = 財政排程；politics = 下次回合時段）。
-    const fiscalNext = state[0]?.financeNextRunAt ?? null;
+    // 每種類的下次結算時間（fiscal、politics 都在回合引擎結算 = 下次回合時段）。
+    // 財政與政治同在回合引擎結算，下次結算時間都是下次回合時間。
+    const fiscalNext = nextTurnAt;
     const nowMs = now.getTime();
     // 「現在」是否落在某種類結算前 20 分鐘的鎖定窗內。
     const lockedKinds = new Set<string>();
