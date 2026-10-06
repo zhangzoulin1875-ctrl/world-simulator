@@ -223,6 +223,8 @@ export * from "./renameMilitaryUnitBody";
 export * from "./restartBot200";
 export * from "./restartBot400";
 export * from "./restartBot500";
+export * from "./revolutionRegionPressure";
+export * from "./revolutionRegionPressureLevel";
 export * from "./setBotToken200";
 export * from "./setBotToken400";
 export * from "./setBotTokenBody";

@@ -5350,6 +5350,23 @@ export const GetSuperEventResponse = zod.object({
   severity: zod.number(),
   turnsElapsed: zod.number(),
   affectsMe: zod.boolean(),
+  revolutionPressure: zod
+    .array(
+      zod.object({
+        regionId: zod.number(),
+        regionName: zod.string(),
+        pressure: zod.number().describe("0~100"),
+        revoltAt: zod.number().describe("爆發線(目前 100)"),
+        level: zod
+          .enum(["calm", "tense", "critical"])
+          .describe("平穩 <40 | 緊張 40~74 | 危急 >=75"),
+        revolted: zod.boolean().describe("已脫離(爆發革命)"),
+      }),
+    )
+    .nullable()
+    .describe(
+      "革命浪潮事件才有:我自己掌控的受波及地區各自的革命壓力(0~100,達爆發線即脫離);其他類別為 null。只含本國地區。",
+    ),
   regionIds: zod
     .array(zod.number())
     .describe("regional 事件的影響地區 id；global 事件為空陣列"),

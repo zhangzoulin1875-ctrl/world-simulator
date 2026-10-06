@@ -489,6 +489,85 @@ function SuperEventDetailDialog({
   );
 }
 
+const PRESSURE_TONE: Record<string, { bar: string; text: string; label: string }> = {
+  calm: { bar: "bg-emerald-400", text: "text-emerald-200", label: "平穩" },
+  tense: { bar: "bg-amber-400", text: "text-amber-200", label: "緊張" },
+  critical: { bar: "bg-red-500", text: "text-red-200", label: "危急" },
+};
+
+/** 革命浪潮:本國各受波及地區的革命壓力條(單獨顯示;達 100 即脫離)。 */
+function RevolutionPressurePanel({
+  rows,
+  active,
+}: {
+  rows: NonNullable<SuperEventDetailResponse["revolutionPressure"]>;
+  active: boolean;
+}) {
+  const live = rows.filter((r) => !r.revolted);
+  const lost = rows.filter((r) => r.revolted);
+  return (
+    <div
+      className="rounded-xl border border-red-400/25 bg-red-500/5 p-3"
+      data-testid="revolution-pressure-panel"
+    >
+      <div className="mb-1 flex items-center gap-1.5 text-sm font-bold text-red-100">
+        <Siren className="h-4 w-4" /> 各地區革命壓力
+      </div>
+      <p className="mb-3 text-[11px] leading-relaxed text-white/50">
+        壓力達 100 的地區會脫離並與你開戰。提交契合的應對(安撫、改革或鎮壓皆可)能每回合降低壓力;穩定度低、暴動度高會讓壓力漲得更快。
+      </p>
+      {rows.length === 0 ? (
+        <p className="text-xs text-white/50">本國沒有受這波革命波及的地區。</p>
+      ) : (
+        <div className="space-y-2.5">
+          {live.map((r) => {
+            const t = PRESSURE_TONE[r.level] ?? PRESSURE_TONE.calm;
+            const pct = Math.max(0, Math.min(100, r.pressure));
+            return (
+              <div key={r.regionId} data-testid={`pressure-row-${r.regionId}`}>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="font-medium text-white/85">{r.regionName}</span>
+                  <span className={`font-bold tabular-nums ${t.text}`}>
+                    {t.label} · {r.pressure}/{r.revoltAt}
+                  </span>
+                </div>
+                <div
+                  className="h-2 w-full overflow-hidden rounded-full bg-white/10"
+                  role="progressbar"
+                  aria-valuenow={pct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label={`${r.regionName} 革命壓力`}
+                >
+                  <div
+                    className={`h-full rounded-full transition-all ${t.bar}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+          {lost.map((r) => (
+            <div
+              key={r.regionId}
+              className="flex items-center justify-between rounded-lg border border-white/10 bg-black/30 px-2.5 py-1.5 text-xs text-white/50"
+              data-testid={`pressure-row-${r.regionId}`}
+            >
+              <span>{r.regionName}</span>
+              <span className="font-bold text-red-300">已脫離</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {active && live.some((r) => r.level === "critical") && (
+        <p className="mt-3 rounded-lg border border-red-400/30 bg-red-500/10 px-2.5 py-1.5 text-xs font-bold text-red-200">
+          有地區壓力已達危急,請盡快提交應對。
+        </p>
+      )}
+    </div>
+  );
+}
+
 function DetailBody({
   event,
   onSubmitted,
@@ -627,6 +706,13 @@ function DetailBody({
             ))}
           </div>
         </div>
+      )}
+
+      {event.revolutionPressure && event.affectsMe && (
+        <RevolutionPressurePanel
+          rows={event.revolutionPressure}
+          active={event.status === "active"}
+        />
       )}
 
       {/* 本國應對 */}

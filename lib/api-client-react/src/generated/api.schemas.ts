@@ -1084,6 +1084,31 @@ export interface SuperEventMyResponse {
   judgedAt: string | null;
 }
 
+/**
+ * 平穩 <40 | 緊張 40~74 | 危急 >=75
+ */
+export type RevolutionRegionPressureLevel =
+  (typeof RevolutionRegionPressureLevel)[keyof typeof RevolutionRegionPressureLevel];
+
+export const RevolutionRegionPressureLevel = {
+  calm: "calm",
+  tense: "tense",
+  critical: "critical",
+} as const;
+
+export interface RevolutionRegionPressure {
+  regionId: number;
+  regionName: string;
+  /** 0~100 */
+  pressure: number;
+  /** 爆發線(目前 100) */
+  revoltAt: number;
+  /** 平穩 <40 | 緊張 40~74 | 危急 >=75 */
+  level: RevolutionRegionPressureLevel;
+  /** 已脫離(爆發革命) */
+  revolted: boolean;
+}
+
 export interface SuperEventDetailResponse {
   id: string;
   title: string;
@@ -1103,6 +1128,8 @@ export interface SuperEventDetailResponse {
   severity: number;
   turnsElapsed: number;
   affectsMe: boolean;
+  /** 革命浪潮事件才有:我自己掌控的受波及地區各自的革命壓力(0~100,達爆發線即脫離);其他類別為 null。只含本國地區。 */
+  revolutionPressure: RevolutionRegionPressure[] | null;
   /** regional 事件的影響地區 id；global 事件為空陣列 */
   regionIds: number[];
   /** 本事件已賦予的跨時代科技名稱 */

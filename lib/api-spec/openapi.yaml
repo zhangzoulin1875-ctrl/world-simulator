@@ -4608,6 +4608,16 @@ components:
         createdAt: { type: string }
         judgedAt: { type: string, nullable: true }
 
+    RevolutionRegionPressure:
+      type: object
+      required: [regionId, regionName, pressure, revoltAt, level, revolted]
+      properties:
+        regionId: { type: integer }
+        regionName: { type: string }
+        pressure: { type: integer, description: "0~100" }
+        revoltAt: { type: integer, description: "爆發線(目前 100)" }
+        level: { type: string, enum: [calm, tense, critical], description: "平穩 <40 | 緊張 40~74 | 危急 >=75" }
+        revolted: { type: boolean, description: "已脫離(爆發革命)" }
     SuperEventDetailResponse:
       type: object
       required:
@@ -4627,6 +4637,7 @@ components:
           turnsElapsed,
           affectsMe,
           regionIds,
+          revolutionPressure,
           grantedTechs,
           turnLogs,
           myResponse,
@@ -4651,6 +4662,11 @@ components:
         severity: { type: integer }
         turnsElapsed: { type: integer }
         affectsMe: { type: boolean }
+        revolutionPressure:
+          nullable: true
+          description: "革命浪潮事件才有:我自己掌控的受波及地區各自的革命壓力(0~100,達爆發線即脫離);其他類別為 null。只含本國地區。"
+          type: array
+          items: { $ref: "#/components/schemas/RevolutionRegionPressure" }
         regionIds:
           type: array
           items: { type: integer }

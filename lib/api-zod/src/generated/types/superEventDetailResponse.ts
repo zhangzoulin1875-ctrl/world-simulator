@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { RevolutionRegionPressure } from "./revolutionRegionPressure";
 import type { SuperEventMyResponse } from "./superEventMyResponse";
 import type { SuperEventTurnLogItem } from "./superEventTurnLogItem";
 
@@ -27,6 +28,8 @@ export interface SuperEventDetailResponse {
   severity: number;
   turnsElapsed: number;
   affectsMe: boolean;
+  /** 革命浪潮事件才有:我自己掌控的受波及地區各自的革命壓力(0~100,達爆發線即脫離);其他類別為 null。只含本國地區。 */
+  revolutionPressure: RevolutionRegionPressure[] | null;
   /** regional 事件的影響地區 id；global 事件為空陣列 */
   regionIds: number[];
   /** 本事件已賦予的跨時代科技名稱 */

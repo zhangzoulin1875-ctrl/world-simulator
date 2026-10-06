@@ -22,6 +22,8 @@ import { buildRegionSetGeoCultureContext } from "../lib/nationGeoCulture";
 import { notifyNewSuperEvent } from "../lib/superEventSettlement";
 import { isSuperEventTargetStat } from "../lib/superEventImpact";
 import { uuidParam } from "../lib/uuidParam";
+import { REVOLUTION_CATEGORY } from "../lib/revolutionWave";
+import { loadMyRegionPressures } from "../lib/superEventSettlement/revolutionPressureView";
 
 const router: IRouter = Router();
 // 事件 id 是 uuid：畸形 id 直接 404，不打資料庫。
@@ -259,6 +261,11 @@ router.get("/super-events/:id", async (req, res) => {
   const regionIds = regionRows.map((r) => r.regionId);
   const nationIds = nationRows.map((r) => r.nationId);
   const mine = myResponseRows[0];
+  // 革命浪潮:只回「我自己掌控」的受波及地區壓力;其他類別為 null。
+  const revolutionPressure =
+    event.category === REVOLUTION_CATEGORY
+      ? await loadMyRegionPressures(event.id, nation.id)
+      : null;
 
   res.json({
     id: event.id,
@@ -281,6 +288,7 @@ router.get("/super-events/:id", async (req, res) => {
       nationId: nation.id,
     }),
     regionIds,
+    revolutionPressure,
     grantedTechs: event.grantedTechs.map((g) => g.name),
     turnLogs: logs.map((l) => ({
       id: l.id,
