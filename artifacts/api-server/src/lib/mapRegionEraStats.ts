@@ -343,6 +343,23 @@ export async function runMapRegionEraStatsSync(): Promise<void> {
       ADD COLUMN IF NOT EXISTS money_income_pct integer NOT NULL DEFAULT 10,
       ADD COLUMN IF NOT EXISTS last_turn_date text
   `);
+  // 全局開銷旋鈕(線性 10–500、函數 0–200;預設 100 = 現狀)。
+  // 必須放在這裡(建表處、啟動鏈最前面),不能只放後面的 runWorldSimMigrations:
+  // drizzle 的 select() 會帶上 schema 裡「所有」欄位,啟動鏈中排在 runWorldSimMigrations
+  // 之前的步驟(例如 recalcArmyProductionReservations)一讀這張表,欄位還沒加就整串失敗,
+  // 而正式環境遷移失敗只記錄後繼續服務 → 後面的遷移永遠不跑 → 欄位永遠加不上,
+  // 所有讀 world_game_state 的請求(首頁 /player/nation 等)全部 500。
+  // 規則:凡是加進 worldGameStateTable 的新欄位,ALTER 一律放在此處。Add-only。
+  await db.execute(sql`
+    ALTER TABLE world_game_state
+      ADD COLUMN IF NOT EXISTS cost_linear_pct integer NOT NULL DEFAULT 100
+        CHECK (cost_linear_pct >= 10 AND cost_linear_pct <= 500)
+  `);
+  await db.execute(sql`
+    ALTER TABLE world_game_state
+      ADD COLUMN IF NOT EXISTS cost_curve_pct integer NOT NULL DEFAULT 100
+        CHECK (cost_curve_pct >= 0 AND cost_curve_pct <= 200)
+  `);
   // 「數據時代」stats_era：玩家數據計算所用時代（見 schema 註解）。Add-only。
   // 回填為 current_era（僅 NULL 時，冪等）。
   await db.execute(sql`
