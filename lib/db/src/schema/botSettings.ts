@@ -19,6 +19,8 @@ export const botSettingsTable = pgTable("bot_settings", {
   aiFallbackModelBulk: text("ai_fallback_model_bulk"),
   // 通用線路池（JSON 陣列，見 routePool.ts／aiRoutePool.ts）。有設定時優先於單一備援。
   aiRoutePool: text("ai_route_pool"),
+  // AI 客服頻道（Discord channel id）。只有機器人擁有者能設定；null＝未啟用。
+  supportChannelId: text("support_channel_id"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

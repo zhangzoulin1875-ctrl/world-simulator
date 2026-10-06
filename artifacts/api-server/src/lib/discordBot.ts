@@ -2,6 +2,7 @@ import { Client, Events, GatewayIntentBits, Status } from "discord.js";
 import { db, botSettingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
+import { attachSupportBot } from "./supportBot";
 
 // The bot no longer ingests any messages — it only needs a gateway connection
 // so the game can DM players (diplomacy/turn notifications) via the REST client.
@@ -141,8 +142,15 @@ export function startDiscordBot(token: string): void {
   currentToken = token;
 
   client = new Client({
-    intents: [GatewayIntentBits.Guilds],
+    // GuildMessages + MessageContent：AI 客服要讀客服頻道的訊息內容。
+    // MessageContent 是特權 intent，需在 Discord Developer Portal 開啟。
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+    ],
   });
+  attachSupportBot(client);
 
   client.once(Events.ClientReady, (c) => {
     state.ready = true;

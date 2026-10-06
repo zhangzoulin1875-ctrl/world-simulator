@@ -36,7 +36,12 @@
    地圖/城市播種（全新資料庫，玩家從零開始）。
 5. **更新 Discord OAuth 重新導向網址**：回 Discord Developer Portal →
    OAuth2 → Redirects，加上 `https://<你的服務網域>/api/auth/discord/callback`。
-6. 打開 `https://<你的服務網域>` 測試，登入 Discord，開始玩。
+6. **（AI 客服用）開啟 Message Content Intent**：Discord Developer Portal → 你的應用程式 →
+   Bot → Privileged Gateway Intents → 打開 **MESSAGE CONTENT INTENT** 並儲存。
+   沒開的話機器人會登入失敗（錯誤 `Used disallowed intents`），連通知 DM 都會中斷。
+   邀請機器人進伺服器時需要「檢視頻道、傳送訊息、讀取訊息歷史、新增反應」權限。
+   之後由**機器人擁有者**在想當客服的頻道輸入 `/客服頻道 設定` 即可（`/客服頻道 取消`、`/客服頻道 狀態`）。
+7. 打開 `https://<你的服務網域>` 測試，登入 Discord，開始玩。
 
 ## 免費方案提醒
 
