@@ -60,6 +60,7 @@ import DataReset from "@/pages/data-reset";
 import GameBalance from "@/pages/game-balance";
 import TechTreeAdmin from "@/pages/tech-tree-admin";
 import AiUsage from "@/pages/ai-usage";
+import AiRoutes from "@/pages/ai-routes";
 import MilitaryAdmin from "@/pages/military-admin";
 import NotFound from "@/pages/not-found";
 
@@ -151,6 +152,9 @@ function SiteRoutes() {
         </Route>
         <Route path="/ai-usage">
           {() => <AdminOnly><AiUsage /></AdminOnly>}
+        </Route>
+<Route path="/ai-routes">
+          {() => <AdminOnly><AiRoutes /></AdminOnly>}
         </Route>
         <Route path="/military-admin">
           {() => <AdminOnly><MilitaryAdmin /></AdminOnly>}

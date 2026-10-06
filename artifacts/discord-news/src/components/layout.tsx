@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import {
+import { Network,
   Newspaper,
   Activity,
   AlertTriangle,
@@ -274,6 +274,14 @@ function AppSidebar() {
                   <Link href="/ai-usage">
                     <Activity className="w-4 h-4" />
                     <span>AI 用量與限額</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive={isActive("/ai-routes")}>
+                  <Link href="/ai-routes">
+                    <Network className="w-4 h-4" />
+                    <span>AI 線路池</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
