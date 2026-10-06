@@ -41,6 +41,11 @@
    沒開的話機器人會登入失敗（錯誤 `Used disallowed intents`），連通知 DM 都會中斷。
    邀請機器人進伺服器時需要「檢視頻道、傳送訊息、讀取訊息歷史、新增反應」權限。
    之後由**機器人擁有者**在想當客服的頻道輸入 `/客服頻道 設定` 即可（`/客服頻道 取消`、`/客服頻道 狀態`）。
+   **客服查程式碼**：客服會從 GitHub 抓原始碼建索引來回答 Bug／機制問題，預設讀
+   `zhangzoulin1875-ctrl/world-simulator` 的 `main`（公開 repo 不需金鑰）。可用環境變數調整：
+   `SUPPORT_GITHUB_REPO`（`owner/name`）、`SUPPORT_GITHUB_REF`（分支，預設 main）、
+   `SUPPORT_GITHUB_TOKEN`（私有 repo 才需要，只給唯讀 Contents 權限）。
+   每 30 分鐘檢查一次有沒有新 commit，沒變就不重抓；GitHub 暫時連不上時沿用舊索引。
 7. 打開 `https://<你的服務網域>` 測試，登入 Discord，開始玩。
 
 ## 免費方案提醒

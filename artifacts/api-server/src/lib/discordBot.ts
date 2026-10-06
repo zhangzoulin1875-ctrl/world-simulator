@@ -3,6 +3,7 @@ import { db, botSettingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 import { attachSupportBot } from "./supportBot";
+import { startCodeIndexRefresh } from "./supportCodeSource";
 
 // The bot no longer ingests any messages — it only needs a gateway connection
 // so the game can DM players (diplomacy/turn notifications) via the REST client.
@@ -151,6 +152,7 @@ export function startDiscordBot(token: string): void {
     ],
   });
   attachSupportBot(client);
+  startCodeIndexRefresh();
 
   client.once(Events.ClientReady, (c) => {
     state.ready = true;
