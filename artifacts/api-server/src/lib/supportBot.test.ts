@@ -110,7 +110,7 @@ test("兩段式：第1次改寫關鍵字、第2次帶程式碼依據作答；兩
   assert.ok(calls.every((c) => c.tier === "bulk"));
   const answerCall = calls[1];
   assert.match(answerCall.messages[0].content, /【程式碼依據】/);
-  assert.match(answerCall.messages[0].content, /src\/lib\/populationCapacity\.ts/);
+  assert.ok(!answerCall.messages[0].content.includes("populationCapacity.ts"), "依據不給檔名");
   assert.match(answerCall.messages[0].content, /MAX_LOSS/);
   assert.ok(!answerCall.messages[0].content.includes("unrelated"), "無關檔不應塞進去");
   __setCodeIndexForTest(null);
@@ -172,7 +172,7 @@ test("lookupCode：沒有命中時回空字串（不塞無關程式碼）", asyn
 });
 
 test("客服 prompt 含程式碼依據使用規則：優先採信、不貼大段碼、不洩密、分清事實與推測、疑似 Bug 的處理", () => {
-  for (const kw of ["程式碼依據", "不要貼大段程式碼", "金鑰", "沒找到明確依據", "推測", "不要斷言", "聯絡管理員"]) {
+  for (const kw of ["程式碼依據", "絕對不要在回答中出現檔名", "金鑰", "沒找到明確依據", "推測", "不要斷言", "聯絡管理員"]) {
     assert.ok(SUPPORT_SYSTEM_PROMPT.includes(kw), `缺少：${kw}`);
   }
 });
@@ -205,8 +205,9 @@ test("目的型問題：改寫會分類為 goal 並給出多個機制角度；�
   assert.match(msg, /不要提出依據裡沒有的功能/);
   assert.ok(!msg.includes("目標拆解") && !msg.includes("代價與風險"), "不再要求固定五段格式");
   // 多個機制的檔案都被帶進依據（不只擠在同一個）
-  for (const f of ["populationCapacity.ts", "growth.ts", "food.ts"]) assert.ok(msg.includes(f), `缺少 ${f}`);
-  assert.ok(!msg.includes("unrelated.ts"));
+  // 檔名已匿名：改用各檔獨有的內容確認三個機制都被帶進去，而且沒有帶無關檔
+  for (const [label, needle] of [["承載量", "最多 6%"], ["增長率", "受穩定度與糧食影響"], ["糧食", "不足會觸發飢荒"]]) assert.ok(msg.includes(needle), `缺少${label}`);
+  assert.ok(!msg.includes("nothing"), "不帶無關檔");
   // max_tokens 取自 support.guide（1800），比 support.chat 大
   assert.ok(calls[1].max_tokens >= 1500, `max_tokens=${calls[1].max_tokens}`);
   feats.length = 0;
@@ -329,10 +330,105 @@ test("問A答B：問『稅收』卻只搜到糧食 → 不把糧食當依據，�
 
 test("直接作答：不論回答長怎樣都原樣送出，只問一次 AI（沒有驗證、重答、清洗）", async () => {
   resetRewriteCache(); __setCodeIndexForTest(mixedIdx());
-  const weird = "損失 37% 人口，依 [ghost.ts]，沒有任何格式";
+  const weird = "損失 37% 人口，沒有任何格式，也不用標題";
   const calls = stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"rule","keywords":["capacity","承載量"],"angles":[]}' : weird));
   const a = await answerQuestion("人口 承載量 超過會怎樣");
   assert.equal(a, weird, "不改寫、不附加提醒");
   assert.equal(calls.filter((c) => !/程式碼搜尋助手/.test(c.system ?? "")).length, 1);
   __setCodeIndexForTest(null);
+});
+
+// ── 個人上下文記憶／去術語 ───────────────────────────────────────────────
+import { getMemory, memoryKey, rememberTurn, __resetMemoryForTest } from "./supportMemory";
+
+const answerCalls = (calls: any[]) => calls.filter((c) => !/程式碼搜尋助手/.test(c.system ?? ""));
+
+test("追問：AI 收到的是這位玩家自己的前情（問答交錯），最後一則才是現在的問題＋依據", async () => {
+  resetRewriteCache(); __setCodeIndexForTest(mixedIdx());
+  const calls = stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"rule","keywords":["capacity","承載量"],"angles":[]}' : "回答"));
+  await answerQuestion("那它會減少多少？", [{ q: "人口 承載量 是什麼", a: "人口的上限。" }]);
+  const msgs = answerCalls(calls)[0].messages as Array<{ role: string; content: string }>;
+  assert.deepEqual(msgs.map((m) => m.role), ["user", "assistant", "user"]);
+  assert.equal(msgs[0]!.content, "人口 承載量 是什麼");
+  assert.equal(msgs[1]!.content, "人口的上限。");
+  assert.match(msgs[2]!.content, /玩家現在的問題[\s\S]*那它會減少多少/);
+  assert.match(msgs[2]!.content, /populationCapacity|承載量/);
+  __setCodeIndexForTest(null);
+});
+
+test("追問的檢索也用前一輪的詞：單看『那它呢』搜不到，加上前情就找得到", async () => {
+  resetRewriteCache(); __setCodeIndexForTest(mixedIdx());
+  const calls = stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"rule","keywords":[],"angles":[]}' : "回答"));
+  await answerQuestion("那它呢？", []);
+  assert.match(answerCalls(calls)[0].messages.at(-1).content, /沒有檢索到與問題直接相關/, "沒前情時找不到");
+  resetRewriteCache();
+  const calls2 = stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"rule","keywords":[],"angles":[]}' : "回答"));
+  await answerQuestion("那它呢？", [{ q: "人口 承載量 減少", a: "x" }]);
+  assert.match(answerCalls(calls2)[0].messages.at(-1).content, /最多 6%/, "有前情就找得到");
+  // 改寫呼叫也看得到前情
+  assert.match(calls2.find((c: any) => /程式碼搜尋助手/.test(c.system ?? "")).messages[0].content, /先前問過[\s\S]*承載量/);
+  __setCodeIndexForTest(null);
+});
+
+test("隔離（端到端）：A、B 交錯提問，送給 AI 的訊息只含各自的前情", async () => {
+  resetRewriteCache(); __resetMemoryForTest(); __setCodeIndexForTest(mixedIdx());
+  const calls = stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"rule","keywords":["capacity","承載量"],"angles":[]}' : "回答"));
+  const A = memoryKey("ch", "A"), B = memoryKey("ch", "B");
+  // 模擬 handler 的流程：以提問者自己的 key 取記憶 → 作答 → 記下
+  const ask = async (key: string, q: string) => { const a = await answerQuestion(q, getMemory(key)); rememberTurn(key, { q, a }); return a; };
+  await ask(A, "A專屬問題：人口 承載量");
+  await ask(B, "B專屬問題：人口 承載量");
+  await ask(A, "A的追問：那它呢");
+  await ask(B, "B的追問：然後呢");
+  const ans = answerCalls(calls);
+  const flat = (c: any) => JSON.stringify(c.messages);
+  assert.ok(!flat(ans[1]).includes("A專屬"), "B 的第一題看不到 A");
+  assert.ok(flat(ans[2]).includes("A專屬") && !flat(ans[2]).includes("B專屬"), "A 的追問只有 A 的前情");
+  assert.ok(flat(ans[3]).includes("B專屬") && !flat(ans[3]).includes("A專屬") && !flat(ans[3]).includes("A的追問"), "B 的追問只有 B 的前情");
+  // 改寫呼叫同樣不洩漏
+  const rw = calls.filter((c: any) => /程式碼搜尋助手/.test(c.system ?? ""));
+  assert.ok(rw.every((c: any) => !(JSON.stringify(c.messages).includes("A專屬") && JSON.stringify(c.messages).includes("B專屬"))));
+  __resetMemoryForTest(); __setCodeIndexForTest(null);
+});
+
+test("改寫快取含前情：同一句『那它呢』在不同人的脈絡下不共用結果", async () => {
+  resetRewriteCache(); __setCodeIndexForTest(mixedIdx());
+  let rewrites = 0;
+  anthropic.messages.create = (async (p: any) => {
+    const isRw = /程式碼搜尋助手/.test(p.system ?? "");
+    if (isRw) rewrites++;
+    return { content: [{ type: "text", text: isRw ? '{"kind":"rule","keywords":["capacity"],"angles":[]}' : "ok" }], usage: { input_tokens: 1, output_tokens: 1 } };
+  }) as unknown as Create;
+  await answerQuestion("那它呢", [{ q: "人口 承載量", a: "x" }]);
+  await answerQuestion("那它呢", [{ q: "糧食 飢荒", a: "x" }]);
+  assert.equal(rewrites, 2, "不同前情要各自改寫");
+  await answerQuestion("那它呢", [{ q: "人口 承載量", a: "x" }]);
+  assert.equal(rewrites, 2, "相同前情（佇列重試）才共用");
+  __setCodeIndexForTest(null);
+});
+
+test("去術語：送給 AI 的依據標頭不含檔名與行號，只寫『相關程式 N』", async () => {
+  resetRewriteCache(); __setCodeIndexForTest(mixedIdx());
+  const calls = stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"rule","keywords":["capacity","承載量"],"angles":[]}' : "ok"));
+  await answerQuestion("人口 承載量 超過會怎樣", []);
+  const msg = answerCalls(calls)[0].messages.at(-1).content as string;
+  assert.match(msg, /--- 相關程式 1 ---/);
+  assert.ok(!msg.includes("populationCapacity.ts") && !/第 \d+-\d+ 行/.test(msg), "不給檔名行號");
+  assert.match(msg, /不要提檔名、函式名、變數名或程式碼/);
+  __setCodeIndexForTest(null);
+});
+
+test("去術語：即使 AI 仍講出檔名／變數／公式，送出前被去掉（截圖情境）", async () => {
+  resetRewriteCache(); __setCodeIndexForTest(mixedIdx());
+  stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"rule","keywords":["capacity","承載量"],"angles":[]}' : "根據 `nationStats.ts`，人口等於 `Math.max(0, basePopulation + accruedGrowth)`，也就是基礎人口加上累積增長。"));
+  const a = await answerQuestion("人口 承載量 怎麼算", []);
+  for (const bad of ["nationStats", "Math.max", "basePopulation", "`"]) assert.ok(!a.includes(bad), `${bad}：${a}`);
+  assert.match(a, /基礎人口加上累積增長/);
+  __setCodeIndexForTest(null);
+});
+
+test("prompt：禁止講檔名／函式／資料表／程式式子，且說明追問只參考他自己的前情", () => {
+  for (const kw of ["絕對不要在回答中出現檔名", "資料表名", "根據程式碼", "他自己", "不要假設任何其他人說過什麼"]) {
+    assert.ok(SUPPORT_SYSTEM_PROMPT.includes(kw), `缺少：${kw}`);
+  }
 });

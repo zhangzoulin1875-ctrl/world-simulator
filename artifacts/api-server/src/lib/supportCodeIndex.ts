@@ -198,11 +198,16 @@ export function formatHits(
   maxChars = 9000,
   /** 回傳警告文字＝在該片段前加註（用於疑似已廢除的機制）。 */
   warn?: (chunk: CodeChunk) => string | null,
+  /** true＝標頭只寫「相關程式 N」，不給檔名與行號（避免 AI 把檔名講給玩家聽）。 */
+  anonymize = false,
 ): string {
   let out = "";
+  let n = 0;
   for (const h of hits) {
+    n++;
     const w = warn?.(h.chunk);
-    const head = `--- ${h.chunk.path} (第 ${h.chunk.start}-${h.chunk.end} 行) ---${w ? `\n【警告：疑似已廢除】${w}` : ""}`;
+    const label = anonymize ? `相關程式 ${n}` : `${h.chunk.path} (第 ${h.chunk.start}-${h.chunk.end} 行)`;
+    const head = `--- ${label} ---${w ? `\n【警告：疑似已廢除】${w}` : ""}`;
     const block = `${head}\n${redactSecrets(h.chunk.text)}\n`;
     if (out.length + block.length > maxChars) {
       const room = maxChars - out.length;
