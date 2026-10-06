@@ -193,10 +193,17 @@ export function searchIndex(index: CodeIndex, query: string, limit = 6): SearchH
 }
 
 /** 把命中片段組成給 AI 的「程式碼依據」文字，總長有上限。 */
-export function formatHits(hits: SearchHit[], maxChars = 9000): string {
+export function formatHits(
+  hits: SearchHit[],
+  maxChars = 9000,
+  /** 回傳警告文字＝在該片段前加註（用於疑似已廢除的機制）。 */
+  warn?: (chunk: CodeChunk) => string | null,
+): string {
   let out = "";
   for (const h of hits) {
-    const block = `--- ${h.chunk.path} (第 ${h.chunk.start}-${h.chunk.end} 行) ---\n${redactSecrets(h.chunk.text)}\n`;
+    const w = warn?.(h.chunk);
+    const head = `--- ${h.chunk.path} (第 ${h.chunk.start}-${h.chunk.end} 行) ---${w ? `\n【警告：疑似已廢除】${w}` : ""}`;
+    const block = `${head}\n${redactSecrets(h.chunk.text)}\n`;
     if (out.length + block.length > maxChars) {
       const room = maxChars - out.length;
       if (room > 400) out += block.slice(0, room) + "\n…(截斷)\n";

@@ -31,8 +31,7 @@ export const SUPPORT_KNOWLEDGE = `
 - 領土只會在交戰雙方之間轉移。
 
 【科技】
-- 全球共用一棵科技樹，分三個領域，依時代推進。
-- 研發按回合投入，不能累積；每個領域可分配研發比例。
+- 科技樹已下線，沒有研發科技這件事。關鍵技術會隨「世界時代」推進而自動解鎖，玩家不能也不需要手動研發。
 
 【外交】
 - 有條約（可雙向交換金錢、科技、地區、定期糧食或生產力輸送）、聯盟、宣戰等。
@@ -62,6 +61,49 @@ export const SUPPORT_KNOWLEDGE = `
 - 遊戲網頁內有背景音樂播放器。
 `.trim();
 
+/**
+ * 已廢除／停用的機制。程式碼裡可能還留著殘骸（為了相容舊資料），客服不得把它們當成現行規則。
+ * 每筆：name 顯示名、why 現況說明、pathRe 命中這些檔案路徑的片段會被標上警告、termRe 玩家問到這些詞時要提醒。
+ * 改版後有新的廢除項目請補在這裡。
+ */
+export interface RetiredMechanic {
+  name: string;
+  now: string;
+  pathRe: RegExp | null;
+  termRe: RegExp;
+}
+
+export const RETIRED_MECHANICS: RetiredMechanic[] = [
+  { name: "科技樹／手動研發科技", now: "科技樹已下線，關鍵技術隨世界時代自動解鎖，無法也不需要研發。", pathRe: null, termRe: /科技樹|研發|科研|tech\s*tree|research/i },
+  { name: "NPC 主動提案（條約／宣戰／結盟）", now: "NPC 不會主動向玩家提案或宣戰，只會在既有戰爭中應戰、並回應玩家的提案。", pathRe: /npcInitiative/i, termRe: /NPC.{0,6}(主動|提案)|npc\s*initiative/i },
+  { name: "農民／工人／教士／貴族四項滿意度", now: "已永久移除。現在只有「軍方滿意度」與「議會滿意度」兩條線。", pathRe: null, termRe: /農民|工人|教士|貴族.{0,3}滿意|四項滿意|四階級/ },
+  { name: "政體變更接受度", now: "已下線。改政體要靠國策樹上的「轉型國策」，不再有累積到 100 的接受度。", pathRe: null, termRe: /接受度|acceptance/i },
+  { name: "外交大臣（內閣外交代理）", now: "目前停用，不會自動代理外交。", pathRe: /cabinet\/domains\/diplomacy/i, termRe: /外交(大臣|官|代理)/ },
+  { name: "同盟條約", now: "已改制為「聯盟」，同盟條約類型已停用。", pathRe: null, termRe: /同盟條約/ },
+  { name: "軍方政變強制改政體", now: "政變不再強制改政體，只會鎖死政策三回合。", pathRe: null, termRe: /政變.{0,6}(改|換).{0,3}政體/ },
+];
+
+/**
+ * 片段文字裡出現這些字樣＝程式碼本身在說「這已經停用／下線」。
+ * （只比對含明確廢除語意的詞，避免把一般用到 legacy 變數名的現行程式誤判。）
+ */
+export const RETIRED_TEXT_RE = /已停用|已下線|已廢除|已移除|不再被呼叫|不再使用|已改制為|僅為相容|僅為相容舊|保留但不再|deprecated/i;
+
+/** 這個程式碼片段是否疑似屬於已廢除機制。 */
+export function isLikelyRetired(path: string, text: string): RetiredMechanic | "text" | null {
+  for (const r of RETIRED_MECHANICS) if (r.pathRe && r.pathRe.test(path)) return r;
+  if (RETIRED_TEXT_RE.test(text)) return "text";
+  return null;
+}
+
+/** 玩家問題提到哪些已廢除機制（用來在作答時直接提醒現況）。 */
+export function retiredMentionedIn(question: string): RetiredMechanic[] {
+  return RETIRED_MECHANICS.filter((r) => r.termRe.test(question));
+}
+
+/** 供 prompt 使用的廢除清單文字。 */
+export const RETIRED_PROMPT = RETIRED_MECHANICS.map((r) => `- ${r.name}：${r.now}`).join("\n");
+
 export const SUPPORT_SYSTEM_PROMPT = `你是「架空世界模擬器」的官方 AI 客服，在遊戲的 Discord 伺服器裡回答玩家的問題。
 
 規則：
@@ -75,6 +117,13 @@ export const SUPPORT_SYSTEM_PROMPT = `你是「架空世界模擬器」的官方
 8. 若訊息中附有【程式碼依據】，那是本遊戲實際的原始碼片段，優先以它為準，勝過【遊戲知識】。請用玩家看得懂的白話解釋「規則實際怎麼運作」，必要時引用檔名（例如 populationCapacity.ts）讓管理員好查；不要貼大段程式碼（最多一兩行關鍵式子），不要輸出任何金鑰、密碼或 token。
 9. 程式碼依據沒有直接回答問題時，要說「我在程式碼裡沒找到明確依據」，再給你能確定的部分；分清楚「程式碼明確這樣寫」與「我的推測」，推測要標明。
 10. 玩家描述的現象如果看起來像 Bug（結果與程式碼規則不符、數值異常、卡住），先用程式碼說明正常情況應該如何，再請玩家提供：國家名稱、發生時間、做了什麼操作、畫面或數字，並聯絡管理員回報。不要斷言「這是 Bug」或承諾修復時程。
+
+11. 【已廢除機制】清單中的東西不是現行規則。程式碼裡可能還留有它們的殘骸，看到時一律當作「已不存在」，不可當成玩家現在能用的功能來教；玩家問到時，直接告訴他現況。標有【警告：疑似已廢除】的程式碼片段只能用來理解歷史，不能當現行規則的依據。
+12. 回答前先確認你答的就是玩家問的那件事：玩家問 A 就答 A。如果提供的依據談的是別的機制，就說「我沒找到和你問題直接相關的依據」，不要拿不相關的依據硬答。
+13. 每一條具體的規則、數字、條件、操作步驟，都要在句尾標註出處，格式 [檔名] 或 [遊戲知識]。沒有出處的具體內容不要寫；若只能推測，用「推測：」開頭，且不得包含具體數字。
+
+【已廢除機制（不是現行規則）】
+${RETIRED_PROMPT}
 
 【遊戲知識】
 ${SUPPORT_KNOWLEDGE}`;

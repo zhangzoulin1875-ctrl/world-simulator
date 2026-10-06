@@ -145,7 +145,7 @@ test("索引不可用（GitHub 掛了）→ 只改用知識底稿作答，客服
     const calls = stubAi(() => "只靠說明的回答");
     assert.equal(await answerQuestion("怎麼建國"), "只靠說明的回答");
     assert.equal(calls.length, 1);
-    assert.match(calls[0].messages[0].content, /沒有檢索到可用的原始碼片段/);
+    assert.match(calls[0].messages[0].content, /沒有檢索到與問題直接相關的原始碼/);
     assert.ok(!calls[0].messages[0].content.includes("--- "), "沒有任何程式碼片段");
   } finally { globalThis.fetch = real; }
 });
@@ -262,11 +262,114 @@ test("goal 型但索引不可用 → 仍給推理指引＋明講沒有程式碼�
     const calls = stubAi(() => "只靠說明的建議");
     assert.equal(await answerQuestion("怎麼讓人口變多"), "只靠說明的建議");
     assert.equal(calls.length, 1, "沒有索引就不做改寫");
-    assert.match(calls[0].messages[0].content, /沒有檢索到可用的原始碼片段/);
+    assert.match(calls[0].messages[0].content, /沒有檢索到與問題直接相關的原始碼/);
   } finally { globalThis.fetch = real; }
 });
 
 test("prompt 允許串連機制做推論，但禁止編造", () => {
   assert.match(SUPPORT_SYSTEM_PROMPT, /串起來做合理推論/);
   assert.match(SUPPORT_SYSTEM_PROMPT, /絕對不要編造數字、按鈕或功能/);
+});
+
+// ── 防胡編／上古機制／問A答B ─────────────────────────────────────────────
+import { filterRelevant, retiredWarning, MIN_HIT_SCORE } from "./supportBot";
+import { searchIndex, formatHits } from "./supportCodeIndex";
+
+const mixedIdx = () => buildIndex(new Map([
+  ["src/lib/populationCapacity.ts", "// 人口承載量：人口超過承載量時每回合減少，最多 6%\nexport function capacity() { return 1; }\n"],
+  ["src/lib/npcInitiative.ts", "// NPC 主動提案條約、宣戰、結盟（initiative proposals）\nexport function propose() { return 1; }\n"],
+  ["src/lib/techTreeResearch.ts", "// 科技樹已下線:關鍵技術改為隨世界時代自動解鎖\nexport const err = '不需要也無法再研發';\n"],
+  ["src/lib/food.ts", "// 糧食不足觸發飢荒\nexport function famine() {}\n"],
+]), "mix");
+
+test("上古機制：命中 npcInitiative 與『已下線』片段時，送給 AI 的依據帶【警告：疑似已廢除】", () => {
+  const idx = mixedIdx();
+  const hits = searchIndex(idx, "NPC 主動 提案 initiative 科技樹 研發", 6);
+  const text = formatHits(hits, 9000, retiredWarning);
+  assert.match(text, /npcInitiative\.ts[^\n]*\n【警告：疑似已廢除】NPC 主動提案/);
+  assert.match(text, /techTreeResearch\.ts[^\n]*\n【警告：疑似已廢除】/);
+  const pop = formatHits(searchIndex(idx, "人口 承載量", 3), 9000, retiredWarning);
+  assert.ok(!pop.includes("警告"), "現行機制不加警告");
+});
+
+test("上古機制：玩家問科技樹 → 作答訊息帶現況提醒，要求先告知現況", async () => {
+  resetRewriteCache(); __setCodeIndexForTest(mixedIdx());
+  const calls = stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"goal","keywords":["techTree","研發"],"angles":["techTreeResearch 科技樹 研發"]}' : "科技樹已下線，不能研發 [遊戲知識]。"));
+  await answerQuestion("我要怎麼研發科技樹？");
+  const msg = calls.at(-1).messages[0].content as string;
+  assert.match(msg, /提醒：玩家問題提到已廢除的機制/);
+  assert.match(msg, /科技樹已下線/);
+  assert.match(msg, /先告訴玩家這項現況/);
+  __setCodeIndexForTest(null);
+});
+
+test("問A答B：filterRelevant 去掉低分片段與完全沒碰到玩家用詞的片段", () => {
+  const idx = mixedIdx();
+  const hit = (q: string) => searchIndex(idx, q, 6);
+  assert.ok(filterRelevant(hit("人口 承載量 減少"), "人口 承載量 減少").length >= 1);
+  // AI 改寫把關鍵字帶偏到「糧食」，但玩家問的是「稅收」：片段沒碰到玩家用詞 → 全部過濾掉
+  assert.deepEqual(filterRelevant(hit("稅收 糧食 飢荒 famine"), "稅收怎麼算"), []);
+  // 低於門檻直接丟
+  const weak = [{ chunk: idx.chunks[0]!, score: MIN_HIT_SCORE - 1 }];
+  assert.deepEqual(filterRelevant(weak, "人口"), []);
+});
+
+test("問A答B：問『稅收』卻只搜到糧食 → 不把糧食當依據，改走『沒找到』提示", async () => {
+  resetRewriteCache(); __setCodeIndexForTest(mixedIdx());
+  const calls = stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"rule","keywords":["famine","糧食","飢荒"],"angles":[]}' : "我沒找到相關依據"));
+  await answerQuestion("稅收怎麼算");
+  const msg = calls.at(-1).messages[0].content as string;
+  assert.ok(!msg.includes("food.ts"), "不相關的檔案不應塞給 AI");
+  assert.match(msg, /沒有檢索到與問題直接相關/);
+  __setCodeIndexForTest(null);
+});
+
+test("胡編：第一版引用不存在的檔案＋憑空數字 → 要求修正，採用修正版", async () => {
+  resetRewriteCache(); __setCodeIndexForTest(mixedIdx());
+  let answers = 0;
+  const calls = stubAi((p) => {
+    if (/程式碼搜尋助手/.test(p.system ?? "")) return '{"kind":"rule","keywords":["capacity","承載量"],"angles":[]}';
+    answers++;
+    return answers === 1
+      ? "人口超過上限每回合損失 37% [ghostFile.ts]"
+      : "人口超過承載量時每回合最多減少 6% [populationCapacity.ts]";
+  });
+  const a = await answerQuestion("人口 承載量 超過會怎樣");
+  assert.equal(a, "人口超過承載量時每回合最多減少 6% [populationCapacity.ts]");
+  assert.equal(answers, 2);
+  const fix = calls.at(-1).messages.at(-1).content as string;
+  assert.match(fix, /ghostFile\.ts/);
+  assert.match(fix, /37/);
+  __setCodeIndexForTest(null);
+});
+
+test("胡編：修正後仍編造 → 保底清除數字與出處並加提醒（不會輸出編造內容）", async () => {
+  resetRewriteCache(); __setCodeIndexForTest(mixedIdx());
+  stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"rule","keywords":["capacity","承載量"],"angles":[]}' : "損失 88% [ghost.ts]"));
+  const a = await answerQuestion("人口 承載量 超過會怎樣");
+  assert.ok(!a.includes("88") && !a.includes("ghost.ts"));
+  assert.match(a, /數值待確認/);
+  __setCodeIndexForTest(null);
+});
+
+test("乾淨的回答只問一次 AI（不浪費額度）", async () => {
+  resetRewriteCache(); __setCodeIndexForTest(mixedIdx());
+  const calls = stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"rule","keywords":["capacity","承載量"],"angles":[]}' : "最多減少 6% [populationCapacity.ts]"));
+  await answerQuestion("人口 承載量 超過會怎樣");
+  assert.equal(calls.filter((c) => !/程式碼搜尋助手/.test(c.system ?? "")).length, 1);
+  __setCodeIndexForTest(null);
+});
+
+test("修正呼叫失敗 → 不讓整則失敗，改用清理後的第一版", async () => {
+  resetRewriteCache(); __setCodeIndexForTest(mixedIdx());
+  let n = 0;
+  anthropic.messages.create = (async (p: any) => {
+    if (/程式碼搜尋助手/.test(p.system ?? "")) return { content: [{ type: "text", text: '{"kind":"rule","keywords":["capacity","承載量"],"angles":[]}' }], usage: { input_tokens: 1, output_tokens: 1 } };
+    n++; if (n === 2) throw new Error("429");
+    return { content: [{ type: "text", text: "損失 91% [ghost.ts]" }], usage: { input_tokens: 1, output_tokens: 1 } };
+  }) as unknown as Create;
+  const a = await answerQuestion("人口 承載量 超過會怎樣");
+  assert.ok(!a.includes("91") && !a.includes("ghost.ts"));
+  assert.match(a, /數值待確認/);
+  __setCodeIndexForTest(null);
 });
