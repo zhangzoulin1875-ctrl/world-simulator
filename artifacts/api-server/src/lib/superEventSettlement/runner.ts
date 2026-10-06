@@ -7,7 +7,7 @@ import {
 import { logger } from "../logger";
 import { normalizeLossBounds } from "../superEventImpact";
 import type { SuperEventSettlementSummary } from "./types";
-import { maybeAutoGenerateSuperEvent } from "./generate";
+import { maybeAutoGenerateSuperEvent, maybeSpawnRevolutionWaves } from "./generate";
 import { settleEvent } from "./settleEvent";
 
 let settlementInFlight = false;
@@ -63,6 +63,16 @@ async function settleAll(
     currentEra,
     summary,
   });
+
+  // 1b) 革命浪潮專屬觸發:依各國不滿程度額外誕生(best-effort,失敗不中斷結算)
+  try {
+    summary.generated += await maybeSpawnRevolutionWaves({
+      currentEra,
+      aiGenerationPrompt: settings?.aiGenerationPrompt ?? null,
+    });
+  } catch (err) {
+    logger.error({ err }, "revolution wave spawning failed");
+  }
 
   // 2) 處理所有進行中事件
   const active = await db

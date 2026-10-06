@@ -28,6 +28,7 @@ import {
 import { judgePendingResponses, buildResponseSummary } from "./responses";
 import { grantCrossEraTech, triggerNpcHostility } from "./techGrant";
 import { spreadContagion } from "./contagion";
+import { isRevolutionWave, stepRevolutionPressure } from "./revolutionWave";
 
 export async function settleEvent(
   event: SuperEvent,
@@ -184,13 +185,35 @@ export async function settleEvent(
     }
   }
 
+  // 革命浪潮:逐地區更新革命壓力。到線的地區「爆發」的後果(怎麼切、誰接手)
+  // 尚待產品決定,這裡只記錄到線地區並寫進回合紀錄,不改動領土。
+  let waveNote = "";
+  if (isRevolutionWave(event)) {
+    try {
+      const wave = await stepRevolutionPressure({
+        event,
+        newStage,
+        impactMult: (event.impactPct / 100) * (globalImpactPct / 100),
+        affected,
+        fitByNation: respResult.fitByNation,
+      });
+      if (wave.pressures.length > 0) {
+        const max = Math.max(...wave.pressures.map((p) => p.pressure));
+        waveNote = `革命壓力最高 ${max}/100` +
+          (wave.readyRegionIds.length > 0 ? `，${wave.readyRegionIds.length} 個地區已到爆發線` : "");
+      }
+    } catch (err) {
+      logger.error({ err, eventId: event.id }, "revolution pressure step failed");
+    }
+  }
+
   const effectSummary = buildEffectSummary(turnEffect, mult, popMult, lossBounds);
 
   await db.insert(superEventTurnLogsTable).values({
     eventId: event.id,
     turnNumber,
     narrative: judgement.narrative,
-    effectSummary,
+    effectSummary: waveNote ? `${effectSummary}${effectSummary ? "；" : ""}${waveNote}` : effectSummary,
     stage: newStage,
     spreadRegionIds,
   });

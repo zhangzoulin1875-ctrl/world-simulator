@@ -156,6 +156,42 @@ export const superEventRegionsTable = pgTable(
 export type SuperEventRegion = typeof superEventRegionsTable.$inferSelect;
 
 /**
+ * 革命浪潮(2026-10-06):每個受波及地區各自的「革命壓力」(0~100)。
+ * 只有 category = 「革命浪潮」的事件會用到。壓力達 100 的地區脫離(爆發革命),
+ * `revoltedAt` 記錄爆發時間(非 null = 已脫離,不再累積)。
+ */
+export const superEventRegionPressureTable = pgTable(
+  "super_event_region_pressure",
+  {
+    id: serial("id").primaryKey(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => superEventsTable.id, { onDelete: "cascade" }),
+    regionId: integer("region_id")
+      .notNull()
+      .references(() => mapRegionsTable.id, { onDelete: "cascade" }),
+    /** 革命壓力 0~100(小數兩位)。 */
+    pressure: integer("pressure").notNull().default(20),
+    /** 爆發革命的時間;null = 尚未爆發。 */
+    revoltedAt: timestamp("revolted_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => ({
+    eventRegionUidx: uniqueIndex("super_event_region_pressure_uidx").on(
+      t.eventId,
+      t.regionId,
+    ),
+    eventIdx: index("super_event_region_pressure_event_idx").on(t.eventId),
+  }),
+);
+
+export type SuperEventRegionPressure =
+  typeof superEventRegionPressureTable.$inferSelect;
+
+/**
  * 每回合的事件發展紀錄（時間軸）：本回合敘事 + 套用效果的中文摘要。供事件
  * 詳情頁顯示歷程。
  */

@@ -230,6 +230,27 @@ export async function runSuperEventMigrationsInner(
       ON super_event_nation_impacts (event_id, nation_id)
   `);
 
+  // 革命浪潮(2026-10-06):每個受波及地區的革命壓力。壓力以整數 0~100 存放
+  // (公式內部用小數,寫入前四捨五入),revolted_at 非 null = 已脫離。
+  await executor.execute(sql`
+    CREATE TABLE IF NOT EXISTS super_event_region_pressure (
+      id serial PRIMARY KEY,
+      event_id uuid NOT NULL REFERENCES super_events (id) ON DELETE CASCADE,
+      region_id integer NOT NULL REFERENCES map_regions (id) ON DELETE CASCADE,
+      pressure integer NOT NULL DEFAULT 20,
+      revolted_at timestamptz,
+      updated_at timestamptz NOT NULL DEFAULT NOW()
+    )
+  `);
+  await executor.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS super_event_region_pressure_uidx
+      ON super_event_region_pressure (event_id, region_id)
+  `);
+  await executor.execute(sql`
+    CREATE INDEX IF NOT EXISTS super_event_region_pressure_event_idx
+      ON super_event_region_pressure (event_id)
+  `);
+
   await executor.execute(sql`
     CREATE TABLE IF NOT EXISTS super_event_settings (
       id integer PRIMARY KEY DEFAULT 1,
