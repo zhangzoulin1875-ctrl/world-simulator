@@ -274,6 +274,44 @@ export async function callGameAi(
   }
 }
 
+/** 從 AI 回覆取出第一個文字區塊（沒有就是空字串）。 */
+export function firstText(message: { content: Array<{ type: string; text?: string }> }): string {
+  const block = message.content[0];
+  return block && block.type === "text" ? (block.text ?? "") : "";
+}
+
+/**
+ * 呼叫 AI 並驗證輸出；格式不對（空回應、壞 JSON、欄位不符）就自動重問，
+ * 最多 maxAttempts 次。玩家的政策判定過去只問一次，量產模型偶爾吐出空內容
+ * 或壞 JSON 就整筆被跳過、等下一回合，玩家看起來就是「AI 沒讀我的政策」。
+ * parse 丟錯＝這次輸出不可用；全部失敗才把最後一次的錯誤丟出（呼叫端照舊
+ * 「保留想法、下回合重試」）。AI 呼叫本身失敗（逾時、額度）不在這裡重試，
+ * 交給底層佇列與備援處理，避免放大請求量。
+ */
+export async function callGameAiParsed<T>(
+  feature: AiFeatureKey,
+  tier: AiModelTier,
+  params: GameAiParams,
+  parse: (raw: string) => T,
+  maxAttempts = 3,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const message = await callGameAi(feature, tier, params);
+    const raw = firstText(message as { content: Array<{ type: string; text?: string }> });
+    try {
+      return parse(raw);
+    } catch (err) {
+      lastErr = err;
+      logger.warn(
+        { feature, attempt, maxAttempts, rawHead: raw.slice(0, 120) },
+        "ai output unusable, retrying",
+      );
+    }
+  }
+  throw lastErr;
+}
+
 /** 刪除保留期外的原始用量紀錄列；回傳刪除筆數（回合引擎每回合呼叫）。 */
 export async function pruneAiUsageLogs(now: Date = new Date()): Promise<number> {
   const cutoff = new Date(

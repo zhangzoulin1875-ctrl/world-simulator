@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { callGameAi } from "./gameAi";
+import { callGameAiParsed } from "./gameAi";
 import { logger } from "./logger";
 import { ERAS, getEraIndex } from "./mapRegionEras";
 import { TAX_RATE_MAX, TAX_RATE_MIN } from "./economy";
@@ -93,19 +93,15 @@ export async function judgeFiscalPolicyIdea(params: {
     "僅回覆 JSON 物件。",
   ].join("\n");
 
-  const message = await callGameAi("finance.settlement", "bulk", {
-    system,
-    messages: [{ role: "user", content: user }],
-  });
-  const block = message.content[0];
-  const raw = block && block.type === "text" ? block.text : "";
   try {
-    return judgementSchema.parse(parseAiJson(raw));
-  } catch (err) {
-    logger.error(
-      { err, raw: raw.slice(0, 500) },
-      "AI fiscal policy judgement parse failed",
+    return await callGameAiParsed(
+      "finance.settlement",
+      "bulk",
+      { system, messages: [{ role: "user", content: user }] },
+      (raw) => judgementSchema.parse(parseAiJson(raw)),
     );
+  } catch (err) {
+    logger.error({ err }, "AI fiscal policy judgement parse failed after retries");
     throw new Error("AI 財政政策判定結果格式不正確");
   }
 }

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { PoliticsModifier } from "@workspace/db";
-import { callGameAi } from "./gameAi";
+import { callGameAi, callGameAiParsed } from "./gameAi";
 import { logger } from "./logger";
 import { ERAS, getEraIndex } from "./mapRegionEras";
 import {
@@ -424,11 +424,15 @@ export async function judgePolicyIdea(params: {
   const ctxLine = params.context ? `\n${params.context}` : "";
   const user = `國家政體：${government}\n當前時代：${era.label}${noteLine}${geoLine}${dirLine}${active}${ctxLine}\n玩家的政策想法：${params.idea}\n\n僅回覆 JSON 物件。`;
 
-  const raw = await callBulkModel(system, user);
   try {
-    return judgementSchema.parse(parseAiJson(raw));
+    return await callGameAiParsed(
+      "politics.settlement",
+      "bulk",
+      { system, messages: [{ role: "user", content: user }] },
+      (raw) => judgementSchema.parse(parseAiJson(raw)),
+    );
   } catch (err) {
-    logger.error({ err, raw: raw.slice(0, 500) }, "AI policy judgement parse failed");
+    logger.error({ err }, "AI policy judgement parse failed after retries");
     throw new Error("AI 政策判定結果格式不正確");
   }
 }
@@ -731,14 +735,15 @@ export async function judgeGovernmentDecision(params: {
   const ctxLine = params.context ? `\n${params.context}` : "";
   const user = `國家政體：${government}\n當前時代：${era.label}\n政治支持度：${Math.round(params.politicalSupport)}/100${noteLine}${geoLine}${active}${ctxLine}\n政府決策內容：${params.decision}\n\n僅回覆 JSON 物件。`;
 
-  const raw = await callBulkModel(system, user);
   try {
-    return decisionJudgementSchema.parse(parseAiJson(raw));
-  } catch (err) {
-    logger.error(
-      { err, raw: raw.slice(0, 500) },
-      "AI government decision judgement parse failed",
+    return await callGameAiParsed(
+      "politics.settlement",
+      "bulk",
+      { system, messages: [{ role: "user", content: user }] },
+      (raw) => decisionJudgementSchema.parse(parseAiJson(raw)),
     );
+  } catch (err) {
+    logger.error({ err }, "AI government decision judgement parse failed after retries");
     throw new Error("AI 政府決策判定結果格式不正確");
   }
 }
