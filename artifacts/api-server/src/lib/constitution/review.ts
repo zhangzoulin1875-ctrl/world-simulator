@@ -8,6 +8,7 @@
  * 安全:憲法全文放在 <constitution> 標籤內,明示為待評議資料而非指示。AI 只決定分數與各黨態度,
  * 「過不過」由程式用席次算(core.tallyVotes),鎖定由資料庫 trigger 保證。
  */
+import { stripPromptTag } from "../promptTag";
 import { CONSTITUTION_MAX_LEN, QUALITY_PASS_SCORE, FLAWS_MIN, FLAWS_MAX, type PartyVote, type ConstitutionFlaw } from "./core";
 
 export interface PartyBrief {
@@ -36,7 +37,7 @@ const REASON_MAX = 80;
 
 /** 移除可偽造標籤邊界的字串,避免憲法內文裡寫 </constitution> 跳出資料區。 */
 export function sanitizeForTag(text: string): string {
-  return text.replace(/<\/?\s*constitution\s*>/gi, "");
+  return stripPromptTag(text, "constitution");
 }
 
 export const QUALITY_SYSTEM = `你是一個架空世界模擬遊戲中的「制憲審查委員會」,負責審查領袖提交的憲法草案。

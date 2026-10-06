@@ -1,5 +1,6 @@
 import { callGameAi } from "../gameAi";
 import { logger } from "../logger";
+import { stripPromptTag } from "../promptTag";
 import { parseReportJson, fallbackReport, type ReportContext, type ReportResult } from "./reportCore";
 
 const SYSTEM = `你是一個架空世界模擬遊戲中的「議會」,負責評議君主/領袖提交的國情報告。
@@ -15,7 +16,7 @@ export async function scoreReport(text: string, ctx: ReportContext): Promise<Rep
     `議會席次:${ctx.partyLines.join("、") || "無"}`,
     `議會的抗議:${ctx.protest || "無"}`,
     `議會的政策要求:${ctx.demand ?? "無"}`,
-    `<report>${text.replace(/<\/?report>/gi, "")}</report>`,
+    `<report>${stripPromptTag(text, "report")}</report>`,
   ].join("\n");
   try {
     const message = await callGameAi("parliament.report", "bulk", { system: SYSTEM, messages: [{ role: "user", content: user }] });

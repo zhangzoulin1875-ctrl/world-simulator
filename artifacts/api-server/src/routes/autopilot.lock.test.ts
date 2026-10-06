@@ -103,6 +103,10 @@ before(async () => {
     ["post", "/api/player/nation/quit"],
     ["post", "/api/auth/logout"],
     ["post", "/api/player/notifications/read"],
+    ["post", "/api/domestic-events/abc/resolve"],
+    ["post", "/api/parliament/report"],
+    ["post", "/api/constitution/submit"],
+    ["post", "/api/mercenary/sign"],
   ] as const) {
     (app as any)[m](p, (_req: unknown, res: { json: (b: unknown) => void }) => res.json({ ok: true }));
   }
@@ -152,6 +156,12 @@ test("託管中：玩家寫入一律 423 + AUTOPILOT_LOCKED（含退出／刪除
     ["PUT", "/api/economy/whatever"],
     ["DELETE", "/api/player/nation"],
     ["POST", "/api/player/nation/quit"],
+    // 國內事件的三選一、議會國情報告、憲法送審、僱傭兵簽約:託管中全部鎖定。
+    // (玩家曾回報「託管中事件彈窗選不了」——根因就是這裡的 423,前端因此不再在託管中彈出事件。)
+    ["POST", "/api/domestic-events/abc/resolve"],
+    ["POST", "/api/parliament/report"],
+    ["POST", "/api/constitution/submit"],
+    ["POST", "/api/mercenary/sign"],
   ]) {
     const r = await call(m!, p!, { body: {} });
     assert.equal(r.status, 423, `${m} ${p} 應被鎖`);
