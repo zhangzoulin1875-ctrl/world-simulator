@@ -91,6 +91,8 @@ interface QueueEntry {
   params: AnthropicCreateParams;
   resolve: (m: AnthropicMessage) => void;
   reject: (e: Error) => void;
+  /** 已被線路池試過且全滅：退回佇列後不再走池，改走主線（避免無限循環）。 */
+  poolTried?: boolean;
 }
 
 const queue: QueueEntry[] = [];
@@ -185,6 +187,17 @@ function drainQueue(): void {
   for (;;) {
     const entry = queue[0];
     if (entry === undefined) return;
+    // 線路池優先接管：有健康線路、未超過池併發、此任務沒被池試過 → 走池（無全域速率限制）。
+    if (!entry.poolTried && routePool.hasAvailable()) {
+      if (poolActive < poolConcurrency) {
+        queue.shift();
+        poolActive += 1;
+        void runPoolTask(entry);
+        continue;
+      }
+      // 池健康但併發已滿：任務留在佇列等池空位，不外流到有速率限制的主線。
+      return;
+    }
     if (primaryLane.tryAcquire()) {
       queue.shift();
       void runTask(entry, "primary");
@@ -221,6 +234,41 @@ function enqueueWithPriority<T>(
     queue.sort((a, b) => a.priority - b.priority || a.seq - b.seq);
     drainQueue();
   });
+}
+
+/**
+ * 池線道：逐線路輪詢（見 routePool.ts）。成功 → 直接完成；
+ * 池內所有線路都失敗 → 任務不報錯，標記 poolTried 後「退回佇列」，
+ * 由主線（NIM）與其備援照原流程處理。
+ */
+async function runPoolTask(entry: QueueEntry): Promise<void> {
+  const tier: AiModelTierLite = entry.params.tier ?? "quality";
+  try {
+    const message = await runWithPool<AnthropicMessage>(
+      routePool,
+      routePoolMaxAttempts,
+      (route) =>
+        postChatCompletion(
+          `${route.baseUrl.replace(/\/+$/, "")}/chat/completions`,
+          route.apiKey,
+          entry.params,
+          tier === "bulk" ? route.bulkModel : route.qualityModel,
+        ),
+      (m) => (m.content.map((b) => b.text).join("").trim() === "" ? "回應內容為空" : null),
+    );
+    poolLaneStats.handled += 1;
+    poolActive -= 1;
+    drainQueue();
+    entry.resolve(message);
+  } catch {
+    // 通用 API 掛了：退回佇列隊首（保持原優先權與序號），改走主線。
+    poolLaneStats.requeued += 1;
+    poolActive -= 1;
+    entry.poolTried = true;
+    queue.push(entry);
+    queue.sort((a, b) => a.priority - b.priority || a.seq - b.seq);
+    drainQueue();
+  }
 }
 
 async function runTask(entry: QueueEntry, lane: "primary" | "fallback"): Promise<void> {
@@ -363,6 +411,19 @@ let fallbackProvider: FallbackProviderFn | null = null;
 const routePool = new RoutePool();
 let routePoolMaxAttempts = 3;
 export function getRoutePool(): RoutePool { return routePool; }
+
+/** 池線道：可多條併發、不吃全域速率名額。 */
+let poolConcurrency = 4;
+let poolActive = 0;
+export interface RoutePoolLaneStats { active: number; concurrency: number; handled: number; requeued: number; }
+const poolLaneStats = { handled: 0, requeued: 0 };
+export function getRoutePoolLaneStats(): RoutePoolLaneStats {
+  return { active: poolActive, concurrency: poolConcurrency, ...poolLaneStats };
+}
+export function setRoutePoolConcurrency(n: number): void {
+  poolConcurrency = Math.min(16, Math.max(1, Math.floor(n)));
+  drainQueue();
+}
 export function configureRoutePool(routes: PoolRoute[], maxAttempts = 3): void {
   routePool.setRoutes(routes);
   routePoolMaxAttempts = Math.min(6, Math.max(1, Math.floor(maxAttempts)));
@@ -648,43 +709,6 @@ async function sendFallbackRetry(
   primaryError: Error,
 ): Promise<AnthropicMessage> {
   const tier: AiModelTierLite = params.tier ?? "quality";
-
-  // 通用線路池優先：任意 v1 相容端點，輪詢＋斷路器＋逐線路換線。
-  if (routePool.size() > 0) {
-    fallbackStats.attempts += 1;
-    fallbackStats.lastUsedAt = Date.now();
-    try {
-      const message = await runWithPool<AnthropicMessage>(
-        routePool,
-        routePoolMaxAttempts,
-        async (route) => {
-          await waitForRateSlot();
-          return postChatCompletion(
-            `${route.baseUrl.replace(/\/+$/, "")}/chat/completions`,
-            route.apiKey,
-            params,
-            tier === "bulk" ? route.bulkModel : route.qualityModel,
-          );
-        },
-        // 公益站常見：HTTP 200 但內容是空的 → 算這條線路失敗，換下一條。
-        (m) => (m.content.map((b) => b.text).join("").trim() === "" ? "回應內容為空" : null),
-      );
-      fallbackStats.successes += 1;
-      fallbackStats.lastError = null;
-      return message;
-    } catch (poolErr) {
-      fallbackStats.failures += 1;
-      fallbackStats.lastError = String((poolErr as Error).message).slice(0, 300);
-      const config0 = await loadFallbackConfig(tier);
-      // 池全滅且沒有舊式單一備援：回報主因＋池的各線路原因。
-      if (config0 === null || isFallbackCoolingDown()) {
-        throw new Error(
-          `AI 服務暫時無法使用。主供應商失敗：${primaryError.message.slice(0, 160)} ｜ ${(poolErr as Error).message.slice(0, 260)}`,
-        );
-      }
-      // 還有舊式單一備援 → 繼續往下走最後一道。
-    }
-  }
 
   const config = await loadFallbackConfig(tier);
   if (config === null) throw primaryError;

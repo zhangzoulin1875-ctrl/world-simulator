@@ -15,7 +15,7 @@ import {
 import { getAiFallbackStats } from "@workspace/integrations-anthropic-ai";
 import { logger } from "../lib/logger";
 import { describeRoutePool, loadStoredRoutes, sanitizeRoutes, saveRoutes } from "../lib/aiRoutePool";
-import { postChatCompletion } from "@workspace/integrations-anthropic-ai";
+import { postChatCompletion, getRoutePoolLaneStats, setRoutePoolConcurrency } from "@workspace/integrations-anthropic-ai";
 import { requireAdmin } from "../middlewares/requireAdmin";
 
 const router: IRouter = Router();
@@ -114,7 +114,15 @@ router.patch("/bot/ai-models", requireAdmin, async (req, res) => {
 
 // ── 通用 AI 線路池：任何 OpenAI v1 相容端點（公益站等），輪詢＋斷路器 ──
 router.get("/bot/ai-routes", requireAdmin, async (_req, res) => {
-  res.json({ routes: await describeRoutePool() });
+  res.json({ routes: await describeRoutePool(), lane: getRoutePoolLaneStats() });
+});
+
+/** 池線道併發上限（1~16）。池健康時所有排隊任務都由池處理，不受 NIM 的 35 RPM 限制。 */
+router.put("/bot/ai-routes/concurrency", requireAdmin, (req, res) => {
+  const n = Number((req.body ?? {}).concurrency);
+  if (!Number.isFinite(n) || n < 1 || n > 16) { res.status(400).json({ ok: false, error: "concurrency 需為 1~16" }); return; }
+  setRoutePoolConcurrency(n);
+  res.json({ ok: true, lane: getRoutePoolLaneStats() });
 });
 
 /** 整份覆蓋。apiKey 留空或回傳遮罩值＝沿用該 id 原本的 key。 */

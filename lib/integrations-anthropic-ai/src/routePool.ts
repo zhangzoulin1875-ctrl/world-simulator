@@ -83,6 +83,11 @@ export class RoutePool {
     }
   }
 
+  /** 此刻是否至少有一條可選的線路（不改變任何狀態）。 */
+  hasAvailable(): boolean {
+    return this.available(new Set()).length > 0;
+  }
+
   size(): number {
     return this.routes.length;
   }
