@@ -4,6 +4,8 @@ export {
   getAiFallbackStats,
   registerAiFallbackProvider,
   postChatCompletion,
+  getRoutePool,
+  configureRoutePool,
   runWithAiPriority,
   AI_PRIORITY_PREGEN,
   type AiQueueStats,
@@ -12,3 +14,4 @@ export {
   type AiModelTierLite,
 } from "./client";
 export { batchProcess, batchProcessWithSSE, isRateLimitError, type BatchOptions } from "./batch";
+export { RoutePool, runWithPool, parseRetryAfterMs, type PoolRoute, type RouteHealth } from "./routePool";

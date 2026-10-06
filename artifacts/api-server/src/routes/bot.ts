@@ -14,6 +14,8 @@ import {
 } from "../lib/aiFallback";
 import { getAiFallbackStats } from "@workspace/integrations-anthropic-ai";
 import { logger } from "../lib/logger";
+import { describeRoutePool, loadStoredRoutes, sanitizeRoutes, saveRoutes } from "../lib/aiRoutePool";
+import { postChatCompletion } from "@workspace/integrations-anthropic-ai";
 import { requireAdmin } from "../middlewares/requireAdmin";
 
 const router: IRouter = Router();
@@ -110,8 +112,44 @@ router.patch("/bot/ai-models", requireAdmin, async (req, res) => {
   }
 });
 
+// ── 通用 AI 線路池：任何 OpenAI v1 相容端點（公益站等），輪詢＋斷路器 ──
+router.get("/bot/ai-routes", requireAdmin, async (_req, res) => {
+  res.json({ routes: await describeRoutePool() });
+});
+
+/** 整份覆蓋。apiKey 留空或回傳遮罩值＝沿用該 id 原本的 key。 */
+router.put("/bot/ai-routes", requireAdmin, async (req, res) => {
+  try {
+    const existing = await loadStoredRoutes();
+    const routes = sanitizeRoutes((req.body ?? {}).routes, existing);
+    await saveRoutes(routes);
+    res.json({ ok: true, routes: await describeRoutePool() });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: (err as Error).message });
+  }
+});
+
+/** 測試單一線路（用已存的 key）：送一個極短請求，回延遲與結果。 */
+router.post("/bot/ai-routes/:id/test", requireAdmin, async (req, res) => {
+  const route = (await loadStoredRoutes()).find((r) => r.id === req.params.id);
+  if (!route) { res.status(404).json({ ok: false, error: "找不到這條線路" }); return; }
+  const t0 = Date.now();
+  try {
+    const m = await postChatCompletion(
+      `${route.baseUrl}/chat/completions`, route.apiKey,
+      { model: route.qualityModel, max_tokens: 32, messages: [{ role: "user", content: "回覆「OK」兩個字即可。" }] },
+      route.qualityModel,
+    );
+    const text = m.content.map((b) => b.text).join("").trim();
+    res.json({ ok: text !== "", ms: Date.now() - t0, model: m.model, reply: text.slice(0, 80), error: text === "" ? "HTTP 200 但回應內容為空" : null });
+  } catch (err) {
+    res.json({ ok: false, ms: Date.now() - t0, error: String((err as Error).message).slice(0, 300) });
+  }
+});
+
 /**
- * AI 備援（fallback）供應商設定：主供應商（NIM）單次呼叫失敗時，adapter
+ * AI 備援（fallback）供應商
+設定：主供應商（NIM）單次呼叫失敗時，adapter
  * 會自動改用這裡設定的備援 API（預設 Gemini 的 OpenAI 相容端點）重試一次。
  * key／baseUrl／模型皆後台可調，存 bot_settings（30 秒 TTL 快取，
  * PATCH 後立即失效），不需重啟服務。GET 永遠不回傳 API key 本體。

@@ -95,6 +95,7 @@ async function runGameMigrationsInner(): Promise<void> {
   await db.execute(sql`ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ai_fallback_api_key text`);
   await db.execute(sql`ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ai_fallback_model_quality text`);
   await db.execute(sql`ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ai_fallback_model_bulk text`);
+  await db.execute(sql`ALTER TABLE bot_settings ADD COLUMN IF NOT EXISTS ai_route_pool text`);
 
   // --- Discord OAuth login sessions -------------------------------------
   // Opaque, server-issued session tokens for the game's Discord login. The

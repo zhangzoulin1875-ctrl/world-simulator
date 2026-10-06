@@ -17,6 +17,8 @@ export const botSettingsTable = pgTable("bot_settings", {
   aiFallbackApiKey: text("ai_fallback_api_key"),
   aiFallbackModelQuality: text("ai_fallback_model_quality"),
   aiFallbackModelBulk: text("ai_fallback_model_bulk"),
+  // 通用線路池（JSON 陣列，見 routePool.ts／aiRoutePool.ts）。有設定時優先於單一備援。
+  aiRoutePool: text("ai_route_pool"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

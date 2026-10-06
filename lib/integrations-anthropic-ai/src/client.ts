@@ -34,6 +34,7 @@
  * 請求之後。優先權經 AsyncLocalStorage 傳遞（runWithAiPriority）。
  */
 
+import { RoutePool, runWithPool, type PoolRoute } from "./routePool";
 import { AsyncLocalStorage } from "node:async_hooks";
 
 if (!process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL) {
@@ -358,6 +359,15 @@ type FallbackProviderFn = (tier: AiModelTierLite) => Promise<AiFallbackConfig | 
 
 let fallbackProvider: FallbackProviderFn | null = null;
 
+/** 通用線路池（任意 OpenAI v1 相容端點）。有線路時，備援槽改走池，否則沿用單一備援。 */
+const routePool = new RoutePool();
+let routePoolMaxAttempts = 3;
+export function getRoutePool(): RoutePool { return routePool; }
+export function configureRoutePool(routes: PoolRoute[], maxAttempts = 3): void {
+  routePool.setRoutes(routes);
+  routePoolMaxAttempts = Math.min(6, Math.max(1, Math.floor(maxAttempts)));
+}
+
 /** 註冊備援設定來源（遊戲後端啟動時呼叫一次；測試可不註冊）。 */
 export function registerAiFallbackProvider(fn: FallbackProviderFn): void {
   fallbackProvider = fn;
@@ -638,6 +648,44 @@ async function sendFallbackRetry(
   primaryError: Error,
 ): Promise<AnthropicMessage> {
   const tier: AiModelTierLite = params.tier ?? "quality";
+
+  // 通用線路池優先：任意 v1 相容端點，輪詢＋斷路器＋逐線路換線。
+  if (routePool.size() > 0) {
+    fallbackStats.attempts += 1;
+    fallbackStats.lastUsedAt = Date.now();
+    try {
+      const message = await runWithPool<AnthropicMessage>(
+        routePool,
+        routePoolMaxAttempts,
+        async (route) => {
+          await waitForRateSlot();
+          return postChatCompletion(
+            `${route.baseUrl.replace(/\/+$/, "")}/chat/completions`,
+            route.apiKey,
+            params,
+            tier === "bulk" ? route.bulkModel : route.qualityModel,
+          );
+        },
+        // 公益站常見：HTTP 200 但內容是空的 → 算這條線路失敗，換下一條。
+        (m) => (m.content.map((b) => b.text).join("").trim() === "" ? "回應內容為空" : null),
+      );
+      fallbackStats.successes += 1;
+      fallbackStats.lastError = null;
+      return message;
+    } catch (poolErr) {
+      fallbackStats.failures += 1;
+      fallbackStats.lastError = String((poolErr as Error).message).slice(0, 300);
+      const config0 = await loadFallbackConfig(tier);
+      // 池全滅且沒有舊式單一備援：回報主因＋池的各線路原因。
+      if (config0 === null || isFallbackCoolingDown()) {
+        throw new Error(
+          `AI 服務暫時無法使用。主供應商失敗：${primaryError.message.slice(0, 160)} ｜ ${(poolErr as Error).message.slice(0, 260)}`,
+        );
+      }
+      // 還有舊式單一備援 → 繼續往下走最後一道。
+    }
+  }
+
   const config = await loadFallbackConfig(tier);
   if (config === null) throw primaryError;
   // 備援今日配額已用盡 → 不再浪費呼叫，直接如實回報主供應商的錯誤。
