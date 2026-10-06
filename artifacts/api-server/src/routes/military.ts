@@ -107,9 +107,12 @@ const router: IRouter = Router();
 
 /** Error that maps to an HTTP status inside a transaction (throw → rollback). */
 /** 僱傭兵合約期間不能建軍:把服務層錯誤轉成這支路由認得的 HttpError。 */
-async function gateRecruit(nationId: string): Promise<void> {
+async function gateRecruit(
+  nationId: string,
+  tx?: Parameters<typeof assertCanRecruit>[1],
+): Promise<void> {
   try {
-    await assertCanRecruit(nationId);
+    await assertCanRecruit(nationId, tx);
   } catch (e) {
     if (e instanceof MercenaryError) throw new HttpError(e.status, e.message);
     throw e;
@@ -660,6 +663,11 @@ router.post("/military/recruit", async (req, res) => {
         );
       }
 
+      // 簽約(mercenary/sign)與招募都會鎖同一國家列。交易外的 gateRecruit 只是
+      // 快速失敗;並發簽約可能在它之後才提交,所以在持有列鎖後用 tx 再複核一次,
+      // 否則會同時擁有「僱傭兵合約」與「常備軍」。拋錯 → 整筆回滾(含上面的扣款)。
+      await gateRecruit(nation.id, tx);
+
       // Task #568 — 已持有列鎖後精確複核：佔用（更新後 spent）＋本回合已
       // 花費＋這次花費 ≤ 總生產力，不足即整筆回滾。
       const currentSpend = await loadCurrentTurnRecruitSpend(nation.id, tx);
@@ -846,6 +854,8 @@ router.post("/military/purchase", async (req, res) => {
                 : `金錢不足（需要 ${moneyCost.toLocaleString("en-US")}）`,
         );
       }
+      // 同招募:持有國家列鎖後複核合約,擋掉與 mercenary/sign 的並發繞過(拋錯整筆回滾)。
+      await gateRecruit(nation.id, tx);
 
       // Task #568 — 已持有列鎖後複核：佔用（更新後 spent）＋本回合招募花費
       // ≤ 總生產力（購買不產生花費，但花費會壓縮可佔用空間）。

@@ -202,6 +202,23 @@ test("解除武裝:同時取消訓練佇列並退還", async () => {
   assert.equal((await db.select().from(recruitQueueTable).where(eq(recruitQueueTable.nationId, nB))).length, 0);
 });
 
+test("回歸:解除武裝取消佇列只扣一次 productionSpent/populationSpent(不吃掉其他佔用)", async () => {
+  await reset(nB, userB);
+  await db.insert(recruitQueueTable).values({
+    nationId: nB, templateId, totalQuantity: 100, remaining: 100,
+    productionReserved: 25, populationReserved: 100, woodPaid: 0, orePaid: 0, moneyPaid: 0,
+  } as never);
+  // 已用 = 佇列預留(25/100) + 其他合法佔用(60/500)。雙扣會把其他佔用也吃掉。
+  await db.update(playerNationsTable).set({ productionSpent: 85, populationSpent: 600 }).where(eq(playerNationsTable.id, nB));
+  const r = await svc.disarmNation(nB);
+  const after = await nationRow(nB);
+  assert.equal(after.productionSpent, 60, "只退佇列那 25,其他佔用 60 要保留");
+  assert.equal(after.populationSpent, 500, "只退佇列那 100,其他佔用 500 要保留");
+  // 回報給前端的仍是總退還量
+  assert.equal(r.refundedProduction, 25);
+  assert.equal(r.refundedPopulation, 100);
+});
+
 test("有進行中戰役時不可解除武裝", async () => {
   await reset(nB, userB);
   const cid = await mkCampaign(nA, nB);

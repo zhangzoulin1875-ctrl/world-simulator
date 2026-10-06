@@ -244,6 +244,10 @@ export async function disarmNation(nationId: string): Promise<DisarmResult> {
     let disbandedUnits = 0;
     let refundedProduction = 0;
     let refundedPopulation = 0;
+    // 佇列訂單的生產力/人口「已由 cancelQueueOrdersForNation 內部」從 productionSpent/
+    // populationSpent 扣掉(refundAndDeleteQueueRow);這裡只用來回報,絕不可再扣第二次。
+    let queueProduction = 0;
+    let queuePopulation = 0;
     let refundedWood = 0;
     let refundedOre = 0;
     let refundedMoney = 0;
@@ -260,8 +264,8 @@ export async function disarmNation(nationId: string): Promise<DisarmResult> {
       .where(eq(recruitQueueTable.nationId, nationId));
     if (queue.length > 0) {
       const refund = await cancelQueueOrdersForNation(nationId, tx);
-      refundedProduction += refund.production;
-      refundedPopulation += refund.population;
+      queueProduction += refund.production;
+      queuePopulation += refund.population;
       refundedWood += refund.wood;
       refundedOre += refund.ore;
       refundedMoney += refund.money;
@@ -303,8 +307,9 @@ export async function disarmNation(nationId: string): Promise<DisarmResult> {
 
     return {
       disbandedUnits,
-      refundedProduction,
-      refundedPopulation,
+      // 回報總退還量 = 常備軍 + 佇列;但實際扣 productionSpent/populationSpent 只用常備軍那份。
+      refundedProduction: refundedProduction + queueProduction,
+      refundedPopulation: refundedPopulation + queuePopulation,
       refundedWood,
       refundedOre,
       refundedMoney,
