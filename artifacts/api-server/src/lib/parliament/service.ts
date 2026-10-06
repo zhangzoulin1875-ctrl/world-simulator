@@ -18,6 +18,10 @@ import {
 } from "./core";
 import { planParliamentTurn } from "./plan";
 import { buildParties, partyColor, type NationFacts } from "./parties";
+import { generateParliamentMessage } from "./messageAi";
+import { buildNationContext } from "../nationContext";
+import { getCurrentEraSlug } from "../nationStats";
+import { isDemandDue, rulingParty as rulingPartyOf } from "./core";
 import { SOCIALIST_PARTY_NAME } from "../domesticEvents/parliamentShift";
 import { noConstitutionPenalty } from "../constitution/core";
 import { loadConstitution, statusOf } from "../constitution/service";
@@ -47,6 +51,23 @@ async function atWarFlag(nationId: string): Promise<{ atWar: boolean; aggressor:
 }
 
 /** 重新組黨並寫入資料庫（規則式；席次由公式算）。 */
+
+/** 國際局勢摘要：世界上其他國家的戰事與強弱，讓議會意見反映外部環境。 */
+async function buildWorldSituation(selfId: string): Promise<string> {
+  try {
+    const wars = await db.select().from(diplomacyWarsTable).where(isNull(diplomacyWarsTable.endedAt));
+    const involvesMe = (w: (typeof wars)[number]) => w.nationAId === selfId || w.nationBId === selfId;
+    const others = wars.filter((w) => !involvesMe(w));
+    const mine = wars.filter(involvesMe);
+    const parts: string[] = [];
+    parts.push(others.length > 0 ? `世界上另有 ${others.length} 場戰爭正在進行` : "世界大致承平，沒有其他大型戰事");
+    if (mine.length === 0 && others.length > 0) parts.push("本國暫未捲入");
+    return parts.join("；");
+  } catch {
+    return "";
+  }
+}
+
 export async function rebuildParties(nation: Nation, state: { tick: number }, facts: NationFacts): Promise<SeatedParty[]> {
   const seated = facts.tier === "autocracy"
     ? rubberStampParliament({ id: "p0", name: `${facts.nationName}愛國黨` })
@@ -138,7 +159,31 @@ export async function settleNationParliament(
 
   // 專制下若議會被事件(社會黨取得多數)改成非忠誠黨過半,橡皮圖章失效,改以「半專制」規則問政。
   const planTier = effectiveParliamentTier(tier, parties);
+  // 本回合若會出新要求：先請 AI 依國情與國際局勢寫抗議／要求文字（失敗就退回模板）。
+  // 只在「真的要提新要求」時呼叫，避免每回合都花 AI 額度。
+  let aiMessage: { protest: string; demandText: string | null } | null = null;
+  const nextTick = state.tick + 1;
+  if (planTier !== "autocracy" && !state.activeDemand && isDemandDue(nextTick, state.lastDemandTick)) {
+    const ruling = rulingPartyOf(parties);
+    if (ruling) {
+      try {
+        const eraSlug = await getCurrentEraSlug();
+        const [ctx, worldSituation] = await Promise.all([
+          buildNationContext(nation, eraSlug),
+          buildWorldSituation(nation.id),
+        ]);
+        aiMessage = await generateParliamentMessage({
+          eraSlug, stance: ruling.stance, partyName: ruling.name, wantsDemand: true,
+          context: ctx, worldSituation, satisfaction: state.satisfaction,
+        });
+      } catch (err) {
+        logger.warn({ err, nationId: nation.id }, "parliament ai message context failed — template");
+      }
+    }
+  }
+
   const plan = planParliamentTurn({
+    aiMessage,
     tier: planTier, tick: state.tick, satisfaction: state.satisfaction, lastDemandTick: state.lastDemandTick,
     activeDemand: state.activeDemand as any, parties, snapshot, militarySatisfaction: nation.satisfactionMilitary,
     atWar: war.atWar,

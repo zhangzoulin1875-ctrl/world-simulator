@@ -22,6 +22,8 @@ export interface PlanInput {
   militarySatisfaction: number | null;
   /** 目前是否有任何進行中的戰爭(不分攻守);決定抗議措辭是否能提到戰事。預設視為和平。 */
   atWar?: boolean;
+  /** 事先由 AI 依國情／國際局勢生成的抗議與要求文字；沒有或失敗就退回模板。立場仍由規則決定。 */
+  aiMessage?: { protest: string; demandText: string | null } | null;
 }
 
 export interface PlanLogEntry { kind: "demand" | "judgement" | "revolution" | "constitution"; summary: string; satDelta: number }
@@ -80,7 +82,14 @@ export function planParliamentTurn(inp: PlanInput): PlanResult {
   if (!active && isDemandDue(tick, lastDemandTick)) {
     const ruling = rulingParty(inp.parties);
     if (ruling) {
-      const msg = fallbackMessage(ruling.stance, ruling.name, inp.tier, inp.atWar === true);
+      const base = fallbackMessage(ruling.stance, ruling.name, inp.tier, inp.atWar === true);
+      const ai = inp.aiMessage;
+      const msg = {
+        protest: ai && ai.protest.trim() ? ai.protest.trim() : base.protest,
+        demand: base.demand
+          ? { stance: base.demand.stance, text: ai && ai.demandText && ai.demandText.trim() ? ai.demandText.trim() : base.demand.text }
+          : null,
+      };
       protestText = msg.protest;
       if (msg.demand) {
         active = { stance: msg.demand.stance, text: msg.demand.text, issuedTick: tick, levels: [] };
