@@ -98,6 +98,7 @@ export const AI_FEATURES = {
   "constitution.vote": { label: "憲法:各黨投票", defaultMaxTokens: 1200 },
   "constitution.flaws": { label: "憲法:漏洞掃描", defaultMaxTokens: 1400 },
   "support.search": { label: "Discord：AI 客服程式碼搜尋關鍵字", defaultMaxTokens: 200 },
+  "support.guide": { label: "Discord：AI 客服（如何達成目的的推理建議）", defaultMaxTokens: 1800 },
   "support.chat": { label: "Discord：AI 客服回答", defaultMaxTokens: 900 },
   "diagnostics.ping": { label: "系統：AI 連線測試", defaultMaxTokens: 200 },
 } as const satisfies Record<string, AiFeatureDef>;

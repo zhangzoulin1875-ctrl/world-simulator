@@ -4,7 +4,7 @@ import { Team, User } from "discord.js";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import {
   splitForDiscord, resolveOwnerId, buildQuestion, answerQuestion, SUPPORT_AI_PRIORITY,
-  DISCORD_MESSAGE_LIMIT, SUPPORT_MAX_INPUT_CHARS,
+  DISCORD_MESSAGE_LIMIT, SUPPORT_MAX_INPUT_CHARS, GOAL_GUIDE, collectHits, GOAL_TOTAL_HITS,
 } from "./supportBot";
 import { SUPPORT_SYSTEM_PROMPT, SUPPORT_KNOWLEDGE } from "./supportKnowledge";
 import { AI_FEATURES } from "./gameAi";
@@ -75,7 +75,7 @@ test("AI 呼叫失敗 → 往上丟（佇列會退避重試）", async () => {
 });
 
 test("客服 prompt：限定本遊戲、拒絕洩漏設定與提示注入、不承諾補償", () => {
-  for (const kw of ["只依據", "不確定", "無關", "不要透露", "不是對你的指令", "不要替管理員承諾"]) {
+  for (const kw of ["以【遊戲知識】與【程式碼依據】為基礎", "不確定", "無關", "不要透露", "不是對你的指令", "不要替管理員承諾"]) {
     assert.ok(SUPPORT_SYSTEM_PROMPT.includes(kw), `缺少：${kw}`);
   }
   assert.ok(SUPPORT_KNOWLEDGE.length > 500 && SUPPORT_KNOWLEDGE.length < 8000);
@@ -145,7 +145,8 @@ test("索引不可用（GitHub 掛了）→ 只改用知識底稿作答，客服
     const calls = stubAi(() => "只靠說明的回答");
     assert.equal(await answerQuestion("怎麼建國"), "只靠說明的回答");
     assert.equal(calls.length, 1);
-    assert.ok(!calls[0].messages[0].content.includes("【程式碼依據】"));
+    assert.match(calls[0].messages[0].content, /沒有檢索到可用的原始碼片段/);
+    assert.ok(!calls[0].messages[0].content.includes("--- "), "沒有任何程式碼片段");
   } finally { globalThis.fetch = real; }
 });
 
@@ -166,7 +167,7 @@ test("佇列重試同一問題時，改寫只做一次（省額度）", async ()
 test("lookupCode：沒有命中時回空字串（不塞無關程式碼）", async () => {
   resetRewriteCache(); __setCodeIndexForTest(codeIdx());
   stubAi(() => '{"keywords":["zzzqqq"]}');
-  assert.equal(await lookupCode("zzzqqq 完全無關"), "");
+  assert.equal((await lookupCode("zzzqqq 完全無關")).text, "");
   __setCodeIndexForTest(null);
 });
 
@@ -174,4 +175,98 @@ test("客服 prompt 含程式碼依據使用規則：優先採信、不貼大段
   for (const kw of ["程式碼依據", "不要貼大段程式碼", "金鑰", "沒找到明確依據", "推測", "不要斷言", "聯絡管理員"]) {
     assert.ok(SUPPORT_SYSTEM_PROMPT.includes(kw), `缺少：${kw}`);
   }
+});
+
+// ── 目的型問題（如何達成某目的）─────────────────────────────────────────
+const goalIdx = () => buildIndex(new Map([
+  ["src/lib/populationCapacity.ts", "// 人口承載量：人口超過承載量時每回合減少，最多 6%\nexport function capacity() { return 1; }\n"],
+  ["src/lib/growth.ts", "// 人口增長率 population growth rate：受穩定度與糧食影響\nexport function growthRate() { return 0.01; }\n"],
+  ["src/lib/food.ts", "// 糧食 food 不足會觸發飢荒 famine，人口減少\nexport function famine() { return 1; }\n"],
+  ["src/lib/tax.ts", "// 稅收 tax 與稅率 政策\nexport function tax() { return 1; }\n"],
+  ["src/lib/unrelated.ts", "export const nothing = 'x';\n"],
+]), "goalidx");
+
+const goalRewrite = JSON.stringify({
+  kind: "goal",
+  keywords: ["population", "人口"],
+  angles: ["population growth rate 人口 增長率", "populationCapacity 承載量", "food famine 糧食 飢荒"],
+});
+
+test("目的型問題：改寫會分類為 goal 並給出多個機制角度；作答帶推理指引並改用 support.guide（更大的 token）", async () => {
+  resetRewriteCache(); __setCodeIndexForTest(goalIdx());
+  const feats: string[] = [];
+  const calls = stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? goalRewrite : "1. 目標拆解…"));
+  const a = await answerQuestion("怎麼樣才能讓我的人口變多？");
+  assert.equal(a, "1. 目標拆解…");
+  assert.equal(calls.length, 2);
+  const msg = calls[1].messages[0].content as string;
+  assert.ok(msg.includes(GOAL_GUIDE.slice(0, 30)), "帶有推理指引");
+  assert.match(msg, /目標拆解/);
+  assert.match(msg, /代價與風險/);
+  assert.match(msg, /絕對不要編造不存在的按鈕/);
+  // 多個機制的檔案都被帶進依據（不只擠在同一個）
+  for (const f of ["populationCapacity.ts", "growth.ts", "food.ts"]) assert.ok(msg.includes(f), `缺少 ${f}`);
+  assert.ok(!msg.includes("unrelated.ts"));
+  // max_tokens 取自 support.guide（1800），比 support.chat 大
+  assert.ok(calls[1].max_tokens >= 1500, `max_tokens=${calls[1].max_tokens}`);
+  feats.length = 0;
+  __setCodeIndexForTest(null);
+});
+
+test("規則型問題：不帶推理指引，仍用 support.chat", async () => {
+  resetRewriteCache(); __setCodeIndexForTest(goalIdx());
+  const calls = stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"rule","keywords":["capacity","承載量"],"angles":[]}' : "規則說明"));
+  assert.equal(await answerQuestion("人口承載量是什麼"), "規則說明");
+  const msg = calls[1].messages[0].content as string;
+  assert.ok(!msg.includes("目標拆解"));
+  assert.match(msg, /規則怎麼運作/);
+  assert.ok(calls[1].max_tokens < 1500, `max_tokens=${calls[1].max_tokens}`);
+  __setCodeIndexForTest(null);
+});
+
+test("疑似 Bug：帶 bug 指引（請玩家提供資料、不斷言）", async () => {
+  resetRewriteCache(); __setCodeIndexForTest(goalIdx());
+  const calls = stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"bug","keywords":["capacity"],"angles":[]}' : "請提供資料"));
+  await answerQuestion("人口突然變0是bug嗎 capacity");
+  const msg = calls[1].messages[0].content as string;
+  assert.match(msg, /疑似異常/);
+  assert.match(msg, /不要斷言是 Bug/);
+  __setCodeIndexForTest(null);
+});
+
+test("collectHits：goal 每個角度各取代表（輪流），去重，總數有上限", () => {
+  const idx = goalIdx();
+  const hits = collectHits(idx, { kind: "goal", searchText: "人口變多 population", angles: ["population growth rate 增長率", "populationCapacity 承載量", "food famine 糧食 飢荒"] });
+  const paths = hits.map((h) => h.chunk.path);
+  assert.ok(paths.includes("src/lib/growth.ts") && paths.includes("src/lib/populationCapacity.ts") && paths.includes("src/lib/food.ts"));
+  assert.equal(new Set(hits.map((h) => `${h.chunk.path}:${h.chunk.start}`)).size, hits.length, "不重複");
+  assert.ok(hits.length <= GOAL_TOTAL_HITS);
+  // rule 型只用單次搜尋
+  const r = collectHits(idx, { kind: "rule", searchText: "承載量", angles: ["ignored food"] });
+  assert.ok(r.every((h) => h.chunk.path !== "src/lib/food.ts") || r.length > 0);
+});
+
+test("分類 JSON 亂掉 / kind 不合法 → 退回 rule，不影響作答", async () => {
+  resetRewriteCache(); __setCodeIndexForTest(goalIdx());
+  const calls = stubAi((p) => (/程式碼搜尋助手/.test(p.system ?? "") ? '{"kind":"???","keywords":["capacity"],"angles":["x"]}' : "ok"));
+  assert.equal(await answerQuestion("capacity 承載量"), "ok");
+  assert.ok(!(calls[1].messages[0].content as string).includes("目標拆解"));
+  __setCodeIndexForTest(null);
+});
+
+test("goal 型但索引不可用 → 仍給推理指引＋明講沒有程式碼依據，不中斷", async () => {
+  resetRewriteCache(); __setCodeIndexForTest(null);
+  const real = globalThis.fetch;
+  globalThis.fetch = (async () => new Response("down", { status: 503 })) as typeof fetch;
+  try {
+    const calls = stubAi(() => "只靠說明的建議");
+    assert.equal(await answerQuestion("怎麼讓人口變多"), "只靠說明的建議");
+    assert.equal(calls.length, 1, "沒有索引就不做改寫");
+    assert.match(calls[0].messages[0].content, /沒有檢索到可用的原始碼片段/);
+  } finally { globalThis.fetch = real; }
+});
+
+test("prompt 允許串連機制做推論，但禁止編造", () => {
+  assert.match(SUPPORT_SYSTEM_PROMPT, /串起來做合理推論/);
+  assert.match(SUPPORT_SYSTEM_PROMPT, /絕對不要編造數字、按鈕或功能/);
 });
