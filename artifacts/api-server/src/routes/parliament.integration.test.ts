@@ -94,9 +94,9 @@ test("縮放:國情報告費用依時代與國力縮放,頁面顯示的金額 = 
     const poor = await mk("議會內閣制", 5_000);
     await settleNationParliament(poor.n, null, 0);
     const g0: any = await (await fetch(`${base}/api/parliament`, { headers: { cookie: poor.cookie } })).json();
-    assert.equal(g0.report.cost, 74_000, "顯示的是縮放後的費用(500 × 148)");
+    assert.equal(g0.report.cost, 9_250, "顯示的是縮放後的費用(500 × 148 × 0.125)");
     const r0 = await post(poor.cookie, { text: LONG });
-    assert.equal(r0.status, 402); assert.match(((await r0.json()) as any).error, /74,000/);
+    assert.equal(r0.status, 402); assert.match(((await r0.json()) as any).error, /9,250/);
     assert.equal(Number((await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, poor.n.id)))[0]!.money), 5_000, "被擋不扣錢");
 
     const rich = await mk("議會內閣制", 1_000_000);
@@ -106,6 +106,6 @@ test("縮放:國情報告費用依時代與國力縮放,頁面顯示的金額 = 
     assert.equal(r1.status, 200);
     const after = Number((await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, rich.n.id)))[0]!.money);
     assert.equal(1_000_000 - after, shown, "實扣 = 畫面上顯示的費用");
-    assert.equal(shown, 74_000);
+    assert.equal(shown, 9_250);
   } finally { setPenaltyScaleForTest(1); }
 });

@@ -10,9 +10,10 @@ export const REPORT_COOLDOWN_TICKS = 8;
 /** 國情報告費的基準價(古典時代標準國的金額);實際金額依時代與國力縮放,見 reportCostFor。 */
 export const REPORT_COST_MONEY = 500;
 
-/** 縮放後的國情報告費(四捨五入成整數,至少 1)。scale 來自 penaltyScale.penaltyScaleFor。 */
+/** 縮放後的國情報告費。係數同送審費(主動行為,不比被動災難貴),見 constitution/core.ts 的 ACTIVE_ACTION_SCALE_RATIO。 */
 export function reportCostFor(scale: number): number {
-  return Math.max(1, Math.round(REPORT_COST_MONEY * (Number.isFinite(scale) && scale > 0 ? scale : 1)));
+  const k = Number.isFinite(scale) && scale > 0 ? Math.max(1, scale * 0.125) : 1;
+  return Math.max(1, Math.round(REPORT_COST_MONEY * k));
 }
 
 export interface ReportContext {

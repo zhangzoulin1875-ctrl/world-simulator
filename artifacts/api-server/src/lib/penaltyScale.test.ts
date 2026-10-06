@@ -74,7 +74,8 @@ test("無效倍率:憲法/國情報告費退回基準價,不會變 NaN 或 0", (
     assert.equal(submitCostFor(bad), SUBMIT_COST_MONEY, `倍率 ${bad} 應退回基準價`);
     assert.equal(reportCostFor(bad), REPORT_COST_MONEY);
   }
-  assert.equal(submitCostFor(148), 148_000);
-  assert.equal(reportCostFor(148), 74_000);
+  assert.equal(submitCostFor(148), 18_500);
+  assert.equal(reportCostFor(148), 9_250);
   assert.equal(reportCostFor(1), REPORT_COST_MONEY);
+  assert.equal(submitCostFor(4.8), SUBMIT_COST_MONEY, "早期時代不低於古典基準價");
 });

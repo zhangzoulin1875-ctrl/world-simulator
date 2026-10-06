@@ -19,10 +19,16 @@ export const SUBMIT_COOLDOWN_TICKS = 4;
 /** 送審費的基準價(古典時代標準國的金額);實際金額依時代與國力縮放,見 submitCostFor。 */
 export const SUBMIT_COST_MONEY = 1000;
 
-/** 縮放後的送審費(四捨五入成整數,至少 1)。scale 來自 penaltyScale.penaltyScaleFor。 */
+/**
+ * 主動行為(送審、國情報告)的相對係數:事件是被動災難,約 4.5 回合稅收才有感;
+ * 玩家主動寫一份文書不該那麼貴,取事件倍率的 1/8(約 0.5 回合稅收)。古典時代仍是原本的 1000。
+ */
+export const ACTIVE_ACTION_SCALE_RATIO = 0.125;
+
+/** 縮放後的送審費。古典標準國 = 基準價 1000;其他時代 = 基準價 × max(1, 倍率 × 相對係數)。 */
 export function submitCostFor(scale: number): number {
-  const v = Math.round(SUBMIT_COST_MONEY * (Number.isFinite(scale) && scale > 0 ? scale : 1));
-  return Math.max(1, v);
+  const k = Number.isFinite(scale) && scale > 0 ? Math.max(1, scale * ACTIVE_ACTION_SCALE_RATIO) : 1;
+  return Math.max(1, Math.round(SUBMIT_COST_MONEY * k));
 }
 /** AI 品質分低於此值直接退回，不進入投票。 */
 export const QUALITY_PASS_SCORE = 40;
