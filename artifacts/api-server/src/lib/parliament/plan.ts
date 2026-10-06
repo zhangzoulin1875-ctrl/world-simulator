@@ -2,7 +2,7 @@ import {
   type ParliamentTier, type ParliamentStance, type ComplianceLevel, type ComplianceSnapshot,
   type SeatedParty, DEMAND_INTERVAL_TURNS, PARLIAMENT_SATISFACTION_AFTER_REVOLUTION, MAX_PENALTY,
   clampSat, judgeCompliance, complianceDelta, naturalDrift, shouldRevolt, rulingParty,
-  isDemandDue, fallbackMessage, COMPLIANCE_LABELS,
+  isDemandDue, fallbackMessage, demandAllowedDuringWar, penaltyCap, COMPLIANCE_LABELS,
 } from "./core";
 
 /**
@@ -56,14 +56,16 @@ export function planParliamentTurn(inp: PlanInput): PlanResult {
 
   // ── 1. 進行中的要求：每回合都判定一次 ─────────────────────────────────
   if (active) {
-    const level = judgeCompliance(active.stance, inp.snapshot);
+    const stance = active.stance;
+    const level = judgeCompliance(stance, inp.snapshot);
     // 本要求期「已累計扣掉多少」（只算負的）；單次要求期累計扣分不得超過該檔位上限。
     const spent = active.levels.reduce((n, l) => {
-      const x = complianceDelta(l as ComplianceLevel, inp.tier);
+      const x = complianceDelta(l as ComplianceLevel, inp.tier, stance);
       return x < 0 ? n + -x : n;
     }, 0);
-    let d = complianceDelta(level, inp.tier);
-    if (d < 0) d = -Math.max(0, Math.min(-d, MAX_PENALTY[inp.tier] - spent));
+    let d = complianceDelta(level, inp.tier, stance);
+    const periodCap = penaltyCap(inp.tier, stance);
+    if (d < 0) d = -Math.max(0, Math.min(-d, periodCap - spent));
     active.levels.push(level);
     sat = clampSat(sat + d);
     logs.push({
@@ -86,7 +88,7 @@ export function planParliamentTurn(inp: PlanInput): PlanResult {
       const ai = inp.aiMessage;
       const msg = {
         protest: ai && ai.protest.trim() ? ai.protest.trim() : base.protest,
-        demand: base.demand
+        demand: base.demand && !(inp.atWar === true && !demandAllowedDuringWar(ruling.stance))
           ? { stance: base.demand.stance, text: ai && ai.demandText && ai.demandText.trim() ? ai.demandText.trim() : base.demand.text }
           : null,
       };

@@ -5,7 +5,7 @@ import {
   judgeCompliance, complianceDelta, demandPeriodDelta, naturalDrift,
   reportBonus, canSubmitReport, parliamentAlert, shouldRevolt,
   planRevolutionSplit, fallbackMessage, isDemandDue, GOVERNMENT_TIER,
-  MAX_PENALTY, type ComplianceSnapshot,
+  MAX_PENALTY, demandAllowedDuringWar, type ComplianceSnapshot,
 } from "./core";
 
 const snap = (o: Partial<ComplianceSnapshot> = {}): ComplianceSnapshot => ({
@@ -71,7 +71,9 @@ test("什麼都沒做(沒有任何變化)→ 只依實際狀態判定,不會因�
 test("各立場遵守 / 違背判定", () => {
   assert.equal(judgeCompliance("militarist", snap({ militarySpendChange: 0.1 })), "complied");
   assert.equal(judgeCompliance("militarist", snap({ militarySpendChange: -0.2 })), "severe");
-  assert.equal(judgeCompliance("pacifist", snap({ atWar: true, militarySpendChange: 0.3 })), "severe");
+  // 和平派不再懲罰戰爭玩家：主動開戰最重只算輕度違背，軍費大漲也不加重
+  assert.equal(judgeCompliance("pacifist", snap({ atWar: true, militarySpendChange: 0.3 })), "minor");
+  assert.equal(judgeCompliance("pacifist", snap({ atWar: false, militarySpendChange: 0.5 })), "complied");
   assert.equal(judgeCompliance("pacifist", snap({ atWar: false })), "complied");
   assert.equal(judgeCompliance("fiscal_hawk", snap({ taxChange: 6 })), "severe");
   assert.equal(judgeCompliance("fiscal_hawk", snap({ taxChange: 0 })), "complied");
@@ -162,4 +164,25 @@ test("有效層級:忠誠黨過半不算,社會黨被逐出後恢復", () => {
 test("有效層級:半專制/民主不受影響", () => {
   assert.equal(effectiveParliamentTier("semi", [{ stance: "loyalist", seats: 100 }]), "semi");
   assert.equal(effectiveParliamentTier("democracy", [{ stance: "welfare", seats: 10 }]), "democracy");
+});
+
+test("和平派扣分上限只有一般的 1/4：半專制 -2、民主 -7，且不影響其他黨", () => {
+  assert.equal(complianceDelta("severe", "semi", "pacifist"), -2);
+  assert.equal(complianceDelta("severe", "democracy", "pacifist"), -7);
+  assert.equal(complianceDelta("severe", "democracy", "militarist"), -12);
+  assert.equal(complianceDelta("severe", "semi", "militarist"), -6);
+  assert.equal(complianceDelta("complied", "democracy", "pacifist"), 2);
+  assert.equal(complianceDelta("minor", "autocracy", "pacifist"), 0);
+});
+
+test("整個要求期對和平派最多扣 7（民主）：連打三回合戰爭也逼不出革命", () => {
+  assert.equal(demandPeriodDelta(["minor", "minor", "minor"], "democracy", "pacifist"), -6); // 每回合 -2 × 3
+  assert.equal(demandPeriodDelta(["minor", "minor", "minor"], "semi", "pacifist"), -2);
+  assert.equal(demandPeriodDelta(["severe", "severe", "severe"], "democracy", "pacifist"), -7); // 封頂
+});
+
+test("戰爭中和平派不提「避免戰爭」要求；其他黨照常", () => {
+  assert.equal(demandAllowedDuringWar("pacifist"), false);
+  assert.equal(demandAllowedDuringWar("militarist"), true);
+  assert.equal(demandAllowedDuringWar("welfare"), true);
 });

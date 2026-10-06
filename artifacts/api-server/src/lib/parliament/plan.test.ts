@@ -61,12 +61,13 @@ test("迴歸:議會要求避戰,玩家本來就沒打仗、什麼政策也沒頒
   }
 });
 
-test("真的違背仍會扣:要求避戰,但玩家發動戰爭 → 扣分", () => {
+test("和平派要求避戰,玩家主動發動戰爭 → 仍會扣,但只是輕度違背且幅度小", () => {
   const act = { stance: "pacifist" as const, text: "請避免發動戰爭並節制軍費。", issuedTick: 1, levels: [] as string[] };
   const r = planParliamentTurn(base({ tier: "democracy", tick: 1, satisfaction: 60, lastDemandTick: 1, activeDemand: act as any, snapshot: snap({ atWar: true, militarySpendChange: 0.2 }) }));
   const j = r.logs.find((l) => l.kind === "judgement")!;
-  assert.ok(j.satDelta < 0);
-  assert.match(j.summary, /嚴重違背/);
+  assert.ok(j.satDelta < 0, "主動開戰仍要付出一點代價");
+  assert.ok(j.satDelta >= -2, `和平派單回合扣分 ${j.satDelta} 不應超過 2`);
+  assert.match(j.summary, /輕度違背/);
 });
 
 function runPeriod(tier: "semi" | "democracy", s: Partial<ComplianceSnapshot>) {

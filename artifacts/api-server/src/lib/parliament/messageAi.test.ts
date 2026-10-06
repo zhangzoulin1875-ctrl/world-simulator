@@ -65,3 +65,31 @@ test("planParliamentTurn：沒有 aiMessage → 退回模板", () => {
   assert.ok(r.protestText && r.protestText.length > 5);
   assert.match(r.activeDemand!.text, /避免發動戰爭/);
 });
+
+test("戰時和平派執政：只抗議、不提要求（不會製造必然的扣分）", () => {
+  const r = planParliamentTurn({ ...base, atWar: true, aiMessage: null });
+  assert.ok(r.protestText && r.protestText.length > 5);
+  assert.equal(r.activeDemand, null);
+});
+
+test("戰時由其他黨執政，要求照常提出", () => {
+  const parties = [
+    { id: "p0", name: "擴軍黨", stance: "militarist" as const, weight: 30, seats: 60 },
+    { id: "p1", name: "和平黨", stance: "pacifist" as const, weight: 20, seats: 40 },
+  ];
+  const r = planParliamentTurn({ ...base, parties, atWar: true, aiMessage: null });
+  assert.equal(r.activeDemand?.stance, "militarist");
+});
+
+test("和平派要求期內主動開戰：滿意度最多掉 7（民主），不會一路扣到革命", () => {
+  let st: any = { ...base, satisfaction: 60, tick: 0 };
+  let r = planParliamentTurn({ ...st, aiMessage: null });
+  assert.equal(r.activeDemand?.stance, "pacifist");
+  for (let i = 0; i < 3; i++) {
+    st = { ...st, tick: r.tick, satisfaction: r.satisfaction, lastDemandTick: r.lastDemandTick, activeDemand: r.activeDemand as any,
+      snapshot: { ...base.snapshot, atWar: true, militarySpendChange: 0.5 } };
+    r = planParliamentTurn({ ...st, atWar: true, aiMessage: null });
+  }
+  assert.ok(r.satisfaction >= 60 - 7, `滿意度掉到 ${r.satisfaction}`);
+  assert.equal(r.revolt, false);
+});

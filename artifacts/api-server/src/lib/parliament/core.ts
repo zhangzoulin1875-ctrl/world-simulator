@@ -195,8 +195,10 @@ export function judgeCompliance(
       if (s.militarySpendChange < 0) return "major";
       return "minor";
     case "pacifist":
-      if (s.atWar) return s.militarySpendChange > 0.1 ? "severe" : "major";
-      return s.militarySpendChange <= 0.05 ? "complied" : "minor";
+      // 和平派只獎勵和平路線，不當成對戰爭玩家的懲罰：
+      // 主動開戰最重只算「輕度違背」，軍費上升也不再另外加重；防禦戰／被宣戰本來就不算。
+      if (s.atWar) return "minor";
+      return "complied";
     case "fiscal_hawk":
       if (s.taxChange <= 0) return "complied";
       return s.taxChange >= 5 ? "severe" : s.taxChange >= 2 ? "major" : "minor";
@@ -225,11 +227,26 @@ const LEVEL_SAT_GAIN_COMPLIED = 2;
  * 遵守 → 小幅 +2；違背 → 依等級扣分，並受該政體檔位的單次上限封頂。
  * 專制檔位不會扣（橡皮圖章）。
  */
-export function complianceDelta(level: ComplianceLevel, tier: ParliamentTier): number {
+/** 單一要求期的累計扣分上限：一般立場 = 檔位上限；和平派只有 1/4（半專制 2、民主 7）。 */
+export function penaltyCap(tier: ParliamentTier, stance?: ParliamentStance): number {
+  return stance === "pacifist" ? Math.ceil(MAX_PENALTY[tier] / 4) : MAX_PENALTY[tier];
+}
+
+export function complianceDelta(
+  level: ComplianceLevel,
+  tier: ParliamentTier,
+  stance?: ParliamentStance,
+): number {
   if (tier === "autocracy") return 0;
   if (level === "complied") return LEVEL_SAT_GAIN_COMPLIED;
   const raw = LEVEL_WEIGHT[level] * (tier === "democracy" ? 2 : 1);
-  return -Math.min(raw, MAX_PENALTY[tier]);
+  // 和平派的扣分上限只有一般的 1/4（半專制 -2、民主 -7）：不可能靠它把議會逼向革命。
+  return -Math.min(raw, penaltyCap(tier, stance));
+}
+
+/** 戰爭中不提和平派的「避免戰爭」要求（做不到的要求只會造成必然的扣分）。 */
+export function demandAllowedDuringWar(stance: ParliamentStance): boolean {
+  return stance !== "pacifist";
 }
 
 /**
@@ -239,10 +256,11 @@ export function complianceDelta(level: ComplianceLevel, tier: ParliamentTier): n
 export function demandPeriodDelta(
   levels: readonly ComplianceLevel[],
   tier: ParliamentTier,
+  stance?: ParliamentStance,
 ): number {
   if (tier === "autocracy") return 0;
-  const total = levels.reduce((s, l) => s + complianceDelta(l, tier), 0);
-  return total < 0 ? Math.max(total, -MAX_PENALTY[tier]) : total;
+  const total = levels.reduce((s, l) => s + complianceDelta(l, tier, stance), 0);
+  return total < 0 ? Math.max(total, -penaltyCap(tier, stance)) : total;
 }
 
 // ── 議會滿意度：自然漂移與國情報告 ─────────────────────────────────────
