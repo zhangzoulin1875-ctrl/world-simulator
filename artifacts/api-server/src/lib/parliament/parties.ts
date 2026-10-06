@@ -52,7 +52,8 @@ export function stanceWeights(
   const w: Record<Exclude<ParliamentStance, "loyalist">, number> = {
     militarist: 20, pacifist: 20, fiscal_hawk: 20, welfare: 20, religious: 15, secular: 15, mercantile: 20,
   };
-  if (f.atWar) { w.militarist += 25; w.pacifist += Math.min(10, Math.round(f.warWeariness / 3)); // 戰爭疲勞最多加 10，避免長期戰爭把和平派堆成多數 }
+  // 戰爭疲勞對和平派的加成最多 +10，避免長期戰爭把和平派堆成多數。
+  if (f.atWar) { w.militarist += 25; w.pacifist += Math.min(10, Math.round(f.warWeariness / 3)); }
   else { w.pacifist -= 2; w.mercantile += 4; w.welfare += 3; } // 和平期不再固定偏袒和平派
   w.militarist += Math.round((f.militarySatisfaction - 50) / 4);
   w.fiscal_hawk += Math.max(0, (f.taxRatePct - DEFAULT_TAX_RATE_PCT) * 6);
