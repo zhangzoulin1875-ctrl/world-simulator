@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { eq, like, sql } from "drizzle-orm";
 import {
-  db, pool, playerNationsTable, regionControlsTable, mapRegionsTable,
+  db, pool, diplomacyWarsTable, playerNationsTable, regionControlsTable, mapRegionsTable,
   superEventsTable, superEventRegionsTable, superEventRegionPressureTable,
 } from "@workspace/db";
 import { runGameMigrations, runRegionControlMigrations } from "../gameMigrations";
 import { runMapRegionSync } from "../mapRegions";
 import { runSuperEventMigrations } from "../superEventMigrations";
-import { stepRevolutionPressure, markRegionsRevolted, isRevolutionWave } from "./revolutionWave";
+import { stepRevolutionPressure, markRegionsRevolted, isRevolutionWave, triggerWaveRevolts } from "./revolutionWave";
 import { REVOLUTION_CATEGORY, PRESSURE_START, REVOLT_AT } from "../revolutionWave";
 
 const TAG = "__revwave_test__";
@@ -100,4 +100,41 @@ test("消退期壓力自然回落", async () => {
   await stepRevolutionPressure({ event: await event(), newStage: "receding", impactMult: 1, affected: [], fitByNation: new Map() });
   const after_ = (await pressures()).get(regionIds[1]!)!.pressure;
   assert.equal(after_, before - 6);
+});
+
+test("爆發:到線地區合併切給一個 NPC 叛軍國並開內戰;原政權至少留一塊地", async () => {
+  // 第三個地區當作「留給原政權」的地,確保不會被一次滅掉。
+  const extra = await db.execute(sql`select id from map_regions where id not in (select region_id from region_controls) order by id limit 1`);
+  const keepRegion = (extra.rows as { id: number }[])[0]!.id;
+  await db.insert(regionControlsTable).values({ regionId: keepRegion, nationId, percent: 100 });
+  const ev = await event();
+  const out = await triggerWaveRevolts({ event: ev, readyRegionIds: [regionIds[1]!], tick: 1 });
+  assert.equal(out.civilWars, 1);
+  assert.deepEqual(out.revoltedRegionIds, [regionIds[1]]);
+  const rebelOwner = await db.select().from(regionControlsTable).where(eq(regionControlsTable.regionId, regionIds[1]!));
+  assert.equal(rebelOwner.length, 1);
+  assert.notEqual(rebelOwner[0]!.nationId, nationId);
+  assert.equal(rebelOwner[0]!.percent, 100);
+  const [rebel] = await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, rebelOwner[0]!.nationId));
+  assert.equal(rebel!.isNpc, true);
+  const wars = await db.select().from(diplomacyWarsTable).where(eq(diplomacyWarsTable.rebelNationId, rebel!.id));
+  assert.equal(wars.length, 1);
+  assert.equal(wars[0]!.isCivilWar, true);
+  assert.ok((await pressures()).get(regionIds[1]!)!.revoltedAt, "地區已標記脫離");
+  // 原政權仍握有其他地區
+  const left = await db.select().from(regionControlsTable).where(eq(regionControlsTable.nationId, nationId));
+  assert.ok(left.length >= 1);
+  await db.delete(playerNationsTable).where(eq(playerNationsTable.id, rebel!.id));
+});
+
+test("爆發保護:若會拿走原政權全部土地,這一波暫緩不爆發", async () => {
+  const [n2] = await db.insert(playerNationsTable).values({ name: `${TAG}${runId}b`, government: "議會共和", isNpc: false }).returning();
+  const lone = await db.execute(sql`select id from map_regions where id not in (select region_id from region_controls) order by id limit 1`);
+  const loneRegion = (lone.rows as { id: number }[])[0]!.id;
+  await db.insert(regionControlsTable).values({ regionId: loneRegion, nationId: n2!.id, percent: 100 });
+  const out = await triggerWaveRevolts({ event: await event(), readyRegionIds: [loneRegion], tick: 1 });
+  assert.equal(out.civilWars, 0);
+  assert.deepEqual(out.revoltedRegionIds, []);
+  const still = await db.select().from(regionControlsTable).where(eq(regionControlsTable.regionId, loneRegion));
+  assert.equal(still[0]!.nationId, n2!.id);
 });

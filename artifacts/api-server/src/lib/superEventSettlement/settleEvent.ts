@@ -28,7 +28,7 @@ import {
 import { judgePendingResponses, buildResponseSummary } from "./responses";
 import { grantCrossEraTech, triggerNpcHostility } from "./techGrant";
 import { spreadContagion } from "./contagion";
-import { isRevolutionWave, stepRevolutionPressure } from "./revolutionWave";
+import { isRevolutionWave, stepRevolutionPressure, triggerWaveRevolts } from "./revolutionWave";
 
 export async function settleEvent(
   event: SuperEvent,
@@ -185,8 +185,7 @@ export async function settleEvent(
     }
   }
 
-  // 革命浪潮:逐地區更新革命壓力。到線的地區「爆發」的後果(怎麼切、誰接手)
-  // 尚待產品決定,這裡只記錄到線地區並寫進回合紀錄,不改動領土。
+  // 革命浪潮:逐地區更新革命壓力;到線的地區依原掌控國分組,合併成一個叛軍國開內戰。
   let waveNote = "";
   if (isRevolutionWave(event)) {
     try {
@@ -199,8 +198,17 @@ export async function settleEvent(
       });
       if (wave.pressures.length > 0) {
         const max = Math.max(...wave.pressures.map((p) => p.pressure));
+        const revolt = await triggerWaveRevolts({
+          event,
+          readyRegionIds: wave.readyRegionIds,
+          tick: event.turnsElapsed + 1,
+        });
         waveNote = `革命壓力最高 ${max}/100` +
-          (wave.readyRegionIds.length > 0 ? `，${wave.readyRegionIds.length} 個地區已到爆發線` : "");
+          (revolt.revoltedRegionIds.length > 0
+            ? `，${revolt.revoltedRegionIds.length} 個地區脫離並開出 ${revolt.civilWars} 場內戰`
+            : wave.readyRegionIds.length > 0
+              ? `，${wave.readyRegionIds.length} 個地區在爆發線上(暫緩)`
+              : "");
       }
     } catch (err) {
       logger.error({ err, eventId: event.id }, "revolution pressure step failed");

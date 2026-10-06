@@ -57,6 +57,12 @@ export async function startCivilWar(
    *    其餘 (1-X)% 歸新建的 NPC「原政權」。
    */
   side: "incumbent" | "rebel" = "incumbent",
+  /**
+   * 指定只從這些地區切出革命方的土地(革命浪潮:壓力滿 100 的地區)。
+   * 這些地區的控制度會「整塊」(100%)交給革命方,不再套用意識形態的切分比例。
+   * 只在 side = "incumbent" 時有意義;未指定則維持原本按比例挑地區的行為。
+   */
+  onlyRegionIds?: readonly number[],
 ): Promise<StartCivilWarResult> {
   // 一個原政權同時只會有一場內戰
   const existing = await tx
@@ -74,10 +80,18 @@ export async function startCivilWar(
 
   const slug = governmentSlugByLabel(incumbent.government);
   const originIsAutocracy = parliamentTier(slug ?? undefined) === "autocracy";
-  const plan = planRevolutionSplit(
-    controls.map((c) => ({ regionId: c.regionId, percent: c.percent })),
-    splitRatioFor(ideology, originIsAutocracy),
-  );
+  const only = onlyRegionIds && side === "incumbent" ? new Set(onlyRegionIds) : null;
+  const plan = only
+    ? {
+        mode: "split" as const,
+        transfers: controls
+          .filter((c) => only.has(c.regionId) && c.percent > 0)
+          .map((c) => ({ regionId: c.regionId, percent: c.percent })),
+      }
+    : planRevolutionSplit(
+        controls.map((c) => ({ regionId: c.regionId, percent: c.percent })),
+        splitRatioFor(ideology, originIsAutocracy),
+      );
   if (plan.mode === "regime_change" || plan.transfers.length === 0) return { started: false, reason: "no_territory" };
 
   const nameOf = new Map(controls.map((c) => [c.regionId, c.name]));
