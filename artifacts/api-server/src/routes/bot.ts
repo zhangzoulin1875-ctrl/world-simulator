@@ -29,7 +29,7 @@ router.get("/bot/status", async (_req, res) => {
   });
 });
 
-router.post("/bot/token", async (req, res) => {
+router.post("/bot/token", requireAdmin, async (req, res) => {
   const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
   if (!token) {
     res.status(400).json({ ok: false, error: "Token 不可為空" });
