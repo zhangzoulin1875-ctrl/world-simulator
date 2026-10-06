@@ -145,7 +145,7 @@ router.post("/bot/ai-routes/:id/test", requireAdmin, async (req, res) => {
   try {
     const m = await postChatCompletion(
       `${route.baseUrl}/chat/completions`, route.apiKey,
-      { model: route.qualityModel, max_tokens: 32, messages: [{ role: "user", content: "回覆「OK」兩個字即可。" }] },
+      { model: route.qualityModel, max_tokens: 512, messages: [{ role: "user", content: "回覆「OK」兩個字即可。" }] },
       route.qualityModel,
     );
     const text = m.content.map((b) => b.text).join("").trim();

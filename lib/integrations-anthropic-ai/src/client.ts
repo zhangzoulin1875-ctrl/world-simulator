@@ -578,12 +578,25 @@ export async function postChatCompletion(
 
   const choice = data.choices?.[0];
   let text = "";
+  const reasoningText = (choice?.message as { reasoning_content?: unknown; reasoning?: unknown } | undefined);
   if (typeof choice?.message?.content === "string") {
     text = choice.message.content;
   } else if (Array.isArray(choice?.message?.content)) {
     text = choice.message.content
       .map((b) => (b.type === "text" ? b.text ?? "" : ""))
       .join("");
+  }
+
+  // content 為空但有推理內容：這是推理模型把 max_tokens 全花在思考上（finish_reason=length）。
+  // 不把推理過程當答案（它不是 JSON／正文，會污染遊戲資料），但丟出具體原因，
+  // 讓後台與日誌看得出「該調大 max_tokens 或換非推理模型」，而不是籠統的「內容為空」。
+  if (text.trim() === "") {
+    const r = reasoningText?.reasoning_content ?? reasoningText?.reasoning;
+    if (typeof r === "string" && r.trim() !== "") {
+      throw new Error(
+        `推理模型只輸出了思考過程、沒有最終答案（finish_reason=${choice?.finish_reason ?? "?"}）：max_tokens 被推理用完，請調大或改用非推理模型`,
+      );
+    }
   }
 
   return {

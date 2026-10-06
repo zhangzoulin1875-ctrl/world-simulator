@@ -133,3 +133,18 @@ test("setRoutes 重新載入：保留仍存在線路的健康狀態、移除已�
   assert.equal(pool.getHealth("b"), undefined);
   assert.ok(pool.getHealth("c"));
 });
+
+
+test("重新設定：改了網址/key/模型 → 該線路的斷路與失敗紀錄重置；只改權重則保留", () => {
+  let now = 1_000_000;
+  const pool = new RoutePool(() => now);
+  const base = { id: "a", name: "A", baseUrl: "http://x/v1", apiKey: "k1", qualityModel: "m", bulkModel: "m", weight: 1, enabled: true };
+  pool.setRoutes([base]);
+  for (let i = 0; i < 3; i++) { const r = pool.pick(new Set())!; pool.reportFailure(r.id, "boom"); }
+  assert.equal(pool.hasAvailable(), false, "連續失敗後應斷路");
+  pool.setRoutes([{ ...base, weight: 9 }]);
+  assert.equal(pool.hasAvailable(), false, "只改權重：斷路狀態保留");
+  pool.setRoutes([{ ...base, weight: 9, apiKey: "k2-fixed" }]);
+  assert.equal(pool.hasAvailable(), true, "換了 key：視為修過，立即可用");
+  assert.equal(pool.getHealth("a")!.failures, 0, "失敗計數歸零");
+});

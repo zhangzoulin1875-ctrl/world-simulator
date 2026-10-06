@@ -73,7 +73,17 @@ export class RoutePool {
 
   /** 以新設定覆蓋線路清單；保留仍存在線路的健康狀態。 */
   setRoutes(routes: PoolRoute[]): void {
+    const prev = new Map(this.routes.map((r) => [r.id, r]));
     this.routes = routes.filter((r) => r.enabled && r.baseUrl && r.apiKey);
+    // 連線設定（網址／key／模型）有改＝管理員修過了：舊的失敗紀錄與斷路冷卻不再適用，
+    // 立即重置，否則修好的線路還要乾等冷卻、畫面也一直顯示舊的失敗計數。
+    // 只改權重／名稱／啟停不算（線路本身沒變，健康狀態照舊）。
+    for (const r of this.routes) {
+      const o = prev.get(r.id);
+      if (o && (o.baseUrl !== r.baseUrl || o.apiKey !== r.apiKey || o.qualityModel !== r.qualityModel || o.bulkModel !== r.bulkModel)) {
+        this.health.set(r.id, emptyHealth());
+      }
+    }
     const ids = new Set(this.routes.map((r) => r.id));
     for (const id of [...this.health.keys()]) if (!ids.has(id)) this.health.delete(id);
     for (const id of [...this.current.keys()]) if (!ids.has(id)) this.current.delete(id);
