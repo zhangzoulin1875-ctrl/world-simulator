@@ -16,7 +16,7 @@
  * 純函式、DB-free;載入國家人口的部分在 loadPenaltyScale。
  */
 import { eraCostScale } from "./eraCostScale";
-import { powerRatio, priceFactor } from "./nationCostScale";
+import { costLinearMultiplier, powerRatio, priceFactor } from "./nationCostScale";
 
 /**
  * 整體壓低係數(2026-10-06 第二次調整)。
@@ -28,16 +28,19 @@ import { powerRatio, priceFactor } from "./nationCostScale";
 export const PENALTY_SCALE_RATIO = 0.154;
 
 /**
- * 古典標準國 = 倍率 1;計算細節見檔頭。回傳 >= 1 的倍率。
- * 下限 1:縮放只會「讓後期的金額跟上國庫」,不會讓任何時代比原本寫死的基準價更便宜。
- * (古典/羅馬時代基準價本身對當時的稅收就偏高,那是原本的數值,這裡不動它。)
+ * 古典標準國 = 倍率 1;計算細節見檔頭。
+ * 下限 = 線性旋鈕(而不是固定 1):預設 100% 時下限仍是 1,即任何時代都不比原本寫死的基準價更便宜;
+ * 但管理員把線性旋鈕拉高時,早期時代(原本被下限 1 吃掉)也會跟著變貴,滑竿在所有時代都有感。
+ * 拉低到 100% 以下時下限同步降低,管理員明確想要更便宜時就能更便宜。
+ * (古典/羅馬時代基準價本身對當時的稅收就偏高,那是原本的數值,預設不動它。)
  */
 export function penaltyScaleFor(population: number, statsEra: string | null | undefined): number {
   const era = eraCostScale(statsEra);
   const f = priceFactor(powerRatio(population, statsEra));
-  const v = era * f * PENALTY_SCALE_RATIO;
+  const lin = costLinearMultiplier();
+  const v = era * f * PENALTY_SCALE_RATIO * lin;
   if (!Number.isFinite(v) || v <= 0) return 1;
-  return Math.max(1, Math.round(v * 10000) / 10000);
+  return Math.max(lin, Math.round(v * 10000) / 10000);
 }
 
 /** 依倍率縮放一個基準金額(保留正負號;四捨五入成整數;非有限值原樣回傳)。 */

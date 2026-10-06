@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { CostTuningCard } from "@/components/cost-tuning-card";
 import { getAdminToken } from "@/lib/admin-token";
 import { Hourglass, Loader2, Play, Save, ShieldAlert } from "lucide-react";
 
@@ -38,6 +39,8 @@ interface TurnSettings {
   moneyIncomePct: number;
   populationGrowthMultiplierPct: number;
   productionMultiplierPct: number;
+  costLinearPct: number;
+  costCurvePct: number;
   techMultiplierPct: number;
   aheadEraCostMultiplier: number;
   lastTurnDate: string | null;
@@ -405,6 +408,7 @@ export default function TurnSettings() {
         </Card>
       ) : (
         <>
+          <CostTuningCard />
           <Card>
             <CardHeader>
               <CardTitle className="text-base">目前世界狀態</CardTitle>

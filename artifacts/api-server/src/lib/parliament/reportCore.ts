@@ -13,7 +13,7 @@ export const REPORT_COST_MONEY = 500;
 
 /** 縮放後的國情報告費。係數同送審費(主動行為,不比被動災難貴),見 constitution/core.ts 的 ACTIVE_ACTION_SCALE_RATIO。 */
 export function reportCostFor(scale: number): number {
-  const k = Number.isFinite(scale) && scale > 0 ? Math.max(1, scale * ACTIVE_ACTION_SCALE_RATIO) : 1;
+  const k = Number.isFinite(scale) && scale > 0 ? Math.max(Math.min(1, scale), scale * ACTIVE_ACTION_SCALE_RATIO) : 1;
   return Math.max(1, Math.round(REPORT_COST_MONEY * k));
 }
 

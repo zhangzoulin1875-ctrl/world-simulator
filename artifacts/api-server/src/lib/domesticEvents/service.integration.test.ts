@@ -420,3 +420,33 @@ test("縮放:AI 改寫過的事件,實扣仍以程式目錄的基準價 × 倍�
     assert.equal((await load()).money, 1_000_000 - 2500 * 40, "文字說免費也沒用,扣多少由目錄與倍率決定");
   } finally { setPenaltyScaleForTest(1); }
 });
+
+// ── 後台滑竿端到端:調滑竿 → 真實 DB 的實扣金額跟著變(不經 setPenaltyScaleForTest 覆寫) ──
+test("滑竿端到端:不覆寫倍率,改線性/函數旋鈕後,同一事件的實扣金額隨之改變", async () => {
+  const { setPenaltyScaleForTest } = await import("../penaltyScaleLoad");
+  const { setCostTuning, COST_TUNING_DEFAULT } = await import("../nationCostScale");
+  setPenaltyScaleForTest(null); // 取消固定倍率,走真實的 國力→倍率 計算
+  try {
+    const spend = async (): Promise<number> => {
+      await db.update(playerNationsTable).set({ money: 5_000_000_000 }).where(eq(playerNationsTable.id, nationId));
+      await db.delete(domesticEventsTable).where(eq(domesticEventsTable.nationId, nationId));
+      const ev = await open("economic_crisis");
+      assert.equal((await resolveEvent(await load(), ev.id, "comply", { rand: () => 0.99 })).ok, true);
+      return 5_000_000_000 - (await load()).money;
+    };
+    setCostTuning({ linearPct: 100, curvePct: 100 });
+    const base = await spend();
+    assert.ok(base >= 2500, `基準扣款不少於基準價: ${base}`);
+    setCostTuning({ linearPct: 300, curvePct: 100 });
+    const triple = await spend();
+    assert.ok(Math.abs(triple / base - 3) < 0.02, `線性 300% → 約 3 倍: ${base} → ${triple}`);
+    setCostTuning({ linearPct: 10, curvePct: 100 });
+    const tenth = await spend();
+    assert.ok(tenth < base && tenth >= 1, `線性 10% → 比 100% 便宜,但不為 0: ${base} → ${tenth}`);
+    setCostTuning({ linearPct: 100, curvePct: 100 });
+    assert.equal(await spend(), base, "還原後金額回到原本,沒有殘留");
+  } finally {
+    setCostTuning(COST_TUNING_DEFAULT);
+    setPenaltyScaleForTest(1);
+  }
+});

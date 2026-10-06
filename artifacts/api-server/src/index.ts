@@ -47,6 +47,7 @@ import { runTechTreeMigrations } from "./lib/techTreeMigrations";
 import { recalcArmyProductionReservations } from "./lib/armyReservationRecalc";
 import { runWallMigrations } from "./lib/wallMigrations";
 import { runWorldSimMigrations } from "./lib/worldSimMigrations";
+import { startCostTuningRefresh } from "./lib/costTuningLoad";
 import { runGameNewsMigrations } from "./lib/gameNewsMigrations";
 import { runAccountBanMigrations } from "./lib/accountBanMigrations";
 import { runSuperEventMigrations } from "./lib/superEventMigrations";
@@ -148,6 +149,7 @@ async function runStartupMigrations(): Promise<void> {
   await recalcArmyProductionReservations();
   await runWallMigrations();
   await runWorldSimMigrations();
+  await startCostTuningRefresh(); // 全局開銷旋鈕:啟動載入並每數秒刷新,後台調整免重推
   await runGameNewsMigrations();
   await runAccountBanMigrations();
   await runSuperEventMigrations();

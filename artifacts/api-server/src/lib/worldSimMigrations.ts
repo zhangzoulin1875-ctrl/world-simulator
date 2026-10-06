@@ -125,6 +125,19 @@ async function runWorldSimMigrationsInner(): Promise<void> {
         CHECK (population_growth_multiplier_pct >= 0 AND population_growth_multiplier_pct <= 100)
   `);
 
+  // ── 全局開銷旋鈕(線性 10–500、函數 0–200;預設 100 = 現狀)──
+  // 管理員在後台隨時調整、即時生效,不必改程式碼重新部署。
+  await db.execute(sql`
+    ALTER TABLE world_game_state
+      ADD COLUMN IF NOT EXISTS cost_linear_pct integer NOT NULL DEFAULT 100
+        CHECK (cost_linear_pct >= 10 AND cost_linear_pct <= 500)
+  `);
+  await db.execute(sql`
+    ALTER TABLE world_game_state
+      ADD COLUMN IF NOT EXISTS cost_curve_pct integer NOT NULL DEFAULT 100
+        CHECK (cost_curve_pct >= 0 AND cost_curve_pct <= 200)
+  `);
+
   // ── 生產力／科技點數基礎倍率（0–1000；預設 100 = 不縮放）──
   // 以百分比套在各國「調整後生產力／每回合科技產出」的最外層（所有內政
   // 乘數/加成計完後），管理員於回合設定頁調整（延長回合間隔時可等比提高）。

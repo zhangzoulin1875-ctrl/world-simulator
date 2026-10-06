@@ -45,6 +45,32 @@ export const SMALL_NATION_EXPONENT = 0.7;
 /** 大國（r>1）指數：<1 → 價格漲得比收入慢（大國優勢）。 */
 export const LARGE_NATION_EXPONENT = 0.5;
 
+/**
+ * 後台可即時調整的兩個全局旋鈕(百分比,100 = 現狀)。存在 world_game_state,由 costTuningLoad 定期刷新;
+ * 純函式只讀這個單例,所以仍是同步、可測的,預設值不改變任何既有行為。
+ *   linearPct(線性):整體開銷倍率。乘在所有造價、維護費、事件/國策/憲法代價上,各時代比例不變。
+ *   curvePct (函數):國力曲線的陡度。把大小國指數同比例縮放:0 = 大小國一律標準價,100 = 現狀,200 = 價差加倍。
+ */
+export interface CostTuning { linearPct: number; curvePct: number }
+export const COST_TUNING_DEFAULT: Readonly<CostTuning> = Object.freeze({ linearPct: 100, curvePct: 100 });
+export const COST_LINEAR_RANGE = Object.freeze({ min: 10, max: 500 });
+export const COST_CURVE_RANGE = Object.freeze({ min: 0, max: 200 });
+let tuning: CostTuning = { ...COST_TUNING_DEFAULT };
+
+/** 非法值(NaN/超出範圍/非數字)一律夾回合法範圍;整數化,避免存進奇怪的小數。 */
+export function sanitizeCostTuning(t: Partial<CostTuning> | null | undefined): CostTuning {
+  const fix = (v: unknown, r: { min: number; max: number }, d: number) => {
+    const n = typeof v === "number" && Number.isFinite(v) ? Math.round(v) : d;
+    return Math.min(r.max, Math.max(r.min, n));
+  };
+  return { linearPct: fix(t?.linearPct, COST_LINEAR_RANGE, 100), curvePct: fix(t?.curvePct, COST_CURVE_RANGE, 100) };
+}
+export function setCostTuning(t: Partial<CostTuning> | null | undefined): void { tuning = sanitizeCostTuning(t); }
+export function getCostTuning(): CostTuning { return { ...tuning }; }
+/** 線性旋鈕換成乘數(100% → 1)。 */
+export const costLinearMultiplier = (): number => tuning.linearPct / 100;
+const curveK = (): number => tuning.curvePct / 100;
+
 /** 一次性價格倍率的夾限。 */
 export const PRICE_FACTOR_MIN = 0.05;
 export const PRICE_FACTOR_MAX = 20;
@@ -79,14 +105,14 @@ function clamp(v: number, lo: number, hi: number): number {
 /** 一次性價格倍率 f(r)。r≤0 或非法 → 下限。 */
 export function priceFactor(r: number): number {
   if (!Number.isFinite(r) || r <= 0) return PRICE_FACTOR_MIN;
-  const raw = r < 1 ? Math.pow(r, SMALL_NATION_EXPONENT) : Math.pow(r, LARGE_NATION_EXPONENT);
+  const raw = r < 1 ? Math.pow(r, SMALL_NATION_EXPONENT * curveK()) : Math.pow(r, LARGE_NATION_EXPONENT * curveK());
   return clamp(raw, PRICE_FACTOR_MIN, PRICE_FACTOR_MAX);
 }
 
 /** 維護費倍率：同曲線但夾得更窄。 */
 export function upkeepFactor(r: number): number {
   if (!Number.isFinite(r) || r <= 0) return UPKEEP_FACTOR_MIN;
-  const raw = r < 1 ? Math.pow(r, SMALL_NATION_EXPONENT) : Math.pow(r, LARGE_NATION_EXPONENT);
+  const raw = r < 1 ? Math.pow(r, SMALL_NATION_EXPONENT * curveK()) : Math.pow(r, LARGE_NATION_EXPONENT * curveK());
   return clamp(raw, UPKEEP_FACTOR_MIN, UPKEEP_FACTOR_MAX);
 }
 
@@ -104,7 +130,7 @@ export function effectivePriceScale(
   population: number,
   eraSlug: string | null | undefined,
 ): number {
-  return round4(eraScale * GLOBAL_COST_DISCOUNT * priceFactor(powerRatio(population, eraSlug)));
+  return round4(eraScale * GLOBAL_COST_DISCOUNT * costLinearMultiplier() * priceFactor(powerRatio(population, eraSlug)));
 }
 
 /** 維護費的有效尺度 = 時代係數 × 維護費倍率。 */
@@ -113,5 +139,5 @@ export function effectiveUpkeepScale(
   population: number,
   eraSlug: string | null | undefined,
 ): number {
-  return round4(eraScale * GLOBAL_COST_DISCOUNT * upkeepFactor(powerRatio(population, eraSlug)));
+  return round4(eraScale * GLOBAL_COST_DISCOUNT * costLinearMultiplier() * upkeepFactor(powerRatio(population, eraSlug)));
 }

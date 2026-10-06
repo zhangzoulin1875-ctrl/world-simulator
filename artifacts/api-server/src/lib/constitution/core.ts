@@ -27,7 +27,7 @@ export const ACTIVE_ACTION_SCALE_RATIO = 0.5;
 
 /** 縮放後的送審費。古典標準國 = 基準價 1000;其他時代 = 基準價 × max(1, 倍率 × 相對係數)。 */
 export function submitCostFor(scale: number): number {
-  const k = Number.isFinite(scale) && scale > 0 ? Math.max(1, scale * ACTIVE_ACTION_SCALE_RATIO) : 1;
+  const k = Number.isFinite(scale) && scale > 0 ? Math.max(Math.min(1, scale), scale * ACTIVE_ACTION_SCALE_RATIO) : 1;
   return Math.max(1, Math.round(SUBMIT_COST_MONEY * k));
 }
 /** AI 品質分低於此值直接退回，不進入投票。 */

@@ -255,6 +255,16 @@ export const worldGameStateTable = pgTable("world_game_state", {
    * 越低越少。管理員可於回合設定頁調整（例如延長回合間隔時等比提高）。
    * 研發成本的全球平均生產力同步縮放，故國力研發倍率不受影響。
    */
+  /**
+   * 全局開銷「線性」旋鈕(10–500;預設 100 = 現狀)。整體乘在所有造價、維護費、
+   * 事件/國策/憲法代價上,各時代比例不變。管理員於回合設定頁隨時調整,不必重新部署。
+   */
+  costLinearPct: integer("cost_linear_pct").notNull().default(100),
+  /**
+   * 全局開銷「函數」旋鈕(0–200;預設 100 = 現狀)。縮放國力曲線的指數:
+   * 0 = 大小國一律標準價、100 = 現狀、200 = 大小國價差加倍。
+   */
+  costCurvePct: integer("cost_curve_pct").notNull().default(100),
   productionMultiplierPct: integer("production_multiplier_pct")
     .notNull()
     .default(100),

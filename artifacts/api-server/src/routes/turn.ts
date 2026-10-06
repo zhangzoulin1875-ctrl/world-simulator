@@ -1,3 +1,13 @@
+import { applyCostTuning } from "../lib/costTuningLoad";
+import {
+  COST_LINEAR_RANGE, COST_CURVE_RANGE, getCostTuning, setCostTuning, sanitizeCostTuning,
+  standardNationPopulation, STANDARD_TAX_RATE_PCT, effectivePriceScale,
+} from "../lib/nationCostScale";
+import { ERA_COST_SCALE, eraCostScale } from "../lib/eraCostScale";
+import { penaltyScaleFor } from "../lib/penaltyScale";
+import { computeTaxIncome, taxEfficiencyPctForEra } from "../lib/economy";
+import { submitCostFor } from "../lib/constitution/core";
+import { reportCostFor } from "../lib/parliament/reportCore";
 import { Router, type IRouter } from "express";
 import { eq, sql } from "drizzle-orm";
 import { db, worldGameStateTable } from "@workspace/db";
@@ -34,6 +44,8 @@ async function readState() {
       populationGrowthMultiplierPct:
         worldGameStateTable.populationGrowthMultiplierPct,
       productionMultiplierPct: worldGameStateTable.productionMultiplierPct,
+      costLinearPct: worldGameStateTable.costLinearPct,
+      costCurvePct: worldGameStateTable.costCurvePct,
       techMultiplierPct: worldGameStateTable.techMultiplierPct,
       aheadEraCostMultiplier: worldGameStateTable.aheadEraCostMultiplier,
       lastTurnDate: worldGameStateTable.lastTurnDate,
@@ -75,6 +87,8 @@ function serializeState(state: NonNullable<Awaited<ReturnType<typeof readState>>
     moneyIncomePct: state.moneyIncomePct,
     populationGrowthMultiplierPct: state.populationGrowthMultiplierPct,
     productionMultiplierPct: state.productionMultiplierPct,
+    costLinearPct: state.costLinearPct,
+    costCurvePct: state.costCurvePct,
     techMultiplierPct: state.techMultiplierPct,
     aheadEraCostMultiplier: state.aheadEraCostMultiplier,
     lastTurnDate: state.lastTurnDate,
@@ -120,6 +134,7 @@ function intInRange(v: unknown, min: number, max: number): number | null {
  * turnTimes（{hour,minute} 陣列，1–24 筆，每筆 時 0–23／分 0–59，排序去重）、
  * yearsPerTurn 1–100、moneyIncomePct 0–1000、productionMultiplierPct 0–1000、
  * techMultiplierPct 0–1000、aheadEraCostMultiplier 1–100、
+ * costLinearPct 10–500(全局開銷線性倍率)、costCurvePct 0–200(全局開銷曲線陡度),存檔即時生效、免重新部署、
  * year 1–9999（改年份會同時依年份重新推導時代，月日保留）、
  * syncEraStats（布林；true = 把「數據時代」同步為（新）當前時代，玩家數據
  * 依新時代預設重算。未勾選時改年份/時代不會動玩家數據）。
@@ -180,6 +195,22 @@ router.put("/turn/settings", requireAdmin, async (req, res) => {
         return;
       }
       updates["productionMultiplierPct"] = v;
+    }
+    if (body["costLinearPct"] !== undefined) {
+      const v = intInRange(body["costLinearPct"], COST_LINEAR_RANGE.min, COST_LINEAR_RANGE.max);
+      if (v === null) {
+        res.status(400).json({ error: `開銷線性倍率必須是 ${COST_LINEAR_RANGE.min}–${COST_LINEAR_RANGE.max} 的整數` });
+        return;
+      }
+      updates["costLinearPct"] = v;
+    }
+    if (body["costCurvePct"] !== undefined) {
+      const v = intInRange(body["costCurvePct"], COST_CURVE_RANGE.min, COST_CURVE_RANGE.max);
+      if (v === null) {
+        res.status(400).json({ error: `開銷函數(曲線)倍率必須是 ${COST_CURVE_RANGE.min}–${COST_CURVE_RANGE.max} 的整數` });
+        return;
+      }
+      updates["costCurvePct"] = v;
     }
     if (body["techMultiplierPct"] !== undefined) {
       const v = intInRange(body["techMultiplierPct"], 0, 1000);
@@ -247,12 +278,61 @@ router.put("/turn/settings", requireAdmin, async (req, res) => {
       invalidateGlobalAveragePopulationCache();
     }
 
+    // 開銷旋鈕:本 instance 立刻套用(其他 instance 由背景刷新在數秒內跟上),不必重新部署
+    if (updates["costLinearPct"] !== undefined || updates["costCurvePct"] !== undefined) {
+      applyCostTuning({
+        ...(updates["costLinearPct"] !== undefined ? { linearPct: updates["costLinearPct"] as number } : {}),
+        ...(updates["costCurvePct"] !== undefined ? { curvePct: updates["costCurvePct"] as number } : {}),
+      });
+    }
+
     const fresh = await readState();
     req.log.info({ updates: Object.keys(updates) }, "turn settings updated");
     res.json({ settings: fresh ? serializeState(fresh) : null });
   } catch (err) {
     req.log.error({ err }, "failed to update turn settings");
     res.status(500).json({ error: "更新回合設定失敗" });
+  }
+});
+
+/**
+ * 開銷旋鈕預覽:用「假設的旋鈕值」算標準國/小國/大國在各時代的代表性金額,讓管理員拖滑竿時看得到後果。
+ * 唯讀、不存檔;與實扣走同一組純函式,所以預覽 = 實際。linear/curve 省略 = 用目前生效值。
+ */
+router.get("/turn/cost-preview", requireAdmin, async (req, res) => {
+  try {
+    const q = req.query as Record<string, unknown>;
+    const num = (v: unknown) => (typeof v === "string" && v.trim() !== "" ? Number(v) : undefined);
+    const prev = getCostTuning();
+    const t = sanitizeCostTuning({ linearPct: num(q["linear"]) ?? prev.linearPct, curvePct: num(q["curve"]) ?? prev.curvePct });
+    setCostTuning(t);
+    try {
+      const rows = Object.keys(ERA_COST_SCALE).map((era) => {
+        const std = Math.round(standardNationPopulation(era));
+        const at = (mult: number) => penaltyScaleFor(Math.round(std * mult), era);
+        const tax = computeTaxIncome({ population: std, taxRatePct: STANDARD_TAX_RATE_PCT, taxEfficiencyPct: taxEfficiencyPctForEra(era) });
+        const k = at(1);
+        return {
+          era,
+          standardTax: tax,
+          event: Math.round(1800 * k),
+          eventTurns: tax > 0 ? Math.round((1800 * k / tax) * 100) / 100 : null,
+          focus: Math.round(1200 * k),
+          constitution: submitCostFor(k),
+          report: reportCostFor(k),
+          // 同一件事(事件 1800)對 1/4 國力、標準、4 倍國力的價格,用來看曲線陡度
+          eventSmall: Math.round(1800 * at(0.25)),
+          eventLarge: Math.round(1800 * at(4)),
+          unitPriceScale: effectivePriceScale(eraCostScale(era), std, era),
+        };
+      });
+      res.json({ tuning: t, rows });
+    } finally {
+      setCostTuning(prev); // 預覽不得改動生效值
+    }
+  } catch (err) {
+    req.log.error({ err }, "failed to build cost preview");
+    res.status(500).json({ error: "產生預覽失敗" });
   }
 });
 
