@@ -89,23 +89,25 @@ test("並發 5 次同時提交:只有 1 次成功、只扣 1 次錢", async () =
 
 test("縮放:國情報告費用依時代與國力縮放,頁面顯示的金額 = 實扣金額;國庫不夠時 402 並列出縮放後的數字", async () => {
   const { setPenaltyScaleForTest } = await import("../lib/penaltyScaleLoad");
+  const { reportCostFor } = await import("../lib/parliament/reportCore");
+  const FEE = reportCostFor(148); // 由函式算,調比例時測試不用重改
   setPenaltyScaleForTest(148);
   try {
-    const poor = await mk("議會內閣制", 5_000);
+    const poor = await mk("議會內閣制", Math.floor(FEE / 2));
     await settleNationParliament(poor.n, null, 0);
     const g0: any = await (await fetch(`${base}/api/parliament`, { headers: { cookie: poor.cookie } })).json();
-    assert.equal(g0.report.cost, 9_250, "顯示的是縮放後的費用(500 × 148 × 0.125)");
+    assert.equal(g0.report.cost, FEE, "顯示的是縮放後的費用");
     const r0 = await post(poor.cookie, { text: LONG });
-    assert.equal(r0.status, 402); assert.match(((await r0.json()) as any).error, /9,250/);
-    assert.equal(Number((await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, poor.n.id)))[0]!.money), 5_000, "被擋不扣錢");
+    assert.equal(r0.status, 402); assert.match(((await r0.json()) as any).error, new RegExp(FEE.toLocaleString("en-US")));
+    assert.equal(Number((await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, poor.n.id)))[0]!.money), Math.floor(FEE / 2), "被擋不扣錢");
 
-    const rich = await mk("議會內閣制", 1_000_000);
+    const rich = await mk("議會內閣制", 10_000_000);
     await settleNationParliament(rich.n, null, 0);
     const shown = ((await (await fetch(`${base}/api/parliament`, { headers: { cookie: rich.cookie } })).json()) as any).report.cost;
     const r1 = await post(rich.cookie, { text: LONG });
     assert.equal(r1.status, 200);
     const after = Number((await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, rich.n.id)))[0]!.money);
-    assert.equal(1_000_000 - after, shown, "實扣 = 畫面上顯示的費用");
-    assert.equal(shown, 9_250);
+    assert.equal(10_000_000 - after, shown, "實扣 = 畫面上顯示的費用");
+    assert.equal(shown, FEE);
   } finally { setPenaltyScaleForTest(1); }
 });

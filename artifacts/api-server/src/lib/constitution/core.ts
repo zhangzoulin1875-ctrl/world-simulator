@@ -21,9 +21,9 @@ export const SUBMIT_COST_MONEY = 1000;
 
 /**
  * 主動行為(送審、國情報告)的相對係數:事件是被動災難,約 4.5 回合稅收才有感;
- * 玩家主動寫一份文書不該那麼貴,取事件倍率的 1/8(約 0.5 回合稅收)。古典時代仍是原本的 1000。
+ * 玩家主動寫一份文書不該比災難貴,取事件倍率的 1/2(中後期約 0.3 回合稅收)。古典時代仍是原本的 1000。
  */
-export const ACTIVE_ACTION_SCALE_RATIO = 0.125;
+export const ACTIVE_ACTION_SCALE_RATIO = 0.5;
 
 /** 縮放後的送審費。古典標準國 = 基準價 1000;其他時代 = 基準價 × max(1, 倍率 × 相對係數)。 */
 export function submitCostFor(scale: number): number {

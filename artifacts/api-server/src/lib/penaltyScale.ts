@@ -18,12 +18,26 @@
 import { eraCostScale } from "./eraCostScale";
 import { powerRatio, priceFactor } from "./nationCostScale";
 
-/** 古典標準國 = 倍率 1;計算細節見檔頭。回傳 >= 0 的倍率。 */
+/**
+ * 整體壓低係數(2026-10-06 第二次調整)。
+ * 第一版直接用 時代倍率 × 國力倍率,標準國一個事件平均要 6.5 回合稅收、最大 9.1 回合,
+ * 而玩家的稅收還要先付軍隊與建築維護費,實際淨盈餘遠少於稅收,導致「做完兩件事就沒錢」。
+ * 乘上 0.154 後,中後期標準國:事件平均約 1 回合稅收、最大約 1.4、國策約 0.7,
+ * 一個回合最壞的四件事同時發生約 2.5 回合稅收。
+ */
+export const PENALTY_SCALE_RATIO = 0.154;
+
+/**
+ * 古典標準國 = 倍率 1;計算細節見檔頭。回傳 >= 1 的倍率。
+ * 下限 1:縮放只會「讓後期的金額跟上國庫」,不會讓任何時代比原本寫死的基準價更便宜。
+ * (古典/羅馬時代基準價本身對當時的稅收就偏高,那是原本的數值,這裡不動它。)
+ */
 export function penaltyScaleFor(population: number, statsEra: string | null | undefined): number {
   const era = eraCostScale(statsEra);
   const f = priceFactor(powerRatio(population, statsEra));
-  const v = era * f;
-  return Number.isFinite(v) && v > 0 ? Math.round(v * 10000) / 10000 : 1;
+  const v = era * f * PENALTY_SCALE_RATIO;
+  if (!Number.isFinite(v) || v <= 0) return 1;
+  return Math.max(1, Math.round(v * 10000) / 10000);
 }
 
 /** 依倍率縮放一個基準金額(保留正負號;四捨五入成整數;非有限值原樣回傳)。 */
