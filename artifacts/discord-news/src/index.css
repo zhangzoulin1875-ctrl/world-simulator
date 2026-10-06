@@ -193,6 +193,37 @@
   }
 }
 
+/* ── 手機/觸控優化 ─────────────────────────────────────────────
+ * 只在「粗指標」(手指)裝置生效,桌面滑鼠完全不變。
+ * 1) 消除 300ms 雙擊延遲與點擊灰框,按下去立即反應。
+ * 2) 用透明的 ::after 把偏小的可點元素點擊區擴到約 44px,不改變版面。
+ * 3) iPhone 瀏覽器底部工具列/瀏海的安全區域。 */
+html { -webkit-text-size-adjust: 100%; }
+@media (pointer: coarse) {
+  html { -webkit-tap-highlight-color: transparent; }
+  button, a[href], [role="button"], [role="tab"], [role="menuitem"], summary, label[for],
+  input[type="checkbox"], input[type="radio"], select {
+    touch-action: manipulation;
+  }
+  button:not(:disabled), a[href], [role="button"], [role="tab"] { cursor: pointer; }
+  /* 小於 44px 的可點元素:往外擴張隱形點擊區 */
+  button, [role="button"], [role="tab"], a[href].inline-flex, a[href][class*="rounded"], a[href][class*="underline"] {
+    position: relative;
+  }
+  button::after, [role="button"]::after, [role="tab"]::after,
+  a[href].inline-flex::after, a[href][class*="rounded"]::after, a[href][class*="underline"]::after {
+    content: "";
+    position: absolute;
+    left: 50%; top: 50%;
+    width: max(100%, 44px); height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+  /* 避免 iOS 聚焦輸入框時自動放大頁面(字級 < 16px 會觸發) */
+  input:not([type="checkbox"]):not([type="radio"]), textarea, select { font-size: max(16px, 1em); }
+}
+/* 固定在底部/右下角的浮層避開 iPhone 的 Home 條 */
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
 @layer utilities {
   input[type="search"]::-webkit-search-cancel-button { @apply hidden; }
   [contenteditable][data-placeholder]:empty::before {

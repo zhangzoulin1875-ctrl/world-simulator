@@ -229,7 +229,7 @@ export default function GameHome() {
 function FullscreenShell({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="fixed inset-0 z-50 overflow-hidden bg-cover bg-center"
+      className="fixed inset-0 z-50 overflow-hidden bg-cover bg-center pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
       style={{ backgroundImage: `url(${DEFAULT_BG})` }}
     >
       <div className="absolute inset-0 bg-black/40" />
@@ -366,7 +366,7 @@ function GameScreen({
 
   return (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-cover bg-center text-white"
+      className="fixed inset-0 z-50 overflow-y-auto bg-cover bg-center pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-white"
       style={{ backgroundImage: `url(${bg})` }}
       data-testid="page-game-home"
     >

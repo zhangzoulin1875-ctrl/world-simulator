@@ -18,7 +18,7 @@ export default function GameMap() {
 function MapScreen({ bg, overview }: { bg: string; overview: MilitaryOverview }) {
   return (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-cover bg-center text-white"
+      className="fixed inset-0 z-50 overflow-y-auto bg-cover bg-center pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-white"
       style={{ backgroundImage: `url(${bg})` }}
       data-testid="page-game-map"
     >

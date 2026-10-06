@@ -240,17 +240,17 @@ export function GameMusicFloatingPlayer() {
   if (closed) return null;
   return (
     <div
-      className="fixed bottom-3 right-3 z-[60] max-w-[calc(100vw-1.5rem)]"
+      className="fixed right-3 z-[60] max-w-[calc(100vw-1.5rem)] bottom-[max(0.75rem,env(safe-area-inset-bottom))]"
       data-testid="game-music-floating"
     >
       <button
         onClick={() => setClosed(true)}
-        className="absolute -right-1.5 -top-1.5 z-10 flex h-5 w-5 items-center justify-center rounded-full border border-white/25 bg-zinc-800 text-white/80 shadow transition hover:bg-zinc-700 hover:text-white"
+        className="absolute -right-2 -top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-white/25 bg-zinc-800 text-white/80 shadow transition hover:bg-zinc-700 hover:text-white"
         title="關閉播放器（重新載入後會再出現）"
         aria-label="關閉播放器"
         data-testid="button-music-floating-close"
       >
-        <X className="h-3 w-3" />
+        <X className="h-3.5 w-3.5" />
       </button>
       <GameMusicPlayer />
     </div>
