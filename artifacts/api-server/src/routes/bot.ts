@@ -18,6 +18,7 @@ import { logger } from "../lib/logger";
 import { describeRoutePool, loadStoredRoutes, sanitizeRoutes, saveRoutes } from "../lib/aiRoutePool";
 import { postChatCompletion, getRoutePoolLaneStats, setRoutePoolConcurrency } from "@workspace/integrations-anthropic-ai";
 import { requireAdmin } from "../middlewares/requireAdmin";
+import { getBootSnapshot } from "../lib/bootProgress";
 
 const router: IRouter = Router();
 
@@ -31,6 +32,7 @@ router.get("/bot/status", async (_req, res) => {
     hasToken: Boolean(token),
     // 診斷：連線是否真的活著（心跳）、最近一次斷線的關閉碼與原因、自動重啟次數。
     diagnostics: getBotDiagnostics(),
+    boot: getBootSnapshot(),
   });
 });
 

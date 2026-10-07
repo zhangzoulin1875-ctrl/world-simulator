@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { pool } from "@workspace/db";
 import { getBotDiagnostics, getStoredToken } from "../lib/discordBot";
+import { getBootSnapshot } from "../lib/bootProgress";
 
 const router: IRouter = Router();
 
@@ -47,8 +48,9 @@ router.get("/healthz/bot", async (_req, res) => {
     hasToken = false;
   }
   const d = getBotDiagnostics();
+  const boot = getBootSnapshot();
   if (!hasToken) {
-    res.json({ status: "ok", bot: "not-configured", commit: process.env["RENDER_GIT_COMMIT"] ?? null });
+    res.json({ status: "ok", bot: "not-configured", boot, commit: process.env["RENDER_GIT_COMMIT"] ?? null });
     return;
   }
   const healthy = d.liveness === "healthy" || d.liveness === "connecting";
@@ -60,6 +62,8 @@ router.get("/healthz/bot", async (_req, res) => {
     lastDisconnect: d.lastDisconnectCode === null ? null : { code: d.lastDisconnectCode, reason: d.lastDisconnectReason, agoMin: d.lastDisconnectAgoMin },
     autoRestarts: d.restarts,
     lastRestartReason: d.lastRestartReason,
+    // 啟動進度：機器人沒起來時，可以看出是不是遷移卡在某一步。
+    boot,
     commit: process.env["RENDER_GIT_COMMIT"] ?? null,
   });
 });

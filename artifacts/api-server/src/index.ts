@@ -9,7 +9,8 @@ process.on("unhandledRejection", (reason) => {
 process.on("uncaughtException", (err) => {
   logger.error({ err }, "uncaughtException (process kept alive)");
 });
-import { startDiscordBot, getStoredToken, startBotWatchdog } from "./lib/discordBot";
+import { startBotEarly } from "./lib/botEarlyStart";
+import { bootStep, bootPhase, markBackgroundStarted } from "./lib/bootProgress";
 import {
   runGameMigrations,
   runRegionControlMigrations,
@@ -98,12 +99,12 @@ function openPort(): void {
 // is safe to re-run; in a deployed environment the production schema is already
 // applied by Replit's Publish flow, so these are effectively redundant there.
 async function runStartupMigrations(): Promise<void> {
-  await runGameMigrations();
+  await bootStep("runGameMigrations", () => runGameMigrations());
   // 預設歌單(四首公有領域國歌/軍樂):只在新庫第一次啟動播種;失敗不阻擋伺服器啟動。
-  await seedDefaultMusic().catch((err) =>
+  await bootStep("seedDefaultMusic", () => seedDefaultMusic()).catch((err) =>
     logger.warn({ err }, "seedDefaultMusic failed; continuing without default playlist"),
   );
-  await runMapRegionSync();
+  await bootStep("runMapRegionSync", () => runMapRegionSync());
   // Task #277 海上航路一致性：地圖種子同步後立即驗證近海相鄰資料
   // （navalLanding 的 SEA_ADJACENCY_PAIRS／COMPASS_ONLY_ISLANDS 以地區「名稱」為鍵，
   // 不在地圖種子驗證器範圍內）。日後任何改名／重劃地圖若讓孤島失去登陸點，
@@ -114,59 +115,59 @@ async function runStartupMigrations(): Promise<void> {
   // 日後任何改名／重劃地圖若讓城市指向已移除的地區，就會像其他地圖驗證器一樣
   // 在啟動時大聲失敗，而非只在單元測試中被發現。
   validateMapCitySeed();
-  await runRegionControlMigrations();
-  await runMapRegionEraStatsSync();
-  await runMapCitySync();
+  await bootStep("runRegionControlMigrations", () => runRegionControlMigrations());
+  await bootStep("runMapRegionEraStatsSync", () => runMapRegionEraStatsSync());
+  await bootStep("runMapCitySync", () => runMapCitySync());
   // Task #270 地圖二代（343 區）：地圖同步後、軍事／外交遷移前，一次性重置
   // 所有地區綁定的遊戲資料（掌控/戰爭/戰役/傷兵…）；國家/外觀/音樂保留。
-  await runMapV2RegionReset();
-  await runMilitaryMigrations();
+  await bootStep("runMapV2RegionReset", () => runMapV2RegionReset());
+  await bootStep("runMilitaryMigrations", () => runMilitaryMigrations());
   // 武器系統（兵種設計的姊妹系統：武器藍圖/裝備/設計次數）。
-  await runWeaponMigrations();
-  await runDiplomacyMigrations();
+  await bootStep("runWeaponMigrations", () => runWeaponMigrations());
+  await bootStep("runDiplomacyMigrations", () => runDiplomacyMigrations());
   // Task #406 — 資源系統（木材/礦石庫存、地區建築、條約資源欄位）。
-  await runResourceMigrations();
-  await runPoliticsMigrations();
-  await runCabinetMigrations();
-  await runAutopilotMigrations();
-  await runWarMigrations();
+  await bootStep("runResourceMigrations", () => runResourceMigrations());
+  await bootStep("runPoliticsMigrations", () => runPoliticsMigrations());
+  await bootStep("runCabinetMigrations", () => runCabinetMigrations());
+  await bootStep("runAutopilotMigrations", () => runAutopilotMigrations());
+  await bootStep("runWarMigrations", () => runWarMigrations());
   // 僱傭兵表外鍵指向 war_campaigns,必須排在 runWarMigrations 之後。
-  await runMercenaryMigrations();
-  await runFocusMigrations();
-  await runDomesticEventMigrations();
-  await runEconomyMigrations();
+  await bootStep("runMercenaryMigrations", () => runMercenaryMigrations());
+  await bootStep("runFocusMigrations", () => runFocusMigrations());
+  await bootStep("runDomesticEventMigrations", () => runDomesticEventMigrations());
+  await bootStep("runEconomyMigrations", () => runEconomyMigrations());
   // Task #479 — 一次性歸零負值 production_bonus（舊生產力維護費死亡螺旋
   // 的歷史欠債；game_flags 原子認領，只跑一次）。
-  await repairNegativeProductionBonus();
+  await bootStep("repairNegativeProductionBonus", () => repairNegativeProductionBonus());
   // 條約生產力輸送改純流量：一次性歸零曾參與含生產力項自訂條約國家的
   // production_bonus 歷史累積（game_flags 原子認領，只跑一次；需在
   // diplomacy／economy 遷移之後）。
-  await repairTreatyProductionBonusAccrual();
-  await runSocialTechMigrations();
-  await runProductionMigrations();
-  await runTechTreeMigrations();
+  await bootStep("repairTreatyProductionBonusAccrual", () => repairTreatyProductionBonusAccrual());
+  await bootStep("runSocialTechMigrations", () => runSocialTechMigrations());
+  await bootStep("runProductionMigrations", () => runProductionMigrations());
+  await bootStep("runTechTreeMigrations", () => runTechTreeMigrations());
   // Task #557 — 一次性重算軍隊生產力預留（改用維護費口徑）＋ spent 全量對齊。
   // 需在軍事/資源（建築預留）/外交（game_flags）/科技樹遷移之後。
-  await recalcArmyProductionReservations();
-  await runWallMigrations();
-  await runWorldSimMigrations();
+  await bootStep("recalcArmyProductionReservations", () => recalcArmyProductionReservations());
+  await bootStep("runWallMigrations", () => runWallMigrations());
+  await bootStep("runWorldSimMigrations", () => runWorldSimMigrations());
   await startCostTuningRefresh(); // 全局開銷旋鈕:啟動載入並每數秒刷新,後台調整免重推
-  await runGameNewsMigrations();
-  await runAccountBanMigrations();
-  await runSuperEventMigrations();
+  await bootStep("runGameNewsMigrations", () => runGameNewsMigrations());
+  await bootStep("runAccountBanMigrations", () => runAccountBanMigrations());
+  await bootStep("runSuperEventMigrations", () => runSuperEventMigrations());
   // Task #451 — 遊戲平衡設定＋AI 濫用紀錄（無 FK，可放最後）。
-  await runGameBalanceMigrations();
+  await bootStep("runGameBalanceMigrations", () => runGameBalanceMigrations());
   // Task #593 — AI 用量紀錄＋各功能 token 上限（無 FK，可放最後）。
-  await runAiUsageMigrations();
+  await bootStep("runAiUsageMigrations", () => runAiUsageMigrations());
   // v3 — AI 閒時預產快取表（FK 依賴 player_nations，放遷移鏈尾端）。
-  await runAiPregenMigrations();
+  await bootStep("runAiPregenMigrations", () => runAiPregenMigrations());
   // 武將系統三表（generals／general_pool／general_draws；FK 依賴 player_nations
   // 與 war_campaign_legions，放遷移鏈尾端）。缺少時抽卡路由 500。
-  await runGeneralsMigrations();
+  await bootStep("runGeneralsMigrations", () => runGeneralsMigrations());
   // 選舉與議會：議會狀態／政黨／歷史三表（FK 依賴 player_nations，放鏈尾）。
-  await runParliamentMigrations();
+  await bootStep("runParliamentMigrations", () => runParliamentMigrations());
   // Task #604 — 清理存量違規國名（超過 25 字或含空白/標點）。
-  await runNationNameSanitizeMigration();
+  await bootStep("runNationNameSanitizeMigration", () => runNationNameSanitizeMigration());
 }
 
 // Bot watchdog + background loops. Started only after the migration chain
@@ -176,17 +177,6 @@ function startBackgroundWork(): void {
   recoverStuckGeneratingGenerals().catch((err) =>
     logger.warn({ err }, "stuck generating generals recovery failed"),
   );
-
-  getStoredToken()
-    .then((token) => {
-      if (token) {
-        startDiscordBot(token);
-      } else {
-        logger.warn("No Discord bot token configured — set one via dashboard");
-      }
-    })
-    .catch((err) => logger.error({ err }, "Failed to load bot token"))
-    .finally(() => startBotWatchdog());
 
   startSessionCleanupLoop();
   startTreatyExpiryLoop();
@@ -213,7 +203,10 @@ async function bootstrap() {
   // applies the production schema diff, so serving before these
   // (redundant-in-prod) migrations finish is safe.
   openPort();
+  // 機器人不等遷移：先連上 Discord，遷移再慢也不影響客服與玩家通知。
+  startBotEarly();
 
+  bootPhase("migrating");
   try {
     await runStartupMigrations();
   } catch (err) {
@@ -238,6 +231,7 @@ async function bootstrap() {
   }
 
   startBackgroundWork();
+  markBackgroundStarted();
 }
 
 void bootstrap();
