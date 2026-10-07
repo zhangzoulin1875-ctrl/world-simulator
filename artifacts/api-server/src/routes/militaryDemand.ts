@@ -3,8 +3,8 @@ import { eq } from "drizzle-orm";
 import { db, playerNationsTable } from "@workspace/db";
 import { getSession, readSessionToken } from "../lib/sessions";
 import { logger } from "../lib/logger";
-import { getPendingDemand, respondToDemand } from "../lib/militaryDemand/service";
-import { REFUSE_PENALTY, AUTO_WAR_BELOW, COUP_BELOW } from "../lib/militaryDemand/core";
+import { getPendingDemand, respondToDemand, getEffectiveMilitarySatisfaction, currentTickOf } from "../lib/militaryDemand/service";
+import { REFUSE_PENALTY, AUTO_WAR_BELOW, COUP_BELOW, DEMAND_DEADLINE_TURNS, demandTurnsLeft } from "../lib/militaryDemand/core";
 
 const router: IRouter = Router();
 
@@ -25,10 +25,19 @@ router.get("/military-demand", async (req, res) => {
   const auth = await requirePlayer(req, res); if (!auth) return;
   try {
     const d = await getPendingDemand(auth.nation.id);
+    // 顯示與判定同一個數字:有效值(基底 + 政策加成 + 偏移),不是資料庫基底值。
+    const [effective, tick] = await Promise.all([
+      getEffectiveMilitarySatisfaction(auth.nation),
+      d ? currentTickOf(auth.nation.id) : Promise.resolve(0),
+    ]);
     res.json({
-      pending: d ? { id: d.id, regionName: d.regionName, targetNationName: d.targetNationName, createdAt: d.createdAt.toISOString() } : null,
+      pending: d ? {
+        id: d.id, regionName: d.regionName, targetNationName: d.targetNationName, createdAt: d.createdAt.toISOString(),
+        turnsLeft: demandTurnsLeft(tick, d.dueTick),
+      } : null,
       refusePenalty: REFUSE_PENALTY, autoWarBelow: AUTO_WAR_BELOW, coupBelow: COUP_BELOW,
-      satisfaction: Math.round(auth.nation.satisfactionMilitary),
+      deadlineTurns: DEMAND_DEADLINE_TURNS,
+      satisfaction: Math.round(effective),
     });
   } catch (err) {
     logger.error({ err }, "military demand view failed");

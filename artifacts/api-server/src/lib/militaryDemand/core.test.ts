@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   decideMilitaryAction, afterRefuse, pickTarget, DEMAND_CHANCE_PCT, type TargetCandidate,
+  isDemandExpired, demandTurnsLeft, DEMAND_DEADLINE_TURNS,
 } from "./core";
 
 const cand = (o: Partial<TargetCandidate>): TargetCandidate => ({
@@ -104,4 +105,35 @@ test("絕不打盟友、被條約擋住、或剛打完的冷卻目標(即使關�
 
 test("沒有任何候選時回傳 null", () => {
   assert.equal(pickTarget([], 1000), null);
+});
+
+test("逾時判定:tick >= dueTick 才算逾時;舊資料(無 dueTick)永不逾時", () => {
+  assert.equal(isDemandExpired(4, 5), false);
+  assert.equal(isDemandExpired(5, 5), true);
+  assert.equal(isDemandExpired(9, 5), true);
+  assert.equal(isDemandExpired(99, null), false);
+  assert.equal(isDemandExpired(99, undefined), false);
+});
+
+test("剩餘回合:最小 0;無期限回 null", () => {
+  assert.equal(demandTurnsLeft(3, 5), 2);
+  assert.equal(demandTurnsLeft(5, 5), 0);
+  assert.equal(demandTurnsLeft(8, 5), 0);
+  assert.equal(demandTurnsLeft(3, null), null);
+});
+
+test("時限為 2 回合(2026-10-07 確認)", () => {
+  assert.equal(DEMAND_DEADLINE_TURNS, 2);
+});
+
+test("滿意度 >= 50(含剛好 50)絕不自動開戰,無論擲骰結果", () => {
+  for (const sat of [50, 51, 60, 75, 100]) {
+    for (const r of [0, 0.19, 0.2, 0.5, 0.999]) {
+      for (const pending of [false, true]) {
+        const a = decideMilitaryAction({ tier: "autocracy", satisfaction: sat, hasPendingDemand: pending, rand: () => r });
+        assert.notEqual(a.kind, "auto_war", `sat=${sat} r=${r} pending=${pending}`);
+        assert.notEqual(a.kind, "coup", `sat=${sat} r=${r}`);
+      }
+    }
+  }
 });

@@ -28,6 +28,13 @@ export function MilitaryDemandCard() {
       <p className="text-sm text-white/90" data-testid="text-military-demand-target">
         軍方要求進攻「{pending.regionName}」{pending.targetNationName ? `(${pending.targetNationName})` : "(無主地)"}。
       </p>
+      <p className="mt-1 text-xs font-semibold text-amber-200" data-testid="text-military-demand-deadline">
+        {pending.turnsLeft === null
+          ? `${data.deadlineTurns} 回合內未回應,視同拒絕。`
+          : pending.turnsLeft <= 0
+            ? "已逾時,下個回合結算時視同拒絕。"
+            : `剩 ${pending.turnsLeft} 回合;逾時未回應視同拒絕(同樣扣 ${data.refusePenalty})。`}
+      </p>
       <p className="mt-1 text-xs text-white/60">
         拒絕將使軍方滿意度 -{data.refusePenalty}(目前 {data.satisfaction}%)。
         低於 {data.autoWarBelow}% 軍方將不再請示直接開戰,低於 {data.coupBelow}% 可能發動政變。

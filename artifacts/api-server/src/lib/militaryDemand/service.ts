@@ -15,8 +15,13 @@ import { tierOfNation } from "../parliament/service";
 import { applyRevolution } from "../parliament/service";
 import { persistNotificationInBackground } from "../playerNotify";
 import {
-  decideMilitaryAction, afterRefuse, pickTarget, type MilitaryTier, type TargetCandidate,
+  decideMilitaryAction, afterRefuse, pickTarget, isDemandExpired, DEMAND_DEADLINE_TURNS,
+  type MilitaryTier, type TargetCandidate,
 } from "./core";
+import { computePoliticsState } from "../politics";
+import { getPoliticsSettings } from "../politicsSettings";
+import { loadActiveSatisfactionBuffs } from "../productionTechData";
+import { politicsEntriesTable, parliamentStateTable } from "@workspace/db";
 
 type Nation = PlayerNation;
 
@@ -33,6 +38,31 @@ async function setMilitarySatisfaction(nationId: string, value: number): Promise
   await db.update(playerNationsTable)
     .set({ satisfactionMilitary: Math.max(0, Math.min(100, Math.round(value))) })
     .where(eq(playerNationsTable.id, nationId));
+}
+
+/**
+ * 軍方滿意度「有效值」:資料庫基底 + 政策條目加成 + 管理員偏移,夾 0 到 100。
+ * 也就是玩家在政治頁看到的數字。軍方要求的判定、API、前端顯示全部走這裡,
+ * 避免「畫面 60% 卻因基底 40% 被自動開戰」(2026-10-07 修正)。
+ */
+export async function getEffectiveMilitarySatisfaction(
+  nation: Pick<Nation, "id" | "discordUserId" | "satisfactionMilitary" | "stability" | "unrest" | "warWeariness"
+    | "satisfactionFarmers" | "satisfactionWorkers" | "satisfactionNobles" | "satisfactionClergy">,
+): Promise<number> {
+  const [entries, settings, offsets] = await Promise.all([
+    db.select().from(politicsEntriesTable)
+      .where(and(eq(politicsEntriesTable.nationId, nation.id), eq(politicsEntriesTable.status, "active"))),
+    getPoliticsSettings(),
+    nation.discordUserId ? loadActiveSatisfactionBuffs(nation.discordUserId) : Promise.resolve(undefined),
+  ]);
+  const state = computePoliticsState(nation, entries, settings, offsets);
+  return state.satisfactions["military"] ?? nation.satisfactionMilitary;
+}
+
+export async function currentTickOf(nationId: string): Promise<number> {
+  const [s] = await db.select({ tick: parliamentStateTable.tick })
+    .from(parliamentStateTable).where(eq(parliamentStateTable.nationId, nationId));
+  return s?.tick ?? 0;
 }
 
 export async function getPendingDemand(nationId: string): Promise<MilitaryDemand | null> {
@@ -166,10 +196,20 @@ export async function settleNationMilitaryDemand(
   if (nation.isNpc || !nation.discordUserId) return { action: "none" };
   const { tier: rawTier } = await tierOfNation(nation);
   const tier = TIER_MAP[rawTier] ?? "semi";
-  const pending = await getPendingDemand(nation.id);
+  let pending = await getPendingDemand(nation.id);
+  const tick = await currentTickOf(nation.id);
 
+  // 逾時未回應:視同拒絕(扣分一次),之後同回合照常往下判定(可能因扣分而落入自動開戰)。
+  if (pending && isDemandExpired(tick, pending.dueTick)) {
+    const timedOut = await expireDemandAsRefused(nation, pending);
+    if (timedOut) pending = null;
+    nation = (await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, nation.id)).limit(1))[0] ?? nation;
+  }
+
+  // 判定一律用「有效值」(玩家畫面上的數字),不是資料庫基底值。
+  const effective = await getEffectiveMilitarySatisfaction(nation);
   const action = decideMilitaryAction({
-    tier, satisfaction: nation.satisfactionMilitary, hasPendingDemand: pending !== null, rand,
+    tier, satisfaction: effective, hasPendingDemand: pending !== null, rand,
   });
 
   if (action.kind === "coup") {
@@ -197,6 +237,7 @@ export async function settleNationMilitaryDemand(
     await db.insert(militaryDemandsTable).values({
       nationId: nation.id, regionId: target.regionId, regionName: target.regionName,
       targetNationId: target.ownerNationId, status: "auto_war", resolvedAt: new Date(),
+      createdTick: tick, effectiveSatisfaction: Math.round(effective), baseSatisfaction: nation.satisfactionMilitary,
     });
     notify(nation, "軍方擅自開戰", `軍方對你的指揮不滿,未經請示便對目標地區「${target.regionName}」的控制國發動戰爭。`);
     return { action: "auto_war", detail: target.regionName };
@@ -210,13 +251,32 @@ export async function settleNationMilitaryDemand(
     await db.insert(militaryDemandsTable).values({
       nationId: nation.id, regionId: target.regionId, regionName: target.regionName,
       targetNationId: target.ownerNationId, targetNationName: targetNation?.name ?? null, status: "pending",
+      createdTick: tick, dueTick: tick + DEMAND_DEADLINE_TURNS,
+      effectiveSatisfaction: Math.round(effective), baseSatisfaction: nation.satisfactionMilitary,
     });
   } catch (err) {
     logger.warn({ err, nationId: nation.id }, "military demand insert skipped (pending exists)");
     return { action: "none" };
   }
-  notify(nation, "軍方要求進攻", `軍方要求進攻「${target.regionName}」。拒絕將大幅降低軍方滿意度。`);
+  notify(nation, "軍方要求進攻", `軍方要求進攻「${target.regionName}」。拒絕將大幅降低軍方滿意度;${DEMAND_DEADLINE_TURNS} 回合內未回應,視同拒絕。`);
   return { action: "demand", detail: target.regionName };
+}
+
+/**
+ * 逾時視同拒絕:樂觀鎖搶占 pending → timed_out,搶到才扣分(與玩家同時回應也只扣一次)。
+ * 回傳是否由本次搶到(false = 已被玩家處理,不重複扣分)。
+ */
+export async function expireDemandAsRefused(nation: Nation, d: MilitaryDemand): Promise<boolean> {
+  const claimed = await db.update(militaryDemandsTable)
+    .set({ status: "timed_out", resolvedAt: new Date() })
+    .where(and(eq(militaryDemandsTable.id, d.id), eq(militaryDemandsTable.status, "pending")))
+    .returning({ id: militaryDemandsTable.id });
+  if (claimed.length === 0) return false;
+  const [fresh] = await db.select({ s: playerNationsTable.satisfactionMilitary }).from(playerNationsTable).where(eq(playerNationsTable.id, nation.id));
+  const next = afterRefuse(fresh?.s ?? nation.satisfactionMilitary);
+  await setMilitarySatisfaction(nation.id, next);
+  notify(nation, "軍方要求逾時", `你沒有在 ${DEMAND_DEADLINE_TURNS} 回合內回應進攻「${d.regionName}」的要求,視同拒絕,軍方滿意度降至 ${next}。`);
+  return true;
 }
 
 /** 玩家回應要求。accept:開戰;refuse:軍方滿意度 -15。 */

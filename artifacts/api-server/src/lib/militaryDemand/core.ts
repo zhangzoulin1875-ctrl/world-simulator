@@ -7,6 +7,11 @@
  *  - 軍方滿意度 < 15:政變(60% 沿用現有軍方政變,40% 獨立出軍閥國家內戰)
  *  - 民主國家軍方永遠不提要求
  *  - 目標優先序:關係最差 > 無主地 > 弱國;自動開戰不會打盟友
+ *  - 要求有時限:DEMAND_DEADLINE_TURNS 個回合內未回應,視同拒絕(扣分一次),
+ *    不再能靠拖延逃避代價(2026-10-07 確認:2 回合)
+ *
+ * 軍方滿意度一律指「有效值」(基底 + 政策條目加成 + 管理員偏移),也就是玩家在政治頁
+ * 看到的數字;判定、API、前端顯示必須同一個數字,不可混用資料庫基底值。
  */
 
 export type MilitaryTier = "autocracy" | "semi" | "democracy";
@@ -17,6 +22,20 @@ export const AUTO_WAR_BELOW = 50;
 export const COUP_BELOW = 15;
 /** 政變中沿用現有軍方政變機制的機率(其餘為軍閥分裂) */
 export const COUP_CLASSIC_SHARE = 0.6;
+/** 軍方要求的回應時限(回合數):到期未回應視同拒絕。 */
+export const DEMAND_DEADLINE_TURNS = 2;
+
+/** 要求是否已逾時。currentTick、dueTick 皆為該國 parliament_state.tick。 */
+export function isDemandExpired(currentTick: number, dueTick: number | null | undefined): boolean {
+  if (dueTick === null || dueTick === undefined) return false;
+  return currentTick >= dueTick;
+}
+
+/** 剩餘回合數(最小 0),供前端倒數。 */
+export function demandTurnsLeft(currentTick: number, dueTick: number | null | undefined): number | null {
+  if (dueTick === null || dueTick === undefined) return null;
+  return Math.max(0, dueTick - currentTick);
+}
 
 export type MilitaryAction =
   | { kind: "none" }
@@ -26,6 +45,7 @@ export type MilitaryAction =
 
 /**
  * 決定本回合軍方要做什麼。優先序:政變 > 自動開戰 > 提出要求。
+ * satisfaction 必須是「有效值」(玩家畫面上看到的數字)。
  * rand 回傳 [0,1),可注入以利測試。
  * 已有待回應的要求時,不再擲新的(避免堆疊)。
  */

@@ -2,10 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getGetPoliticsOverviewQueryKey } from "@workspace/api-client-react";
 
 export interface MilitaryDemandView {
-  pending: { id: number; regionName: string; targetNationName: string | null; createdAt: string } | null;
+  pending: { id: number; regionName: string; targetNationName: string | null; createdAt: string; turnsLeft: number | null } | null;
   refusePenalty: number;
   autoWarBelow: number;
   coupBelow: number;
+  /** 回應時限(回合數);逾時視同拒絕。 */
+  deadlineTurns: number;
+  /** 軍方滿意度有效值(與政治頁同一個數字)。 */
   satisfaction: number;
 }
 

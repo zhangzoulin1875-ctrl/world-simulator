@@ -84,6 +84,11 @@ export async function runParliamentMigrationsInner(
       resolved_at timestamptz
     )
   `);
+  // 2026-10-07:要求逾時(回合制)+ 決策當下的滿意度留痕(有效值/基底值)。
+  await executor.execute(sql`ALTER TABLE military_demands ADD COLUMN IF NOT EXISTS created_tick integer`);
+  await executor.execute(sql`ALTER TABLE military_demands ADD COLUMN IF NOT EXISTS due_tick integer`);
+  await executor.execute(sql`ALTER TABLE military_demands ADD COLUMN IF NOT EXISTS effective_satisfaction integer`);
+  await executor.execute(sql`ALTER TABLE military_demands ADD COLUMN IF NOT EXISTS base_satisfaction integer`);
   await executor.execute(sql`CREATE INDEX IF NOT EXISTS military_demands_nation_idx ON military_demands (nation_id, created_at)`);
   await executor.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS military_demands_one_pending_uidx ON military_demands (nation_id) WHERE status = 'pending'`);
 
