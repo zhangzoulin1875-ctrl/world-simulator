@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Landmark, Loader2, Megaphone, ScrollText, AlertTriangle, Gavel } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
-  layoutHemicycle, useParliament, useSubmitReport,
+  layoutHemicycle, useParliament, useSubmitReport, useDecideVeto,
   type ParliamentView, type ParliamentParty,
 } from "@/lib/parliament";
 
@@ -53,6 +53,51 @@ function SatisfactionBar({ v, alert }: { v: number; alert: ParliamentView["alert
   return (
     <div className="h-2.5 w-full overflow-hidden rounded-full bg-white/10" role="progressbar" aria-valuenow={v} aria-valuemin={0} aria-valuemax={100}>
       <div className={`h-full ${color} transition-all`} style={{ width: `${Math.max(0, Math.min(100, v))}%` }} />
+    </div>
+  );
+}
+
+const STAND_STYLE = { for: "text-emerald-300", against: "text-red-300", abstain: "text-white/45" } as const;
+const STAND_LABEL = { for: "贊成", against: "反對", abstain: "棄權" } as const;
+
+/** 政策被議會否決:列出各黨表態,讓玩家選「強行通過」(扣議會滿意度)或「接受否決」。 */
+function VetoCard({ veto, satisfaction }: { veto: NonNullable<ParliamentView["pendingVeto"]>; satisfaction: number }) {
+  const { toast } = useToast();
+  const decide = useDecideVeto();
+  const after = Math.max(0, satisfaction - veto.overridePenalty);
+  const go = (d: "override" | "accept") =>
+    decide.mutate(d, {
+      onSuccess: (r) => toast({
+        title: d === "override" ? "已強行通過" : "已接受否決",
+        description: d === "override" ? `「${r.title}」生效,議會滿意度降至 ${r.satisfactionAfter ?? after}` : `「${r.title}」已套用`,
+      }),
+      onError: (e: any) => toast({ title: "處理失敗", description: e?.message ?? "請稍後再試", variant: "destructive" }),
+    });
+  return (
+    <div className="mb-3 rounded-lg border border-red-400/40 bg-red-500/10 p-3" data-testid="card-veto">
+      <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-red-200"><Gavel className="h-4 w-4" />政策遭議會否決</div>
+      <p className="mb-2 text-xs text-white/75">你的政策想法「{veto.idea.length > 60 ? `${veto.idea.slice(0, 60)}…` : veto.idea}」未獲議會通過。
+        贊成 {veto.seatsFor} 席 · 反對 {veto.seatsAgainst} 席 · 棄權 {veto.seatsAbstain} 席。</p>
+      <ul className="mb-2 grid gap-1 sm:grid-cols-2" data-testid="list-veto-votes">
+        {veto.votes.map((x) => (
+          <li key={x.partyId} className="flex items-center justify-between rounded bg-black/30 px-2 py-1 text-xs">
+            <span className="truncate">{x.name}<span className="ml-1 text-white/45">{x.seats} 席</span></span>
+            <span className={`font-semibold ${STAND_STYLE[x.stand]}`}>{STAND_LABEL[x.stand]}</span>
+          </li>))}
+      </ul>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <button type="button" disabled={decide.isPending} onClick={() => go("override")} data-testid="button-veto-override"
+          className="rounded-md border border-amber-400/50 bg-amber-500/20 px-3 py-2 text-left text-xs hover:bg-amber-500/30 disabled:opacity-50">
+          <div className="font-semibold text-amber-200">強行通過</div>
+          <div className="text-white/70">政策照常生效(「{veto.successTitle}」),但議會滿意度 −{veto.overridePenalty}(剩約 {after})</div>
+        </button>
+        <button type="button" disabled={decide.isPending} onClick={() => go("accept")} data-testid="button-veto-accept"
+          className="rounded-md border border-white/20 bg-white/5 px-3 py-2 text-left text-xs hover:bg-white/10 disabled:opacity-50">
+          <div className="font-semibold text-white/90">接受否決</div>
+          <div className="text-white/70">改為套用失敗結果(「{veto.failureTitle}」),議會滿意度不變</div>
+        </button>
+      </div>
+      <p className="mt-2 text-[11px] text-white/50">下個回合結算前不決定,視同接受否決。</p>
     </div>
   );
 }
@@ -111,6 +156,7 @@ export function ParliamentPanel() {
       </div>
 
       {!v.ready ? <p className="text-sm text-white/60">議會尚未成立,下一次回合結算後會召開第一次會議。</p> : (<>
+        {v.pendingVeto ? <VetoCard veto={v.pendingVeto} satisfaction={v.satisfaction} /> : null}
         <SatisfactionBar v={v.satisfaction} alert={v.alert} />
         {v.alert === "warn" || v.alert === "critical" ? (
           <p className="mt-2 flex items-start gap-1.5 text-xs text-red-300"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />

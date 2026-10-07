@@ -25,6 +25,12 @@ type MigrationExecutor = Pick<typeof db, "execute">;
 export async function runPoliticsMigrationsInner(
   executor: MigrationExecutor = db,
 ): Promise<void> {
+  // 議會表決(2026-10-07):想法被否決時暫存狀態與 AI 判定,等玩家決定。
+  await executor.execute(sql`
+    ALTER TABLE politics_pending_ideas
+      ADD COLUMN IF NOT EXISTS vote_state text,
+      ADD COLUMN IF NOT EXISTS vote_payload jsonb
+  `);
   // player_nations 新增內政欄位（初始值：穩定度 50、暴動度 0、厭戰度 0、
   // 四項滿意度 60）。
   await executor.execute(sql`

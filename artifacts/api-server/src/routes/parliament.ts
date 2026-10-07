@@ -21,6 +21,7 @@ import {
 import { loadConstitution, saveDraft, statusOf, currentParliamentTick } from "../lib/constitution/service";
 import { submitConstitution, recoverStaleReviews } from "../lib/constitution/submit";
 import { loadPenaltyScale } from "../lib/penaltyScaleLoad";
+import { loadPendingVeto, decideVeto } from "../lib/parliament/vetoDecision";
 
 const router: IRouter = Router();
 
@@ -84,9 +85,23 @@ router.get("/parliament", async (req, res) => {
   try {
     // 新建國後議會黨要等下一個回合結算才會建立;沒有政黨時當場補建,避免議會頁顯示 0 席。
     await ensureParliamentSeeded(auth.nation).catch((err) => logger.warn({ err, nationId: auth.nation.id }, "parliament: lazy seed failed"));
-    res.json(await buildView(auth.nation.id, auth.nation.government));
+    const view = await buildView(auth.nation.id, auth.nation.government);
+    const pendingVeto = await loadPendingVeto(auth.nation.id).catch((err) => { logger.warn({ err }, "pending veto load failed"); return null; });
+    res.json({ ...view, pendingVeto });
   }
   catch (err) { logger.error({ err }, "parliament view failed"); res.status(500).json({ error: "讀取議會失敗" }); }
+});
+
+/** 被議會否決的政策:玩家決定「強行通過」(扣議會滿意度)或「接受否決」。 */
+router.post("/parliament/veto", async (req, res) => {
+  const auth = await requirePlayer(req, res); if (!auth) return;
+  const decision = (req.body ?? {}).decision;
+  if (decision !== "override" && decision !== "accept") { res.status(400).json({ error: "decision 必須是 override 或 accept" }); return; }
+  try {
+    const r = await decideVeto(auth.nation, decision);
+    if (!r.ok) { res.status(r.status).json({ error: r.error }); return; }
+    res.json(r);
+  } catch (err) { logger.error({ err }, "veto decision failed"); res.status(500).json({ error: "處理失敗" }); }
 });
 
 /**

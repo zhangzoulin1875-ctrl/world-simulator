@@ -15,6 +15,9 @@ import {
   type PoliticsPendingIdea,
 } from "@workspace/db";
 import { logger } from "./logger";
+import { voteOnPolicy } from "./parliament/policyVote";
+import { expireStaleVetoes } from "./parliament/vetoDecision";
+import { summarizeVote, type PartyVote, type PolicyTag } from "./parliament/vote";
 import { computeNationStats, getCurrentEraSlug, getStatsEraSlug } from "./nationStats";
 import {
   computeNationMilitaryAggregates,
@@ -92,6 +95,7 @@ import {
   notifyGovernmentDecision,
   notifyMilitaryPoliticsEvent,
   notifyPolicyJudged,
+  notifyPolicyVetoed,
   notifyPoliticsEvent,
 } from "./gameNotify";
 import {
@@ -297,6 +301,11 @@ async function settleNation(
     .where(eq(politicsPendingIdeasTable.nationId, nation.id));
 
   for (const idea of ideas) {
+    if (idea.voteState === "vetoed") {
+      // 上一回合就被議會否決、玩家整回合沒決定 → 視同接受否決(套用失敗版)。
+      await expireStaleVetoes(nation);
+      continue;
+    }
     const handled = await judgeIdea(
       nation,
       idea,
@@ -795,23 +804,118 @@ export async function judgeIdea(
     });
   }
 
-  const entries = await loadActiveEntries(nation.id);
-  const state = computePoliticsState(nation, entries, settings);
-  const successPct = policySuccessChance(
-    state.stability,
-    judgement.fitScore,
-    settings,
-  );
-  const succeeded =
-    !abuseFlagged &&
-    successOutcome !== null &&
-    (failureOutcome === null || Math.random() * 100 < successPct);
+  // ── 議會表決(2026-10-07):民主全部政策、半專制的重大政策交議會表決,取代成功率骰子。
+  // voteOnPolicy 回傳 null = 專制/查不到議會/失敗 → 沿用舊骰子。濫用旗標一律走失敗,不給表決機會。
+  const vote = abuseFlagged
+    ? null
+    : await voteOnPolicy(nation, judgement.resultType, readJudgementTags(judgement));
+
+  let succeeded: boolean;
+  if (vote) {
+    if (!vote.result.passed && successOutcome !== null && failureOutcome !== null) {
+      // 被否決:暫存 AI 判定與票數,等玩家選「強行通過」或「接受否決」(下次結算仍未選 = 接受否決)。
+      const payload: VetoedPayload = {
+        resultType: judgement.resultType,
+        success: successOutcome,
+        failure: failureOutcome,
+        votes: vote.result.votes,
+        seatsFor: vote.result.seatsFor,
+        seatsAgainst: vote.result.seatsAgainst,
+        seatsAbstain: vote.result.seatsAbstain,
+        againstRatio: vote.result.againstRatio,
+        tags: vote.tags,
+        enabledDirs: [...enabledDirs],
+        direction,
+        vetoedAt: new Date().toISOString(),
+      };
+      await db
+        .update(politicsPendingIdeasTable)
+        .set({ voteState: "vetoed", votePayload: payload })
+        .where(eq(politicsPendingIdeasTable.id, idea.id));
+      if (nation.discordUserId) {
+        notifyPolicyVetoed({
+          discordUserId: nation.discordUserId,
+          idea: idea.idea,
+          summary: summarizeVote(vote.result),
+        });
+      }
+      return true; // 想法已處理(進入等待玩家決定),不刪除
+    }
+    succeeded = vote.result.passed && successOutcome !== null;
+    // 通過但 AI 只給了失敗版(罕見):無從通過,走失敗版。
+  } else {
+    const entries = await loadActiveEntries(nation.id);
+    const state = computePoliticsState(nation, entries, settings);
+    const successPct = policySuccessChance(
+      state.stability,
+      judgement.fitScore,
+      settings,
+    );
+    succeeded =
+      !abuseFlagged &&
+      successOutcome !== null &&
+      (failureOutcome === null || Math.random() * 100 < successPct);
+  }
+
+  const applied = await applyPolicyOutcome({
+    nation, idea: idea.idea, direction, resultType: judgement.resultType, succeeded,
+    successOutcome, failureOutcome, settings, enabledDirs, digest,
+  });
+  if (!applied) return false;
+
+  await db
+    .delete(politicsPendingIdeasTable)
+    .where(eq(politicsPendingIdeasTable.id, idea.id));
+  return true;
+}
+
+/** 讀 AI 判定的標籤;預產快取是舊格式(沒有 tags)時視為空陣列。 */
+function readJudgementTags(j: { tags?: unknown }): PolicyTag[] {
+  return Array.isArray(j.tags) ? (j.tags as PolicyTag[]) : [];
+}
+
+type PolicyOutcomeShape = NonNullable<PolicyJudgement["success"]>;
+
+/** 被議會否決、等待玩家決定的想法所暫存的內容。 */
+export interface VetoedPayload {
+  resultType: "policy" | "tradition" | "reform";
+  success: PolicyOutcomeShape;
+  failure: PolicyOutcomeShape;
+  votes: PartyVote[];
+  seatsFor: number;
+  seatsAgainst: number;
+  seatsAbstain: number;
+  againstRatio: number;
+  tags: PolicyTag[];
+  /** 表決當下啟用的政策方向(玩家日後決定時沿用,避免依賴當時才查的科技狀態)。 */
+  enabledDirs: PoliticsDirection[];
+  direction: string;
+  vetoedAt: string;
+}
+
+/**
+ * 把一項政策的成功版或失敗版寫成條目並通知。judgeIdea 與「玩家決定強行通過/接受否決」共用。
+ * 回傳 false = 缺少可落地的結果(保留想法,下回合重試)。
+ */
+export async function applyPolicyOutcome(args: {
+  nation: PlayerNation;
+  idea: string;
+  direction: PoliticsDirection | typeof GENERAL_DIRECTION;
+  resultType: "policy" | "tradition" | "reform";
+  succeeded: boolean;
+  successOutcome: PolicyJudgement["success"];
+  failureOutcome: PolicyJudgement["failure"];
+  settings: PoliticsSettings;
+  enabledDirs: readonly PoliticsDirection[];
+  digest?: PoliticsNationDigest;
+}): Promise<boolean> {
+  const { nation, idea, direction, resultType, succeeded, successOutcome, failureOutcome, settings, enabledDirs, digest } = args;
 
   if (succeeded && successOutcome !== null) {
     const outcome = successOutcome;
-    const entryType = judgement.resultType;
+    const entryType = resultType;
     // reform 一定要有持續回合（淡化）；policy/tradition 可永久或短暫。
-    let duration = clampDuration(outcome.durationTurns, settings, judgement.resultType);
+    let duration = clampDuration(outcome.durationTurns, settings, resultType);
     if (entryType === "reform" && duration === null) {
       duration = settings.reformDurationTurns;
     }
@@ -820,7 +924,7 @@ export async function judgeIdea(
       direction,
       entryType,
       title: outcome.title,
-      description: withSourceIdea(outcome.description, idea.idea),
+      description: withSourceIdea(outcome.description, idea),
       modifiers: restrictModifiersToEnabledDirections(
         clampAiModifiers(outcome.modifiers as PoliticsModifier[], settings),
         enabledDirs,
@@ -828,57 +932,54 @@ export async function judgeIdea(
       durationTurns: duration,
       remainingTurns: duration,
     });
-    digest.policies.push({ title: outcome.title, succeeded: true });
+    digest?.policies.push({ title: outcome.title, succeeded: true });
     if (nation.discordUserId) {
       notifyPolicyJudged({
         discordUserId: nation.discordUserId,
         title: outcome.title,
-        idea: idea.idea,
+        idea,
         succeeded: true,
       });
     }
-  } else {
-    const outcome = failureOutcome;
-    if (outcome === null) {
-      // 防禦：schema refine 保證至少一側非 null、abuse 路徑已合成 failure，
-      // 理論上到不了這裡；萬一發生就保留想法下回合重試。
-      logger.error(
-        { nationId: nation.id, direction },
-        "politics idea judgement missing failure outcome — kept for next settlement",
-      );
-      return false;
-    }
-    const duration =
-      clampDuration(outcome.durationTurns, settings, "reform") ??
-      settings.reformDurationTurns;
-    // 內政政策禁止直接獲得或扣除金錢：失敗只留負面 modifiers，不再賠款。
-    await db.insert(politicsEntriesTable).values({
-      nationId: nation.id,
-      direction,
-      entryType: "reform",
-      title: `【失敗】${outcome.title}`,
-      description: withSourceIdea(outcome.description, idea.idea),
-      modifiers: restrictModifiersToEnabledDirections(
-        clampAiModifiers(outcome.modifiers as PoliticsModifier[], settings),
-        enabledDirs,
-      ),
-      durationTurns: duration,
-      remainingTurns: duration,
-    });
-    digest.policies.push({ title: outcome.title, succeeded: false });
-    if (nation.discordUserId) {
-      notifyPolicyJudged({
-        discordUserId: nation.discordUserId,
-        title: outcome.title,
-        idea: idea.idea,
-        succeeded: false,
-      });
-    }
+    return true;
   }
 
-  await db
-    .delete(politicsPendingIdeasTable)
-    .where(eq(politicsPendingIdeasTable.id, idea.id));
+  const outcome = failureOutcome;
+  if (outcome === null) {
+    // 防禦：schema refine 保證至少一側非 null、abuse 路徑已合成 failure，
+    // 理論上到不了這裡；萬一發生就保留想法下回合重試。
+    logger.error(
+      { nationId: nation.id, direction },
+      "politics idea judgement missing failure outcome — kept for next settlement",
+    );
+    return false;
+  }
+  const duration =
+    clampDuration(outcome.durationTurns, settings, "reform") ??
+    settings.reformDurationTurns;
+  // 內政政策禁止直接獲得或扣除金錢：失敗只留負面 modifiers，不再賠款。
+  await db.insert(politicsEntriesTable).values({
+    nationId: nation.id,
+    direction,
+    entryType: "reform",
+    title: `【失敗】${outcome.title}`,
+    description: withSourceIdea(outcome.description, idea),
+    modifiers: restrictModifiersToEnabledDirections(
+      clampAiModifiers(outcome.modifiers as PoliticsModifier[], settings),
+      enabledDirs,
+    ),
+    durationTurns: duration,
+    remainingTurns: duration,
+  });
+  digest?.policies.push({ title: outcome.title, succeeded: false });
+  if (nation.discordUserId) {
+    notifyPolicyJudged({
+      discordUserId: nation.discordUserId,
+      title: outcome.title,
+      idea,
+      succeeded: false,
+    });
+  }
   return true;
 }
 

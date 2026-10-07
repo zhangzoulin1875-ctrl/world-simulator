@@ -9,7 +9,9 @@ import {
   useRepealPoliticsEntry,
 } from "@workspace/api-client-react";
 import type { PoliticsOverview } from "@workspace/api-client-react";
+import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { useParliament } from "@/lib/parliament";
 import { apiErrorMessage } from "@/components/military-shared";
 import { EntryCard } from "./entry-card";
 
@@ -20,6 +22,10 @@ export function PolicyPanel({ overview }: { overview: PoliticsOverview }) {
   const [idea, setIdea] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const ideaMaxLength = overview.ideaMaxLength;
+  // 議會表決:民主/半專制的政策可能被否決並等玩家決定。
+  const { data: parliament } = useParliament();
+  const vetoed = parliament?.pendingVeto ?? null;
+  const votes = parliament && parliament.ready && parliament.tier !== "autocracy";
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: getGetPoliticsOverviewQueryKey() });
@@ -88,11 +94,16 @@ export function PolicyPanel({ overview }: { overview: PoliticsOverview }) {
               <div className="rounded-lg border border-amber-300/30 bg-amber-500/10 p-3">
                 <div className="mb-1 flex items-center gap-1.5 text-[11px] font-bold text-amber-200">
                   <Hourglass className="h-3.5 w-3.5" />
-                  等待回合結算判定
+                  {vetoed ? "議會已否決,等你決定" : "等待回合結算判定"}
                 </div>
                 <p className="whitespace-pre-wrap text-sm text-white/85">
                   {overview.pendingIdea.idea}
                 </p>
+                {vetoed ? (
+                  <Link href="/game/parliament" className="mt-2 inline-block text-xs font-semibold text-amber-200 underline" data-testid="link-veto-decide">
+                    前往議會頁決定:強行通過或接受否決
+                  </Link>
+                ) : null}
               </div>
               <button
                 onClick={() => withdrawIdea.mutate()}
@@ -139,8 +150,18 @@ export function PolicyPanel({ overview }: { overview: PoliticsOverview }) {
                 </button>
               </div>
               <p className="text-[11px] leading-relaxed text-white/45">
-                全國同時只能有一筆待判定想法；判定成功會成為政策，失敗則可能損失金錢。
+                全國同時只能有一筆待判定想法；判定成功會成為政策，失敗則留下一段時間的負面影響。
               </p>
+              {votes ? (
+                <p className="rounded-md border border-sky-400/25 bg-sky-500/10 p-2 text-[11px] leading-relaxed text-sky-100/85" data-testid="text-vote-preview">
+                  {parliament!.tier === "democracy"
+                    ? "民主體制:所有政策都會交議會表決。"
+                    : "半專制體制:只有重大政策(國家傳統或重大改革)會交議會表決。"}
+                  各黨依政策性質與自身立場投票:和平派反對擴軍、節流派反對加稅、宗教與世俗派互相對立。
+                  被否決時你可以強行通過,但議會滿意度會被大幅扣除。目前議會:
+                  {parliament!.parties.map((p) => `${p.name} ${p.seats} 席(${p.stanceLabel})`).join("、")}。
+                </p>
+              ) : null}
             </div>
           )}
         </section>

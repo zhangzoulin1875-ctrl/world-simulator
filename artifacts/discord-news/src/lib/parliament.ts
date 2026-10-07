@@ -21,7 +21,17 @@ export interface ParliamentView {
   protest: string; demand: ParliamentDemand | null; maxPenalty: number;
   report: { allowed: boolean; cooldownLeft: number; cooldownTicks: number; cost: number; lastFeedback: string };
   log: ParliamentLogItem[];
+  /** 被議會否決、等待玩家決定的政策(沒有則 null)。 */
+  pendingVeto?: PendingVeto | null;
 }
+export interface VetoVote { partyId: string; name: string; stanceLabel?: string; stance: string; seats: number; stand: "for" | "against" | "abstain" }
+export interface PendingVeto {
+  ideaId: number; idea: string; votes: VetoVote[];
+  seatsFor: number; seatsAgainst: number; seatsAbstain: number;
+  overridePenalty: number; successTitle: string; failureTitle: string;
+}
+export type VetoDecision = "override" | "accept";
+export interface VetoResponse { ok: true; decision: VetoDecision; title: string; satisfactionAfter?: number }
 export interface ReportResponse {
   score: number; delta: number; feedback: string; source: "ai" | "fallback"; view: ParliamentView;
 }
@@ -50,6 +60,15 @@ async function postReport(text: string): Promise<ReportResponse> {
   return res.json();
 }
 
+async function postVeto(decision: VetoDecision): Promise<VetoResponse> {
+  const res = await fetch("/api/parliament/veto", {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision }),
+  });
+  if (!res.ok) throw await readError(res);
+  return res.json();
+}
+
 export function useParliament(enabled = true) {
   return useQuery({ queryKey: PARLIAMENT_QUERY_KEY, queryFn: fetchParliament, enabled, staleTime: 15_000, refetchInterval: 60_000 });
 }
@@ -61,6 +80,18 @@ export function useSubmitReport() {
     onSuccess: (res) => {
       qc.setQueryData(PARLIAMENT_QUERY_KEY, res.view);
       qc.invalidateQueries({ queryKey: ["player-nation"] });
+    },
+  });
+}
+
+export function useDecideVeto() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: postVeto,
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: PARLIAMENT_QUERY_KEY });
+      qc.invalidateQueries({ queryKey: ["player-nation"] });
+      qc.invalidateQueries({ queryKey: ["politics"] });
     },
   });
 }

@@ -218,6 +218,25 @@ export function notifyPolicyJudged(params: {
   });
 }
 
+/** 政策想法被議會否決:提醒玩家到議會頁決定「強行通過」或「接受否決」。 */
+export function notifyPolicyVetoed(params: {
+  discordUserId: string;
+  idea: string;
+  /** 票數摘要,例如「贊成 31 席 · 反對 58 席 · 棄權 11 席，否決」。 */
+  summary: string;
+}): void {
+  const ideaChars = Array.from(params.idea.trim());
+  const excerpt =
+    ideaChars.length > 40 ? `${ideaChars.slice(0, 40).join("")}…` : ideaChars.join("");
+  persistNotificationInBackground({
+    discordUserId: params.discordUserId,
+    type: "politics",
+    title: "政策遭議會否決",
+    body: `🏛️ 你的政策想法「${excerpt}」被議會否決(${params.summary})。前往議會頁決定:強行通過(扣議會滿意度)或接受否決。下個回合結算前不決定,視同接受否決。`,
+    linkPath: "/game/parliament",
+  });
+}
+
 /** Task #402 — 軍方事件（越權/暴動、逃兵、軍事政變前奏等）。 */
 export function notifyMilitaryPoliticsEvent(params: {
   discordUserId: string;

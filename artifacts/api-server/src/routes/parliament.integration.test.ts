@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import type { AddressInfo } from "node:net";
 const { eq, like } = await import("drizzle-orm");
-const { db, pool, playerNationsTable, parliamentStateTable, parliamentLogTable } = await import("@workspace/db");
+const { db, pool, playerNationsTable, parliamentStateTable, parliamentLogTable, politicsPendingIdeasTable, politicsEntriesTable } = await import("@workspace/db");
 const { runParliamentMigrations } = await import("../lib/parliamentMigrations");
 const { createSession } = await import("../lib/sessions");
 const { default: app } = await import("../app");
@@ -110,4 +110,68 @@ test("縮放:國情報告費用依時代與國力縮放,頁面顯示的金額 = 
     assert.equal(10_000_000 - after, shown, "實扣 = 畫面上顯示的費用");
     assert.equal(shown, FEE);
   } finally { setPenaltyScaleForTest(1); }
+});
+
+// ── 政策被議會否決後的玩家決定 ─────────────────────────────────────
+const vetoPost = (cookie: string, body: unknown) => fetch(`${base}/api/parliament/veto`, { method: "POST", headers: { "content-type": "application/json", cookie, origin: base }, body: JSON.stringify(body) });
+const OUT = (title: string) => ({ title, description: `${title}描述`, durationTurns: null, modifiers: [{ target: "stability", value: 2 }] });
+async function seedVeto(nationId: string) {
+  await db.insert(politicsPendingIdeasTable).values({
+    nationId, direction: "general", idea: "路由測試政策", voteState: "vetoed",
+    votePayload: {
+      resultType: "policy", success: OUT("路由成功版"), failure: OUT("路由失敗版"),
+      votes: [{ partyId: "1", name: "甲黨", stance: "welfare", seats: 60, stand: "against", attitude: -1 }],
+      seatsFor: 20, seatsAgainst: 60, seatsAbstain: 20, againstRatio: 0.75, tags: [],
+      enabledDirs: ["law"], direction: "general", vetoedAt: new Date().toISOString(),
+    },
+  });
+}
+
+test("GET 議會:沒有被否決政策時 pendingVeto 為 null;有時帶票數與預計扣分", async () => {
+  const { n, cookie } = await mk("議會內閣制");
+  await settleNationParliament(n, null, 0);
+  const g0: any = await (await fetch(`${base}/api/parliament`, { headers: { cookie } })).json();
+  assert.equal(g0.pendingVeto, null);
+  await seedVeto(n.id);
+  const g1: any = await (await fetch(`${base}/api/parliament`, { headers: { cookie } })).json();
+  assert.ok(g1.pendingVeto);
+  assert.equal(g1.pendingVeto.seatsAgainst, 60);
+  assert.equal(g1.pendingVeto.successTitle, "路由成功版");
+  assert.equal(g1.pendingVeto.overridePenalty, 6 + Math.round(14 * 0.75));
+});
+
+test("POST veto:未登入 401;decision 不合法 400;沒有待決 404", async () => {
+  assert.equal((await fetch(`${base}/api/parliament/veto`, { method: "POST", headers: { "content-type": "application/json", origin: base }, body: "{}" })).status, 401);
+  const { n, cookie } = await mk("議會內閣制");
+  await settleNationParliament(n, null, 0);
+  assert.equal((await vetoPost(cookie, { decision: "maybe" })).status, 400);
+  assert.equal((await vetoPost(cookie, {})).status, 400);
+  assert.equal((await vetoPost(cookie, { decision: "override" })).status, 404);
+});
+
+test("POST veto override:成功版生效、議會滿意度被扣、再按一次 404", async () => {
+  const { n, cookie } = await mk("議會內閣制");
+  await settleNationParliament(n, null, 0);
+  const [before0] = await db.select().from(parliamentStateTable).where(eq(parliamentStateTable.nationId, n.id));
+  await seedVeto(n.id);
+  const r = await vetoPost(cookie, { decision: "override" }); assert.equal(r.status, 200);
+  const j: any = await r.json();
+  assert.equal(j.ok, true); assert.equal(j.decision, "override"); assert.equal(j.title, "路由成功版");
+  const [after0] = await db.select().from(parliamentStateTable).where(eq(parliamentStateTable.nationId, n.id));
+  assert.equal(after0!.satisfaction, Math.max(0, before0!.satisfaction - (6 + Math.round(14 * 0.75))));
+  const es = await db.select().from(politicsEntriesTable).where(eq(politicsEntriesTable.nationId, n.id));
+  assert.equal(es.length, 1); assert.equal(es[0]!.title, "路由成功版");
+  assert.equal((await vetoPost(cookie, { decision: "override" })).status, 404);
+});
+
+test("POST veto accept:失敗版生效、議會滿意度不變", async () => {
+  const { n, cookie } = await mk("議會內閣制");
+  await settleNationParliament(n, null, 0);
+  const [before0] = await db.select().from(parliamentStateTable).where(eq(parliamentStateTable.nationId, n.id));
+  await seedVeto(n.id);
+  assert.equal((await vetoPost(cookie, { decision: "accept" })).status, 200);
+  const [after0] = await db.select().from(parliamentStateTable).where(eq(parliamentStateTable.nationId, n.id));
+  assert.equal(after0!.satisfaction, before0!.satisfaction);
+  const es = await db.select().from(politicsEntriesTable).where(eq(politicsEntriesTable.nationId, n.id));
+  assert.ok(es[0]!.title.startsWith("【失敗】"));
 });

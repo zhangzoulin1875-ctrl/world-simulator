@@ -103,6 +103,14 @@ export const politicsPendingIdeasTable = pgTable(
     /** 'general' = 新制綜合政策；law|culture|religion|rights = 舊制遺留列。 */
     direction: text("direction").notNull().default("general"),
     idea: text("idea").notNull(),
+    /**
+     * 議會表決狀態(2026-10-07)。null = 尚未表決(沿用舊流程);
+     * 'vetoed' = 民主/半專制議會已否決,等待玩家選「強行通過」或「接受否決」,
+     * 下次結算仍未選則視為接受否決。
+     */
+    voteState: text("vote_state"),
+    /** 被否決時暫存的 AI 判定與票數(VetoedPayload),供玩家決定後直接套用,不再打 AI。 */
+    votePayload: jsonb("vote_payload").$type<unknown>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
