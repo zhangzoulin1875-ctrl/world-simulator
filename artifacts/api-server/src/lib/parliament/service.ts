@@ -17,6 +17,8 @@ import {
   type ParliamentStance, type ParliamentTier,
 } from "./core";
 import { planParliamentTurn } from "./plan";
+import { hasElections } from "./election";
+import { runElectionIfDue } from "./electionService";
 import { buildParties, partyColor, type NationFacts } from "./parties";
 import { generateParliamentMessage } from "./messageAi";
 import { generatePartyNames, isTemplateName } from "./partyNames";
@@ -179,7 +181,10 @@ export async function settleNationParliament(
   // 而是事件造成的議會結構,不能被重建成橡皮圖章。以有效層級判斷,真正換政體才重建。
   const effTier = effectiveParliamentTier(tier, parties);
   const tierChanged = (effTier === "autocracy") !== (parties.length === 1 && parties[0]?.stance === "loyalist");
-  const stale = state.lastPartiesTick === null || state.tick - state.lastPartiesTick >= PARTY_REFRESH_EVERY_TICKS;
+  // 有選舉的政體(民主/半專制),黨的洗牌改由大選決定,不再每 12 回合憑空重組;
+  // 專制只有一個橡皮圖章黨,維持原本的定期重建。
+  const stale = !hasElections(effTier)
+    && (state.lastPartiesTick === null || state.tick - state.lastPartiesTick >= PARTY_REFRESH_EVERY_TICKS);
   if (parties.length === 0 || tierChanged || stale) {
     // 國內事件(社會黨取得多數)造成的議會結構要延續:定期重建時不能把它洗掉。
     // 政體層級沒變、且議會裡有事件插入的社會黨時,只重設計時器,保留現有席次。
@@ -262,8 +267,17 @@ export async function settleNationParliament(
     }
   });
 
-  if (plan.revolt) await applyRevolution(nation, plan.tick);
-  return { revolt: plan.revolt };
+  if (plan.revolt) {
+    await applyRevolution(nation, plan.tick);
+    return { revolt: true };
+  }
+  // 大選:本回合結算完、議會 tick 推進之後,若已到大選日就開票(革命回合不選,國都在打內戰)。
+  try {
+    await runElectionIfDue(nation, planTier, plan.tick);
+  } catch (err) {
+    logger.error({ err, nationId: nation.id }, "parliament: election failed — skipped this round");
+  }
+  return { revolt: false };
 }
 
 /** 革命落地：割 40% 控制度給新建的 NPC 分裂政權並宣戰；沒有土地則改政體。 */

@@ -22,6 +22,8 @@ import { loadConstitution, saveDraft, statusOf, currentParliamentTick } from "..
 import { submitConstitution, recoverStaleReviews } from "../lib/constitution/submit";
 import { loadPenaltyScale } from "../lib/penaltyScaleLoad";
 import { loadPendingVeto, decideVeto } from "../lib/parliament/vetoDecision";
+import { buildElectionView, performCampaignAction } from "../lib/parliament/electionService";
+import { hasElections, type ElectionAction } from "../lib/parliament/election";
 
 const router: IRouter = Router();
 
@@ -39,7 +41,8 @@ async function requirePlayer(
 
 const TIER_LABEL = { autocracy: "專制(橡皮圖章議會)", semi: "半專制", democracy: "民主" } as const;
 
-async function buildView(nationId: string, govLabel: string | null) {
+async function buildView(nation: typeof playerNationsTable.$inferSelect) {
+  const nationId = nation.id; const govLabel = nation.government;
   const [state] = await db.select().from(parliamentStateTable).where(eq(parliamentStateTable.nationId, nationId));
   const parties = await db.select().from(parliamentPartiesTable)
     .where(eq(parliamentPartiesTable.nationId, nationId)).orderBy(desc(parliamentPartiesTable.seats), parliamentPartiesTable.id);
@@ -59,7 +62,7 @@ async function buildView(nationId: string, govLabel: string | null) {
     totalSeats: 100,
     parties: parties.map((p) => ({
       id: p.id, name: p.name, stance: p.stance, stanceLabel: STANCE_LABELS[p.stance as ParliamentStance] ?? p.stance,
-      seats: p.seats, color: p.color, isRuling: p.isRuling,
+      seats: p.seats, color: p.color, isRuling: p.isRuling, description: p.description,
     })),
     /** 議會對玩家說的兩種內容 */
     protest: state?.protestText ?? "",
@@ -69,6 +72,7 @@ async function buildView(nationId: string, govLabel: string | null) {
       turnsElapsed: demand.levels.length, turnsTotal: DEMAND_INTERVAL_TURNS, levels: demand.levels,
     } : null,
     maxPenalty: MAX_PENALTY[tier],
+    election: await buildElectionView(nation, tier),
     report: {
       allowed: canSubmitReport(tier),
       cooldownLeft: reportCooldownLeft(tick, state?.lastReportTick ?? null),
@@ -85,11 +89,33 @@ router.get("/parliament", async (req, res) => {
   try {
     // 新建國後議會黨要等下一個回合結算才會建立;沒有政黨時當場補建,避免議會頁顯示 0 席。
     await ensureParliamentSeeded(auth.nation).catch((err) => logger.warn({ err, nationId: auth.nation.id }, "parliament: lazy seed failed"));
-    const view = await buildView(auth.nation.id, auth.nation.government);
+    const view = await buildView(auth.nation);
     const pendingVeto = await loadPendingVeto(auth.nation.id).catch((err) => { logger.warn({ err }, "pending veto load failed"); return null; });
     res.json({ ...view, pendingVeto });
   }
   catch (err) { logger.error({ err }, "parliament view failed"); res.status(500).json({ error: "讀取議會失敗" }); }
+});
+
+/** 競選期對某黨做一次操作:拉票 / 買票 / 打壓。 */
+router.post("/parliament/campaign", async (req, res) => {
+  const auth = await requirePlayer(req, res); if (!auth) return;
+  const body = (req.body ?? {}) as { partyId?: unknown; action?: unknown };
+  const action = body.action;
+  if (action !== "canvass" && action !== "bribe" && action !== "suppress") {
+    res.status(400).json({ error: "action 必須是 canvass、bribe 或 suppress" }); return;
+  }
+  const partyId = typeof body.partyId === "number" ? String(body.partyId) : body.partyId;
+  if (typeof partyId !== "string" || !/^\d{1,9}$/.test(partyId)) { res.status(400).json({ error: "partyId 無效" }); return; }
+  try {
+    const { tier: baseTier } = await tierOfNation(auth.nation);
+    const parties = await db.select({ stance: parliamentPartiesTable.stance, seats: parliamentPartiesTable.seats })
+      .from(parliamentPartiesTable).where(eq(parliamentPartiesTable.nationId, auth.nation.id));
+    const tier = effectiveParliamentTier(baseTier, parties.map((p) => ({ stance: p.stance as ParliamentStance, seats: p.seats })));
+    if (!hasElections(tier)) { res.status(403).json({ error: "專制政體沒有選舉" }); return; }
+    const r = await performCampaignAction(auth.nation, tier, partyId, action as ElectionAction);
+    if (!r.ok) { res.status(r.status).json({ error: r.error }); return; }
+    res.json(r);
+  } catch (err) { logger.error({ err }, "campaign action failed"); res.status(500).json({ error: "競選操作失敗" }); }
 });
 
 /** 被議會否決的政策:玩家決定「強行通過」(扣議會滿意度)或「接受否決」。 */
@@ -219,7 +245,7 @@ router.post("/parliament/report", async (req, res) => {
         summary: `國情報告評分 ${result.score}(${result.source === "ai" ? "AI" : "備援"}):${result.feedback}`, satDelta: delta,
       });
     });
-    res.json({ score: result.score, delta, feedback: result.feedback, source: result.source, view: await buildView(nation.id, nation.government) });
+    res.json({ score: result.score, delta, feedback: result.feedback, source: result.source, view: await buildView(nation) });
   } catch (err) {
     logger.error({ err, nationId: nation.id }, "parliament report failed");
     res.status(500).json({ error: "國情報告處理失敗" });

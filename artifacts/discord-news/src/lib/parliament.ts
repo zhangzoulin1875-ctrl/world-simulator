@@ -6,6 +6,8 @@ export type ParliamentAlert = "ok" | "warn" | "critical" | "revolt";
 export interface ParliamentParty {
   id: number; name: string; stance: string; stanceLabel: string;
   seats: number; color: string; isRuling: boolean;
+  /** AI 寫的一句黨綱(尚未命名或專制時為空字串)。 */
+  description?: string;
 }
 export interface ParliamentDemand {
   text: string; stance: string; stanceLabel: string;
@@ -23,6 +25,18 @@ export interface ParliamentView {
   log: ParliamentLogItem[];
   /** 被議會否決、等待玩家決定的政策(沒有則 null)。 */
   pendingVeto?: PendingVeto | null;
+  election?: ElectionView;
+}
+export type ElectionAction = "canvass" | "bribe" | "suppress";
+export type ElectionPhase = "none" | "campaign" | "polling";
+export interface ElectionActionRow { id: number; partyId: string; action: ElectionAction; caught: boolean; cost: number }
+export interface ElectionView {
+  enabled: boolean; phase: ElectionPhase; turnsUntil: number; nextElectionTick: number;
+  interval: number; campaignTurns: number; actions: ElectionActionRow[];
+  prices: Record<ElectionAction, { label: string; cost: number; caughtChance: number }>;
+}
+export interface CampaignResponse {
+  ok: true; caught: boolean; cost: number; satisfactionAfter: number | null; action: ElectionAction; partyName: string;
 }
 export interface VetoVote { partyId: string; name: string; stanceLabel?: string; stance: string; seats: number; stand: "for" | "against" | "abstain" }
 export interface PendingVeto {
@@ -69,6 +83,15 @@ async function postVeto(decision: VetoDecision): Promise<VetoResponse> {
   return res.json();
 }
 
+async function postCampaign(input: { partyId: number; action: ElectionAction }): Promise<CampaignResponse> {
+  const res = await fetch("/api/parliament/campaign", {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+  });
+  if (!res.ok) throw await readError(res);
+  return res.json();
+}
+
 export function useParliament(enabled = true) {
   return useQuery({ queryKey: PARLIAMENT_QUERY_KEY, queryFn: fetchParliament, enabled, staleTime: 15_000, refetchInterval: 60_000 });
 }
@@ -79,6 +102,17 @@ export function useSubmitReport() {
     mutationFn: postReport,
     onSuccess: (res) => {
       qc.setQueryData(PARLIAMENT_QUERY_KEY, res.view);
+      qc.invalidateQueries({ queryKey: ["player-nation"] });
+    },
+  });
+}
+
+export function useCampaign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: postCampaign,
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: PARLIAMENT_QUERY_KEY });
       qc.invalidateQueries({ queryKey: ["player-nation"] });
     },
   });

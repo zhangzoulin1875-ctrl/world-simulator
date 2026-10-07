@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
-  pgTable, text, integer, serial, timestamp, jsonb, uuid, index, check, boolean, bigint,
+  pgTable, text, integer, serial, timestamp, jsonb, uuid, index, uniqueIndex, check, boolean, bigint,
 } from "drizzle-orm/pg-core";
 import { playerNationsTable } from "./playerNations";
 
@@ -39,6 +39,8 @@ export const parliamentStateTable = pgTable(
     prevPolicyCount: integer("prev_policy_count"),
     /** 上次政黨重組時的 tick（AI 組黨節流）。 */
     lastPartiesTick: integer("last_parties_tick"),
+    /** 上次大選時的議會 tick;null = 從未舉行(下次大選以 0 為基準)。 */
+    lastElectionTick: integer("last_election_tick"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
       .$onUpdate(() => new Date()),
@@ -98,6 +100,33 @@ export const parliamentLogTable = pgTable(
   },
   (t) => ({
     nationIdx: index("parliament_log_nation_idx").on(t.nationId, t.id),
+  }),
+);
+
+/**
+ * 競選操作紀錄:每筆 = 玩家在某屆大選前對某黨做的一次拉票/買票/打壓。
+ * electionTick = 該屆大選的目標議會 tick,開票後整批刪除(只留 parliament_log 摘要)。
+ * partyId 存當時政黨列的 id(字串);競選期間不重組政黨,所以對得上。
+ */
+export const parliamentCampaignActionsTable = pgTable(
+  "parliament_campaign_actions",
+  {
+    id: serial("id").primaryKey(),
+    nationId: uuid("nation_id")
+      .notNull()
+      .references(() => playerNationsTable.id, { onDelete: "cascade" }),
+    electionTick: integer("election_tick").notNull(),
+    partyId: text("party_id").notNull(),
+    /** canvass | bribe | suppress */
+    action: text("action").notNull(),
+    /** 擲骰結果:買票/打壓被抓(效果反轉、扣議會滿意度)。 */
+    caught: boolean("caught").notNull().default(false),
+    cost: bigint("cost", { mode: "number" }).notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    nationIdx: index("parliament_campaign_nation_idx").on(t.nationId, t.electionTick),
+    uniq: uniqueIndex("parliament_campaign_unique_idx").on(t.nationId, t.electionTick, t.partyId, t.action),
   }),
 );
 

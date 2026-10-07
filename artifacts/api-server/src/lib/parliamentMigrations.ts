@@ -71,6 +71,27 @@ export async function runParliamentMigrationsInner(
   await executor.execute(sql`ALTER TABLE parliament_state ADD COLUMN IF NOT EXISTS prev_tax_rate integer`);
   await executor.execute(sql`ALTER TABLE parliament_state ADD COLUMN IF NOT EXISTS prev_army_pop text`);
   await executor.execute(sql`ALTER TABLE parliament_state ADD COLUMN IF NOT EXISTS prev_policy_count integer`);
+  await executor.execute(sql`ALTER TABLE parliament_state ADD COLUMN IF NOT EXISTS last_election_tick integer`);
+  await executor.execute(sql`
+    CREATE TABLE IF NOT EXISTS parliament_campaign_actions (
+      id serial PRIMARY KEY,
+      nation_id uuid NOT NULL REFERENCES player_nations(id) ON DELETE CASCADE,
+      election_tick integer NOT NULL,
+      party_id text NOT NULL,
+      action text NOT NULL,
+      caught boolean NOT NULL DEFAULT false,
+      cost bigint NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  await executor.execute(sql`
+    CREATE INDEX IF NOT EXISTS parliament_campaign_nation_idx ON parliament_campaign_actions (nation_id, election_tick)
+  `);
+  // 同一屆、同一個黨、同一招只能有一筆:並發雙擊由資料庫擋下(整筆交易含扣款一起回滾)。
+  await executor.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS parliament_campaign_unique_idx
+    ON parliament_campaign_actions (nation_id, election_tick, party_id, action)
+  `);
   await executor.execute(sql`
     CREATE TABLE IF NOT EXISTS military_demands (
       id serial PRIMARY KEY,
