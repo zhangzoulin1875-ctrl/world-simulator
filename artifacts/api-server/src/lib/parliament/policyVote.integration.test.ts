@@ -65,7 +65,7 @@ async function run(nationId: string, ideaId: number) {
   const [nation] = await db.select().from(playerNationsTable).where(eq(playerNationsTable.id, nationId));
   const [idea] = await db.select().from(politicsPendingIdeasTable).where(eq(politicsPendingIdeasTable.id, ideaId));
   const settings = await getPoliticsSettings();
-  return judgeIdea(nation!, idea!, settings, ERA, emptyPoliticsDigest(), "", ["law", "culture", "religion", "rights"]);
+  return judgeIdea(nation!, idea!, settings, ERA, emptyPoliticsDigest(null), "", ["law", "culture", "religion", "rights"]);
 }
 
 const entries = (id: string) => db.select().from(politicsEntriesTable).where(eq(politicsEntriesTable.nationId, id));
