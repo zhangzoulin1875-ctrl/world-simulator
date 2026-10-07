@@ -19,6 +19,8 @@ export interface RegionBuildingsResponse {
   workerCap: number;
   wood: number;
   ore: number;
+  /** 補給系統 — 彈藥庫存 */
+  ammo: number;
   money: number;
   /** 可用生產力（total − spent） */
   production: number;

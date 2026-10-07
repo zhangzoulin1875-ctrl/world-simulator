@@ -592,10 +592,11 @@ describe("戰力與確定性傷亡", () => {
     ...overrides,
   });
 
-  test("combatConditionFactor 介於 0.25–1", () => {
+  test("combatConditionFactor：滿狀態=1；無補給無士氣只剩約 5%，永不為 0", () => {
     assert.equal(combatConditionFactor(100, 100), 1);
-    assert.equal(combatConditionFactor(0, 0), 0.25);
-    assert.ok(combatConditionFactor(50, 50) > 0.25);
+    const worst = combatConditionFactor(0, 0);
+    assert.ok(worst > 0 && worst < 0.1, `最差狀態應低於 10%，實際 ${worst}`);
+    assert.ok(combatConditionFactor(50, 50) > worst);
     assert.ok(combatConditionFactor(50, 50) < 1);
   });
 

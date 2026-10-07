@@ -1389,6 +1389,7 @@ export const GetMilitaryOverviewResponse = zod.object({
     populationTotal: zod.number(),
     wood: zod.number().describe("Task #406 — 木材庫存"),
     ore: zod.number().describe("Task #406 — 礦石庫存"),
+    ammo: zod.number().optional().describe("補給系統 — 彈藥庫存"),
   }),
   warWeariness: zod.number().describe("厭戰度 0–100"),
   attackModifierPct: zod
@@ -1520,6 +1521,7 @@ export const RecruitMilitaryUnitsResponse = zod.object({
     populationTotal: zod.number(),
     wood: zod.number().describe("Task #406 — 木材庫存"),
     ore: zod.number().describe("Task #406 — 礦石庫存"),
+    ammo: zod.number().optional().describe("補給系統 — 彈藥庫存"),
   }),
   purchase: zod
     .object({
@@ -1618,6 +1620,7 @@ export const PurchaseMilitaryUnitsResponse = zod.object({
     populationTotal: zod.number(),
     wood: zod.number().describe("Task #406 — 木材庫存"),
     ore: zod.number().describe("Task #406 — 礦石庫存"),
+    ammo: zod.number().optional().describe("補給系統 — 彈藥庫存"),
   }),
   purchase: zod
     .object({
@@ -4446,9 +4449,9 @@ export const ListRegionBuildingsResponse = zod.object({
       id: zod.number(),
       regionId: zod.number(),
       regionName: zod.string(),
-      buildingType: zod.enum(["lumber_mill", "mine"]),
+      buildingType: zod.enum(["lumber_mill", "mine", "munitions_plant"]),
       buildingLabel: zod.string(),
-      resource: zod.enum(["wood", "ore"]),
+      resource: zod.enum(["wood", "ore", "ammo"]),
       level: zod.number(),
       outputPerTurn: zod.number().describe("每回合產出（50 × level）"),
       workers: zod.number().describe("占用工人（1000 × level）"),
@@ -4471,6 +4474,7 @@ export const ListRegionBuildingsResponse = zod.object({
   workerCap: zod.number().describe("工人上限（＝人口）"),
   wood: zod.number(),
   ore: zod.number(),
+  ammo: zod.number().describe("補給系統 — 彈藥庫存"),
   money: zod.number(),
   production: zod.number().describe("可用生產力（total − spent）"),
   regions: zod.array(
@@ -4487,7 +4491,7 @@ export const ListRegionBuildingsResponse = zod.object({
  */
 export const BuildRegionBuildingBody = zod.object({
   regionId: zod.number(),
-  buildingType: zod.enum(["lumber_mill", "mine"]),
+  buildingType: zod.enum(["lumber_mill", "mine", "munitions_plant"]),
 });
 
 /**
@@ -4514,9 +4518,9 @@ export const UpgradeRegionBuildingResponse = zod.object({
     id: zod.number(),
     regionId: zod.number(),
     regionName: zod.string(),
-    buildingType: zod.enum(["lumber_mill", "mine"]),
+    buildingType: zod.enum(["lumber_mill", "mine", "munitions_plant"]),
     buildingLabel: zod.string(),
-    resource: zod.enum(["wood", "ore"]),
+    resource: zod.enum(["wood", "ore", "ammo"]),
     level: zod.number(),
     outputPerTurn: zod.number().describe("每回合產出（50 × level）"),
     workers: zod.number().describe("占用工人（1000 × level）"),
@@ -5207,6 +5211,19 @@ export const ListWarCampaignReportsResponse = zod.object({
         deadTotal: zod.number(),
         territoryPctDelta: zod.number(),
         warWearinessDelta: zod.number(),
+        supply: zod
+          .object({
+            minSupply: zod.number().describe("各軍團補給最低值（0–100）"),
+            rationShort: zod.boolean().describe("有軍團口糧吃不飽"),
+            ammoShort: zod.boolean().describe("有軍團彈藥不足"),
+            collapsedLegions: zod
+              .number()
+              .describe("補給跌破 20、組織崩潰的軍團數"),
+          })
+          .optional()
+          .describe(
+            "補給系統 — 我方本週期補給結果（敵方視圖不含；舊戰報省略）",
+          ),
       }),
       enemySide: zod
         .object({
@@ -5215,6 +5232,19 @@ export const ListWarCampaignReportsResponse = zod.object({
           deadTotal: zod.number(),
           territoryPctDelta: zod.number(),
           warWearinessDelta: zod.number(),
+          supply: zod
+            .object({
+              minSupply: zod.number().describe("各軍團補給最低值（0–100）"),
+              rationShort: zod.boolean().describe("有軍團口糧吃不飽"),
+              ammoShort: zod.boolean().describe("有軍團彈藥不足"),
+              collapsedLegions: zod
+                .number()
+                .describe("補給跌破 20、組織崩潰的軍團數"),
+            })
+            .optional()
+            .describe(
+              "補給系統 — 我方本週期補給結果（敵方視圖不含；舊戰報省略）",
+            ),
         })
         .describe("敵方數值依當週期偵查等級模糊化"),
       attackerCityHoldoutPct: zod.number().nullable(),

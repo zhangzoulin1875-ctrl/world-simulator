@@ -12,4 +12,5 @@ export type RegionBuildingResource =
 export const RegionBuildingResource = {
   wood: "wood",
   ore: "ore",
+  ammo: "ammo",
 } as const;

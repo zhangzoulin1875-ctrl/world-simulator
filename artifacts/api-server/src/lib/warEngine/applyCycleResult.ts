@@ -29,7 +29,6 @@ import {
   computeCycleCasualties,
   computeCycleMoraleDelta,
   type StalemateInput,
-  computeCycleSupplyDelta,
   computeEffectivePower,
   coupAdjustedMorale,
   computeForceRatioTerritoryShift,
@@ -42,12 +41,12 @@ import {
   scaleTerritoryShift,
   shiftDeathsToWounded,
   STALEMATE_MORALE_DELTA,
-  STALEMATE_SUPPLY_DELTA,
   TERRITORY_CAPTURE_BASE_DEFAULT_PCT,
   WOUNDED_SHARE_PCT,
   type ControlShare,
   type SidePowerInput,
 } from "../war";
+import { applySupplyPhase } from "./supplyPhase";
 import {
   applySiegeToCities,
   bestStandingWallDefenseBonusPct,
@@ -328,6 +327,16 @@ export async function applyCycleResult(
       }
     }
 
+    // ── 階段 A2：補給（先於戰力）──
+    // 先吃糧吃彈、更新每個軍團的補給狀態，崩潰者士氣暴跌；接下來的戰力計算
+    // 看到的就是「這一輪」的補給，缺補給的部隊這一輪就變弱，不是下一輪才有感。
+    // 玩家與 NPC 一視同仁（NPC 的彈藥由回合引擎每回合配給）。
+    const supplyPhase = await applySupplyPhase(
+      tx,
+      [...ctx.attackerLegions, ...ctx.defenderLegions],
+      ctx.statsEra,
+    );
+
     // ── 階段 B：雙方有效戰力（復原後、傷亡前）──
     const powerInputFor = (side: (typeof sides)[number]): SidePowerInput => ({
       legions: side.legions.map((l) => ({
@@ -472,14 +481,10 @@ export async function applyCycleResult(
         const moraleDelta = result.stalemate
           ? STALEMATE_MORALE_DELTA
           : computeCycleMoraleDelta(ownCasualties, enemyCasualties, sideTotal);
-        const supplyDelta = result.stalemate
-          ? STALEMATE_SUPPLY_DELTA
-          : computeCycleSupplyDelta(ownCasualties, sideTotal);
+        // 補給不再是傷亡的副產品：由上方「補給階段」依口糧/彈藥決定，這裡不再動它。
         const newMorale = clamp100(legion.morale + moraleDelta);
-        const newSupply = clamp100(legion.supply + supplyDelta);
         summaries[side.key].moraleDelta += newMorale - legion.morale;
         legion.morale = newMorale;
-        legion.supply = newSupply;
       });
 
       // 寫回軍團與兵種列。
@@ -1024,6 +1029,18 @@ export async function applyCycleResult(
             maxDurability: c.maxDurability,
           }))
         : undefined;
+    // 補給系統 — 彙總各方補給結果（只含真實軍團；僱傭兵略過補給階段）。
+    for (const side of sides) {
+      const ids = new Set(side.legions.map((l) => l.id));
+      const mine = supplyPhase.outcomes.filter((o) => ids.has(o.legionId));
+      if (mine.length === 0) continue;
+      summaries[side.key].supply = {
+        minSupply: Math.min(...mine.map((o) => o.supplyAfter)),
+        rationShort: mine.some((o) => o.rationFill < 1),
+        ammoShort: mine.some((o) => o.ammoFill < 1),
+        collapsedLegions: mine.filter((o) => o.collapsed).length,
+      };
+    }
     const summary: WarReportSummary = {
       attacker: summaries.attacker,
       defender: summaries.defender,

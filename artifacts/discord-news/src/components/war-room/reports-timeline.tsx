@@ -170,6 +170,20 @@ function buildCasualtyExplanation(
     parts.push(`厭戰度上升 ${mySide.warWearinessDelta} 點。`);
   }
 
+  const sup = mySide.supply;
+  if (sup) {
+    if (sup.collapsedLegions > 0) {
+      parts.push(
+        `${sup.collapsedLegions} 個軍團補給斷絕、組織崩潰（補給 ${sup.minSupply}），戰力近乎歸零，隨時可能潰散。`,
+      );
+    } else if (sup.rationShort || sup.ammoShort) {
+      const lacks = [sup.rationShort ? "口糧" : "", sup.ammoShort ? "彈藥" : ""]
+        .filter(Boolean)
+        .join("與");
+      parts.push(`前線${lacks}不足，補給下降至 ${sup.minSupply}，請儘快補充。`);
+    }
+  }
+
   return parts.join("　") || (stalemate ? "雙方無實質進展。" : "本週期無重大變動。");
 }
 

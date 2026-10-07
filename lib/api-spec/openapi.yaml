@@ -4312,6 +4312,7 @@ components:
         populationTotal: { type: number }
         wood: { type: integer, description: "Task #406 — 木材庫存" }
         ore: { type: integer, description: "Task #406 — 礦石庫存" }
+        ammo: { type: integer, description: "補給系統 — 彈藥庫存" }
 
     RegionBuilding:
       type: object
@@ -4333,9 +4334,9 @@ components:
         id: { type: integer }
         regionId: { type: integer }
         regionName: { type: string }
-        buildingType: { type: string, enum: [lumber_mill, mine] }
+        buildingType: { type: string, enum: [lumber_mill, mine, munitions_plant] }
         buildingLabel: { type: string }
-        resource: { type: string, enum: [wood, ore] }
+        resource: { type: string, enum: [wood, ore, ammo] }
         level: { type: integer }
         outputPerTurn: { type: integer, description: "每回合產出（50 × level）" }
         workers: { type: integer, description: "占用工人（1000 × level）" }
@@ -4360,7 +4361,7 @@ components:
     RegionBuildingsResponse:
       type: object
       required:
-        [buildings, buildCost, maxLevel, workers, workerCap, wood, ore, money, production, regions]
+        [buildings, buildCost, maxLevel, workers, workerCap, wood, ore, ammo, money, production, regions]
       properties:
         buildings:
           type: array
@@ -4376,6 +4377,7 @@ components:
         workerCap: { type: number, description: "工人上限（＝人口）" }
         wood: { type: integer }
         ore: { type: integer }
+        ammo: { type: integer, description: "補給系統 — 彈藥庫存" }
         money: { type: number }
         production: { type: number, description: "可用生產力（total − spent）" }
         regions:
@@ -4387,7 +4389,7 @@ components:
       required: [regionId, buildingType]
       properties:
         regionId: { type: integer }
-        buildingType: { type: string, enum: [lumber_mill, mine] }
+        buildingType: { type: string, enum: [lumber_mill, mine, munitions_plant] }
 
     RegionBuildingResult:
       type: object
@@ -7160,6 +7162,15 @@ components:
         deadTotal: { type: number }
         territoryPctDelta: { type: number }
         warWearinessDelta: { type: number }
+        supply:
+          type: object
+          description: 補給系統 — 我方本週期補給結果（敵方視圖不含；舊戰報省略）
+          required: [minSupply, rationShort, ammoShort, collapsedLegions]
+          properties:
+            minSupply: { type: integer, description: 各軍團補給最低值（0–100） }
+            rationShort: { type: boolean, description: 有軍團口糧吃不飽 }
+            ammoShort: { type: boolean, description: 有軍團彈藥不足 }
+            collapsedLegions: { type: integer, description: 補給跌破 20、組織崩潰的軍團數 }
 
     WarReportView:
       type: object

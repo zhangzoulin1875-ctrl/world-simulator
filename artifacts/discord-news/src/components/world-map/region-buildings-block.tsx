@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Hammer, Mountain, Trees, ArrowUpCircle, Trash2 } from "lucide-react";
+import { Hammer, Mountain, Trees, Factory, ArrowUpCircle, Trash2 } from "lucide-react";
 import {
   useListRegionBuildings,
   getListRegionBuildingsQueryKey,
@@ -20,6 +20,7 @@ function apiErrorMessage(err: unknown): string {
 const BUILDING_META = {
   lumber_mill: { label: "伐木場", icon: Trees, iconClass: "text-lime-600" },
   mine: { label: "礦場", icon: Mountain, iconClass: "text-stone-500" },
+  munitions_plant: { label: "軍工廠", icon: Factory, iconClass: "text-red-500" },
 } as const;
 
 /** 兩種外觀：card ＝ 世界地圖地區詳情（淺色語意色板）；dark ＝ 經濟頁玻璃暗卡。 */
@@ -174,8 +175,14 @@ export function RegionBuildingsBlock({
         </span>
       </div>
       <p className={s.note}>
-        木材 {data.wood.toLocaleString()}・礦石 {data.ore.toLocaleString()}・每座每級產出
-        50／回合、占用工人 1,000、維護 100 金錢／回合（上限 {data.maxLevel} 級）。
+        木材 {data.wood.toLocaleString()}・礦石 {data.ore.toLocaleString()}・彈藥{" "}
+        {data.ammo.toLocaleString()}・每座每級產出 50／回合、占用工人 1,000、維護 100
+        金錢／回合（上限 {data.maxLevel} 級）。
+      </p>
+      <p className={s.note}>
+        軍工廠生產彈藥：火藥時代起，軍隊在戰役中每個週期都要消耗彈藥與口糧；缺糧缺彈的
+        部隊補給會下降，跌破 20 後組織崩潰、戰力近乎歸零。彈藥庫存上限＝軍工廠總等級 ×
+        5,000。
       </p>
       <div className="flex flex-col gap-2">
         {regionBuildings.map((b: RegionBuilding) => {

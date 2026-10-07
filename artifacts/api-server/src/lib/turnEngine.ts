@@ -11,9 +11,11 @@ import {
   generalDrawsTable,
   generalPoolTable,
   regionBuildingsTable,
+  regionControlsTable,
   worldGameStateTable,
 } from "@workspace/db";
 import { buildingOutput, buildingUpkeep } from "./regionBuildings";
+import { ammoStockCap, npcAmmoStipend, npcAmmoStockCap } from "./supply";
 import { loadAllNationScales, scalesFromPopulation } from "./nationScale";
 import { UNIT_DESIGN_CHARGE_CAP } from "./military";
 import { WEAPON_DESIGN_CHARGE_CAP } from "./weapons";
@@ -641,12 +643,14 @@ async function doRunTurn(
     .groupBy(regionBuildingsTable.nationId, regionBuildingsTable.buildingType);
   const resourceByNation = new Map<
     string,
-    { wood: number; ore: number; upkeep: number }
+    { wood: number; ore: number; ammo: number; plantLevels: number; upkeep: number }
   >();
   for (const row of buildingRows) {
     const entry = resourceByNation.get(row.nationId) ?? {
       wood: 0,
       ore: 0,
+      ammo: 0,
+      plantLevels: 0,
       upkeep: 0,
     };
     const levels = Number(row.totalLevel);
@@ -654,12 +658,29 @@ async function doRunTurn(
       entry.wood += buildingOutput(levels);
     } else if (row.buildingType === "mine") {
       entry.ore += buildingOutput(levels);
+    } else if (row.buildingType === "munitions_plant") {
+      // 補給系統 — 軍工廠產彈藥；等級同時決定倉容上限。
+      entry.ammo += buildingOutput(levels);
+      entry.plantLevels += levels;
     }
     entry.upkeep += buildingUpkeep(levels, upkeepScaleOfNation(row.nationId));
     resourceByNation.set(row.nationId, entry);
   }
 
   const nations = await db.select().from(playerNationsTable);
+
+  // 補給系統 — 各國控制的地區數（NPC 彈藥配額與倉容用；單一 GROUP BY 查完全部）。
+  const controlledRows = await db
+    .select({
+      nationId: regionControlsTable.nationId,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(regionControlsTable)
+    .where(sql`${regionControlsTable.percent} > 0`)
+    .groupBy(regionControlsTable.nationId);
+  const controlledRegionsByNation = new Map(
+    controlledRows.map((r) => [r.nationId, Number(r.n)]),
+  );
 
   // Task #126 — 各玩家已研發社會科技的彙總效果（含收稅效率加成）。
   const socialByUser = await aggregateSocialEffectsByUser();
@@ -770,8 +791,20 @@ async function doRunTurn(
       const regionRes = resourceByNation.get(nation.id) ?? {
         wood: 0,
         ore: 0,
+        ammo: 0,
+        plantLevels: 0,
         upkeep: 0,
       };
+      // 補給系統 — 本回合彈藥入庫量與庫存上限。
+      // 玩家：軍工廠產出，上限由工廠總等級決定。
+      // NPC：沒有工廠，改領固定配額（依控制地區數與時代），上限依地區數。
+      const controlled = controlledRegionsByNation.get(nation.id) ?? 0;
+      const ammoIncome = nation.isNpc
+        ? npcAmmoStipend(controlled, statsEra)
+        : regionRes.ammo;
+      const ammoCap = nation.isNpc
+        ? npcAmmoStockCap(controlled)
+        : ammoStockCap(regionRes.plantLevels);
       const baseUpkeep =
         (nation.discordUserId
           ? (upkeepByUser.get(nation.discordUserId) ?? 0)
@@ -910,6 +943,8 @@ async function doRunTurn(
           // 不再持久化扣 productionBonus，改為可用量計算層流量扣除）。
           wood: sql`${playerNationsTable.wood} + ${regionRes.wood}`,
           ore: sql`${playerNationsTable.ore} + ${regionRes.ore}`,
+          // 補給系統 — 彈藥入庫，封頂於倉容；原本就高於上限者保持原值（不扣）。
+          ammo: sql`GREATEST(${playerNationsTable.ammo}, LEAST(${playerNationsTable.ammo} + ${ammoIncome}, ${ammoCap}))`,
           // Task #510 — 兵種設計次數每回合 +1，封頂 5（所有國家一致，含
           // 無主/NPC；NPC 設計流程本就不消耗，僅為簡化統一處理）。
           unitDesignCharges: sql`LEAST(${UNIT_DESIGN_CHARGE_CAP}, ${playerNationsTable.unitDesignCharges} + 1)`,

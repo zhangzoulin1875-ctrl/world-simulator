@@ -23,4 +23,6 @@ export interface MilitaryResources {
   wood: number;
   /** Task #406 — 礦石庫存 */
   ore: number;
+  /** 補給系統 — 彈藥庫存 */
+  ammo?: number;
 }

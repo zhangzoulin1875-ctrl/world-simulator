@@ -12,4 +12,5 @@ export type RegionBuildingBuildingType =
 export const RegionBuildingBuildingType = {
   lumber_mill: "lumber_mill",
   mine: "mine",
+  munitions_plant: "munitions_plant",
 } as const;

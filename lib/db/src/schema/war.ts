@@ -384,6 +384,17 @@ export interface WarReportSideSummary {
    * 玩家 API 只回自己那一方，避免敵方戰力對比繞過偵查模糊化被反推。
    */
   lossReasons?: string[];
+  /**
+   * 補給系統 — 該方本週期的補給結果（舊戰報無此欄）。玩家 API 只回自己那一方
+   * （敵方後勤不外洩）。minSupply 取該方各軍團補給的最低值；rationShort/ammoShort
+   * 表示有軍團口糧/彈藥吃不飽；collapsedLegions 為崩潰（補給 < 20）的軍團數。
+   */
+  supply?: {
+    minSupply: number;
+    rationShort: boolean;
+    ammoShort: boolean;
+    collapsedLegions: number;
+  };
 }
 
 /** 結算時逐城城牆狀態快照（顯示用；Task #150）。 */

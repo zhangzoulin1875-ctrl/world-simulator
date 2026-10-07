@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { WarReportSideViewSupply } from "./warReportSideViewSupply";
 
 export interface WarReportSideView {
   moraleDelta: number;
@@ -12,4 +13,6 @@ export interface WarReportSideView {
   deadTotal: number;
   territoryPctDelta: number;
   warWearinessDelta: number;
+  /** 補給系統 — 我方本週期補給結果（敵方視圖不含；舊戰報省略） */
+  supply?: WarReportSideViewSupply;
 }

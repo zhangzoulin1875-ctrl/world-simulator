@@ -73,6 +73,11 @@ export const playerNationsTable = pgTable("player_nations", {
   wood: bigint("wood", { mode: "number" }).notNull().default(0),
   ore: bigint("ore", { mode: "number" }).notNull().default(0),
   /**
+   * 補給系統 — 彈藥庫存（整數 ≥0）。由「軍工廠」每回合產出（NPC 改走固定配額），
+   * 戰役結算時按軍團火力需求扣減；不夠就缺彈、補給狀態下降。上限見 supply.ts。
+   */
+  ammo: bigint("ammo", { mode: "number" }).notNull().default(0),
+  /**
    * Task #27 — cumulative production / population consumed by military
    * recruiting. Available amounts = computed stats − spent (clamped at 0).
    * Stored because the base stats themselves are computed per request.

@@ -3,9 +3,9 @@
  * 與 DB / Express 無耦合，方便單元測試。
  */
 
-export type BuildingType = "lumber_mill" | "mine";
+export type BuildingType = "lumber_mill" | "mine" | "munitions_plant";
 
-export const BUILDING_TYPES: readonly BuildingType[] = ["lumber_mill", "mine"];
+export const BUILDING_TYPES: readonly BuildingType[] = ["lumber_mill", "mine", "munitions_plant"];
 
 export function isBuildingType(v: string): v is BuildingType {
   return (BUILDING_TYPES as readonly string[]).includes(v);
@@ -14,17 +14,20 @@ export function isBuildingType(v: string): v is BuildingType {
 export const BUILDING_LABEL: Record<BuildingType, string> = {
   lumber_mill: "木材廠",
   mine: "礦場",
+  munitions_plant: "軍工廠",
 };
 
 /** 建築產出的資源欄位。 */
-export const BUILDING_RESOURCE: Record<BuildingType, "wood" | "ore"> = {
+export const BUILDING_RESOURCE: Record<BuildingType, "wood" | "ore" | "ammo"> = {
   lumber_mill: "wood",
   mine: "ore",
+  munitions_plant: "ammo",
 };
 
-export const RESOURCE_LABEL: Record<"wood" | "ore", string> = {
+export const RESOURCE_LABEL: Record<"wood" | "ore" | "ammo", string> = {
   wood: "木材",
   ore: "礦石",
+  ammo: "彈藥",
 };
 
 /** 等級上限（1.2^99 仍在安全整數範圍內）。 */

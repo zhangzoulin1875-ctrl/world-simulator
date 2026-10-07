@@ -12,6 +12,7 @@ import {
 import { getSession, readSessionToken } from "../lib/sessions";
 import { getEraSlugs, computeAdjustedNationStats } from "../lib/nationStats";
 import { loadNationScales } from "../lib/nationScale";
+import { ammoEraFactor } from "../lib/supply";
 import { computeAvailableProduction } from "../lib/economy";
 import { loadCurrentTurnRecruitSpend } from "../lib/recruitSpend";
 import { pgErrorCode } from "../lib/playerValidation";
@@ -177,6 +178,7 @@ router.get("/player/buildings", async (req, res) => {
       workerCap: stats.population,
       wood: nation.wood,
       ore: nation.ore,
+      ammo: nation.ammo,
       money: nation.money,
       // Task #568 — 可用量 = 總量 − 已佔用 − 本回合招募花費（流量）。
       production: computeAvailableProduction({
@@ -203,7 +205,7 @@ function parseBuildBody(body: unknown): {
     throw new HttpError(400, "地區編號不正確");
   }
   if (!isBuildingType(buildingType)) {
-    throw new HttpError(400, "建築類型不正確（lumber_mill 或 mine）");
+    throw new HttpError(400, "建築類型不正確（lumber_mill、mine 或 munitions_plant）");
   }
   return { regionId, buildingType };
 }
@@ -216,6 +218,10 @@ router.post("/player/buildings", async (req, res) => {
   try {
     const { regionId, buildingType } = parseBuildBody(req.body);
     const { statsEra } = await getEraSlugs();
+    // 補給系統 — 冷兵器時代沒有彈藥需求，蓋軍工廠只會白花錢，直接擋下。
+    if (buildingType === "munitions_plant" && ammoEraFactor(statsEra) <= 0) {
+      throw new HttpError(400, "目前時代的軍隊還不使用火藥彈藥，無法建造軍工廠");
+    }
     const stats = await computeAdjustedNationStats(nation, statsEra);
     // Task #568 — 可用生產力守衛需扣除本回合招募花費（流量）。
     const productionCap = Math.max(

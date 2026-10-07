@@ -877,6 +877,8 @@ export interface MilitaryResources {
   wood: number;
   /** Task #406 — 礦石庫存 */
   ore: number;
+  /** 補給系統 — 彈藥庫存 */
+  ammo?: number;
 }
 
 export type RegionBuildingBuildingType =
@@ -885,6 +887,7 @@ export type RegionBuildingBuildingType =
 export const RegionBuildingBuildingType = {
   lumber_mill: "lumber_mill",
   mine: "mine",
+  munitions_plant: "munitions_plant",
 } as const;
 
 export type RegionBuildingResource =
@@ -893,6 +896,7 @@ export type RegionBuildingResource =
 export const RegionBuildingResource = {
   wood: "wood",
   ore: "ore",
+  ammo: "ammo",
 } as const;
 
 /**
@@ -942,6 +946,8 @@ export interface RegionBuildingsResponse {
   workerCap: number;
   wood: number;
   ore: number;
+  /** 補給系統 — 彈藥庫存 */
+  ammo: number;
   money: number;
   /** 可用生產力（total − spent） */
   production: number;
@@ -954,6 +960,7 @@ export type BuildRegionBuildingRequestBuildingType =
 export const BuildRegionBuildingRequestBuildingType = {
   lumber_mill: "lumber_mill",
   mine: "mine",
+  munitions_plant: "munitions_plant",
 } as const;
 
 export interface BuildRegionBuildingRequest {
@@ -3030,12 +3037,28 @@ export interface WarOrderRequest {
   body: string;
 }
 
+/**
+ * 補給系統 — 我方本週期補給結果（敵方視圖不含；舊戰報省略）
+ */
+export type WarReportSideViewSupply = {
+  /** 各軍團補給最低值（0–100） */
+  minSupply: number;
+  /** 有軍團口糧吃不飽 */
+  rationShort: boolean;
+  /** 有軍團彈藥不足 */
+  ammoShort: boolean;
+  /** 補給跌破 20、組織崩潰的軍團數 */
+  collapsedLegions: number;
+};
+
 export interface WarReportSideView {
   moraleDelta: number;
   woundedTotal: number;
   deadTotal: number;
   territoryPctDelta: number;
   warWearinessDelta: number;
+  /** 補給系統 — 我方本週期補給結果（敵方視圖不含；舊戰報省略） */
+  supply?: WarReportSideViewSupply;
 }
 
 export interface WarReportView {

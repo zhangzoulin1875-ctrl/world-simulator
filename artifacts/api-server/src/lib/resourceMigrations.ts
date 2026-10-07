@@ -31,6 +31,11 @@ export async function runResourceMigrationsInner(): Promise<void> {
     ALTER TABLE player_nations
       ADD COLUMN IF NOT EXISTS ore bigint NOT NULL DEFAULT 0
   `);
+  // 補給系統 — 彈藥庫存(軍工廠產出/NPC 配額,戰役結算時扣減)。
+  await db.execute(sql`
+    ALTER TABLE player_nations
+      ADD COLUMN IF NOT EXISTS ammo bigint NOT NULL DEFAULT 0
+  `);
 
   // 地區資源建築：每地區每種建築最多一座（unique → 409）。
   await db.execute(sql`

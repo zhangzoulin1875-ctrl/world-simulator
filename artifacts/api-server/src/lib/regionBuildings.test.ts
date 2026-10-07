@@ -81,18 +81,21 @@ test("buildingWorkers：工人上限判定範例（人口 3000 只容得下 3 �
   assert.ok(buildingWorkers(3) + buildingWorkers(1) > population);
 });
 
-test("isBuildingType：只接受 lumber_mill / mine", () => {
+test("isBuildingType：只接受 lumber_mill / mine / munitions_plant", () => {
   assert.ok(isBuildingType("lumber_mill"));
   assert.ok(isBuildingType("mine"));
+  assert.ok(isBuildingType("munitions_plant"));
   assert.ok(!isBuildingType("farm"));
   assert.ok(!isBuildingType(""));
   assert.ok(!isBuildingType("LUMBER_MILL"));
 });
 
 test("標籤與資源對照完整（zh-TW）", () => {
-  assert.equal(BUILDING_TYPES.length, 2);
+  assert.equal(BUILDING_TYPES.length, 3);
   assert.equal(BUILDING_LABEL.lumber_mill, "木材廠");
   assert.equal(BUILDING_LABEL.mine, "礦場");
   assert.equal(BUILDING_RESOURCE.lumber_mill, "wood");
   assert.equal(BUILDING_RESOURCE.mine, "ore");
+  assert.equal(BUILDING_LABEL.munitions_plant, "軍工廠");
+  assert.equal(BUILDING_RESOURCE.munitions_plant, "ammo");
 });

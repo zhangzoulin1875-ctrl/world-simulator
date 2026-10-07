@@ -47,6 +47,8 @@ export function registerWarReportRoutes(router: IRouter): void {
             deadTotal: mine.deadTotal,
             territoryPctDelta: mine.territoryPctDelta,
             warWearinessDelta: mine.warWearinessDelta,
+            // 補給系統 — 只回我方（敵方後勤不外洩）；舊戰報無此欄 → 省略。
+            ...(mine.supply ? { supply: mine.supply } : {}),
           },
           enemySide: {
             moraleDelta: fuzzSigned(theirs.moraleDelta, level, `${seed}:morale`),

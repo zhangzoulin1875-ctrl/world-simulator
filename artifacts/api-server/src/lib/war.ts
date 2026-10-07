@@ -1,3 +1,4 @@
+import { supplyPowerFactor } from "./supply";
 import type {
   MilitaryTechBonus,
   WarCityState,
@@ -468,11 +469,14 @@ export function coupAdjustedMorale(morale: number, penalty: number): number {
   return Math.max(0, morale - penalty);
 }
 
-/** 士氣與補給對戰力的乘數：各自 0.5–1.0，相乘後 0.25–1.0（永不為 0）。 */
+/**
+ * 士氣與補給對戰力的乘數。
+ * 士氣：0.5–1.0。補給：見 supply.ts 的 supplyPowerFactor（0.1–1.0，崩潰區再打七折）。
+ * 兩者相乘：完全沒補給、沒士氣的部隊戰力只剩約 5%（舊版下限 25%，缺補給根本不痛）。
+ */
 export function combatConditionFactor(morale: number, supply: number): number {
   const m = 0.5 + 0.5 * clamp01(morale / 100);
-  const s = 0.5 + 0.5 * clamp01(supply / 100);
-  return m * s;
+  return m * supplyPowerFactor(supply);
 }
 
 /**

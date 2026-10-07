@@ -298,6 +298,7 @@ export * from "./warOrderRequestOrderType";
 export * from "./warOrderView";
 export * from "./warOrderViewOrderType";
 export * from "./warReportSideView";
+export * from "./warReportSideViewSupply";
 export * from "./warReportsResponse";
 export * from "./warReportView";
 export * from "./weaponDeleteResult";
