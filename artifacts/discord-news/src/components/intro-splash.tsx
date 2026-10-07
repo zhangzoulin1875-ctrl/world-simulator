@@ -12,7 +12,8 @@ type Phase =
  * 開場動畫：每次載入頁面（點開遊戲、重新整理）都會出現，點按畫面可跳過。
  *
  * 自動播放策略（手機 Safari 尤其嚴格）：
- *   1. 先試「有聲」播放；被擋就改試「靜音」播放（muted 同時寫成 HTML 屬性，iOS 只認屬性）。
+ *   1. 先試「有聲」播放；被擋就改試「靜音」播放（muted 同時寫成 HTML 屬性，iOS 只認屬性），
+ *      並在右下角顯示靜音喇叭圖標，點一下開聲音（不跳過）。
  *   2. 兩種都被擋（iOS 低耗電模式、關閉自動播放等）時，**不放棄**：顯示「點一下播放」畫面，
  *      玩家的點擊是有效手勢，可直接有聲播放；旁邊有「跳過」可直接進遊戲。
  *   3. 只有影片「載入失敗」（網路／檔案不存在）才直接放行，避免把遊戲擋在動畫後面。
@@ -91,6 +92,16 @@ export function IntroSplash() {
       }
     }
   }, [finish]);
+
+  // 靜音播放中，玩家點喇叭圖標：這是有效手勢，可直接開聲音（不跳過、不重播）。
+  const unmute = React.useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.muted = false;
+    v.removeAttribute("muted");
+    if (v.paused) void v.play().catch(() => {});
+    setMutedPlay(false);
+  }, []);
 
   // 動畫期間鎖住背景捲動，結束後還原。
   React.useEffect(() => {
@@ -202,7 +213,35 @@ export function IntroSplash() {
         }}
       >
         {phase === "playing" && mutedPlay && !leaving ? (
-          <span style={{ pointerEvents: "none" }}>瀏覽器限制：本次開場為靜音播放</span>
+          <button
+            type="button"
+            aria-label="開啟聲音"
+            title="開啟聲音"
+            onClick={(e) => {
+              e.stopPropagation();
+              unmute();
+            }}
+            style={{
+              width: 48,
+              height: 48,
+              borderRadius: "50%",
+              border: "1px solid rgba(255,255,255,0.6)",
+              background: "rgba(0,0,0,0.55)",
+              color: "#fff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
+            {/* 喇叭＋斜線＝目前靜音，點一下開聲音 */}
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M11 5 6 9H2v6h4l5 4V5z" fill="currentColor" />
+              <line x1="22" y1="9" x2="16" y2="15" />
+              <line x1="16" y1="9" x2="22" y2="15" />
+            </svg>
+          </button>
         ) : null}
         {needsTap ? (
           <button
