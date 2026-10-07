@@ -77,6 +77,50 @@ export async function runParliamentMigrationsInner(
   await executor.execute(sql`ALTER TABLE parliament_parties ADD COLUMN IF NOT EXISTS in_coalition boolean NOT NULL DEFAULT false`);
   // 既有存檔:把現在的總理黨(is_ruling)補成單黨政府成員,避免升級後有些國家完全沒有聯合成員。
   await executor.execute(sql`UPDATE parliament_parties SET in_coalition = true WHERE is_ruling = true AND in_coalition = false`);
+  // 國際組織(共產國際…):世界級 NPC 行為者與預告表。放在議會遷移裡,啟動只需一個步驟。
+  await executor.execute(sql`
+    CREATE TABLE IF NOT EXISTS intl_orgs (
+      id serial PRIMARY KEY,
+      slug text NOT NULL,
+      name text NOT NULL,
+      ideology text NOT NULL,
+      influence integer NOT NULL DEFAULT 10,
+      tick integer NOT NULL DEFAULT 0,
+      next_decision_tick integer NOT NULL DEFAULT 0,
+      setbacks integer NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    )
+  `);
+  await executor.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS intl_orgs_slug_uq ON intl_orgs (slug)`);
+  await executor.execute(sql`
+    CREATE TABLE IF NOT EXISTS intl_org_plans (
+      id serial PRIMARY KEY,
+      org_id integer NOT NULL REFERENCES intl_orgs(id) ON DELETE CASCADE,
+      target_nation_id uuid REFERENCES player_nations(id) ON DELETE CASCADE,
+      action text NOT NULL,
+      planned_tick integer NOT NULL,
+      execute_tick integer NOT NULL,
+      status text NOT NULL DEFAULT 'planned',
+      source text NOT NULL DEFAULT 'rule',
+      result_summary text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      executed_at timestamptz
+    )
+  `);
+  await executor.execute(sql`CREATE INDEX IF NOT EXISTS intl_org_plans_org_status_idx ON intl_org_plans (org_id, status)`);
+  await executor.execute(sql`CREATE INDEX IF NOT EXISTS intl_org_plans_target_idx ON intl_org_plans (target_nation_id, status)`);
+  // 同一組織對同一國同時只能有一筆 planned 預告(寫入端用 ON CONFLICT DO NOTHING,並行安全)
+  await executor.execute(sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS intl_org_plans_one_planned_uq
+    ON intl_org_plans (org_id, target_nation_id) WHERE status = 'planned'
+  `);
+  // 種子:共產國際(開局存在,影響力低)。冪等。
+  await executor.execute(sql`
+    INSERT INTO intl_orgs (slug, name, ideology, influence)
+    VALUES ('comintern', '共產國際', 'red', 10)
+    ON CONFLICT (slug) DO NOTHING
+  `);
   await executor.execute(sql`
     CREATE TABLE IF NOT EXISTS parliament_campaign_actions (
       id serial PRIMARY KEY,

@@ -43,6 +43,7 @@ import {
   type PoliticsSettlementSummary,
 } from "./politicsSettlement";
 import { runParliamentSettlement } from "./parliament/service";
+import { runIntlOrgSettlement } from "./intlOrg/service";
 import { runFocusSettlement } from "./focus/service";
 import { runDomesticEventSettlement } from "./domesticEvents/service";
 import { runNpcFocusDecisions } from "./focus/npcRunner";
@@ -403,6 +404,14 @@ export interface TurnUpdateSummary {
     error?: string;
     nations?: number;
     revolts?: number;
+    failed?: number;
+  };
+  intlOrgs?: {
+    ok: boolean;
+    error?: string;
+    orgs?: number;
+    executed?: number;
+    planned?: number;
     failed?: number;
   };
   focus?: {
@@ -1311,6 +1320,19 @@ async function doRunTurn(
       error: err instanceof Error ? err.message : String(err),
     };
     logger.error({ err }, "turn engine: parliament settlement failed");
+  }
+
+  // 國際組織(共產國際…):議會結算之後跑(局勢要讀最新議會滿意度)。
+  // 先執行到期預告、再依局勢寫新預告;獨立 try/catch,失敗只記 log,絕不中斷回合。
+  try {
+    const intlOrgs = await runIntlOrgSettlement();
+    summary.intlOrgs = { ok: true, ...intlOrgs };
+  } catch (err) {
+    summary.intlOrgs = {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
+    logger.error({ err }, "turn engine: intl org settlement failed");
   }
 
   // 國策樹:議會結算之後跑(需讀取最新議會滿意度)。玩家與 NPC 都處理;

@@ -8,6 +8,7 @@ export * from "./generals";
 export * from "./diplomacy";
 export * from "./politics";
 export * from "./parliament";
+export * from "./intlOrg";
 export * from "./cabinet";
 export * from "./autopilot";
 export * from "./mercenary";

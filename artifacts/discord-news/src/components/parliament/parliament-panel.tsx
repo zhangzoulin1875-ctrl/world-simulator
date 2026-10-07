@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Landmark, Loader2, Megaphone, ScrollText, AlertTriangle, Gavel, Vote, Users } from "lucide-react";
+import { Landmark, Loader2, Megaphone, ScrollText, AlertTriangle, Gavel, Vote, Users, Globe2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   layoutHemicycle, useParliament, useSubmitReport, useDecideVeto, useCampaign,
@@ -137,6 +137,56 @@ function GovernmentCard({ view }: { view: ParliamentView }) {
               : view.tier === "semi" ? "半專制由現任執政黨掌權,不需過半。" : "執政黨單獨過半。"}</p>
         </>
       )}
+    </div>
+  );
+}
+
+const ATTENTION_LABEL = { high: "高風險", watched: "關注中", none: "未受關注" } as const;
+const ATTENTION_STYLE = {
+  high: "border-red-400/50 bg-red-500/20 text-red-300",
+  watched: "border-amber-400/40 bg-amber-500/15 text-amber-300",
+  none: "border-white/15 bg-white/5 text-white/60",
+} as const;
+const ORG_LEVEL_LABEL = { weak: "勢力微弱", growing: "勢力成長中", strong: "勢力強大" } as const;
+
+/**
+ * 國際組織動向:組織由 AI/規則自行決策,玩家不能操作,只能看預告並用既有手段(安撫議會、
+ * 提高穩定度、處理事件)讓它的行動落空。預告只給模糊時間。
+ */
+function OrgCard({ view }: { view: ParliamentView }) {
+  const orgs = view.orgs ?? [];
+  if (orgs.length === 0) return null;
+  return (
+    <div className="mt-4 space-y-3" data-testid="card-intl-orgs">
+      {orgs.map((o) => (
+        <div key={o.slug} className="rounded-lg border border-white/10 bg-black/30 p-3" data-testid={`card-org-${o.slug}`}>
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm font-semibold"><Globe2 className="h-4 w-4 text-rose-300" />{o.name}
+              <span className="text-[11px] font-normal text-white/50">{ORG_LEVEL_LABEL[o.level]}</span></div>
+            <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${ATTENTION_STYLE[o.attention]}`}
+              data-testid={`text-org-attention-${o.slug}`}>你的國家:{ATTENTION_LABEL[o.attention]}</span>
+          </div>
+          {o.forYou.length > 0 ? (
+            <ul className="mt-1 space-y-1" data-testid={`list-org-foryou-${o.slug}`}>
+              {o.forYou.map((p, i) => (
+                <li key={i} className="text-xs text-red-300">
+                  預告:{o.name}預計 <b>{p.eta}</b> 對你的國家進行「{p.action}」。提高議會滿意度與穩定度可以讓它落空。</li>))}
+            </ul>
+          ) : (
+            <p className="text-xs text-white/60">目前沒有針對你的行動預告。</p>
+          )}
+          {o.elsewhere.length > 0 ? (
+            <p className="mt-1 text-[11px] text-white/45">它也在盤算對其他國家的行動({o.elsewhere.length} 項)。</p>) : null}
+          <p className="mt-1 text-[11px] text-white/45">
+            目前能做的事:{o.capabilities.length > 0 ? o.capabilities.join("、") : "只能按兵不動"}</p>
+          {o.recent.length > 0 ? (
+            <div className="mt-2 border-t border-white/10 pt-2">
+              <p className="mb-1 text-[11px] font-semibold text-white/55">最近對你的行動</p>
+              <ul className="space-y-0.5">{o.recent.map((r, i) => (
+                <li key={i} className="text-[11px] text-white/60">{r.summary}</li>))}</ul>
+            </div>) : null}
+        </div>
+      ))}
     </div>
   );
 }
@@ -297,6 +347,7 @@ export function ParliamentPanel() {
         </ul>
 
         <GovernmentCard view={v} />
+        <OrgCard view={v} />
         <ElectionCard view={v} />
 
         {autocracy ? (

@@ -29,6 +29,17 @@ export interface ParliamentView {
   pendingVeto?: PendingVeto | null;
   election?: ElectionView;
   government?: GovernmentView;
+  orgs?: OrgView[];
+}
+export type OrgAttention = "high" | "watched" | "none";
+export interface OrgView {
+  slug: string; name: string; influence: number;
+  level: "weak" | "growing" | "strong";
+  capabilities: string[];
+  attention: OrgAttention;
+  forYou: { action: string; eta: string }[];
+  elsewhere: { action: string; eta: string }[];
+  recent: { action: string; summary: string }[];
 }
 export type CoalitionRisk = "low" | "mid" | "high";
 export interface GovernmentView {

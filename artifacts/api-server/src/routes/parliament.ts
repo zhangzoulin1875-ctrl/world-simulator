@@ -24,6 +24,7 @@ import { loadPenaltyScale } from "../lib/penaltyScaleLoad";
 import { loadPendingVeto, decideVeto } from "../lib/parliament/vetoDecision";
 import { buildElectionView, performCampaignAction } from "../lib/parliament/electionService";
 import { buildGovernmentView } from "../lib/parliament/coalitionService";
+import { buildOrgViews } from "../lib/intlOrg/service";
 import { hasElections, type ElectionAction } from "../lib/parliament/election";
 
 const router: IRouter = Router();
@@ -75,6 +76,8 @@ async function buildView(nation: typeof playerNationsTable.$inferSelect) {
     maxPenalty: MAX_PENALTY[tier],
     election: await buildElectionView(nation, tier),
     government: await buildGovernmentView(nationId, tier),
+    // 國際組織動向(預告):查詢失敗不能拖垮議會頁
+    orgs: await buildOrgViews(nationId).catch(() => []),
     report: {
       allowed: canSubmitReport(tier),
       cooldownLeft: reportCooldownLeft(tick, state?.lastReportTick ?? null),

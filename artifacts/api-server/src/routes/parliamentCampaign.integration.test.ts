@@ -121,3 +121,19 @@ test("GET 議會帶政府視圖：聯合成員旗標與穩定度；專制不啟�
   await db.insert(parliamentPartiesTable).values({ nationId: stamp.nat.id, name: "愛國黨", stance: "loyalist", weight: 1, seats: 100, isRuling: true });
   assert.equal((await view(stamp.cookie)).government.enabled, false);
 });
+
+test("GET 議會帶國際組織動向：預告對你顯示模糊時間、不洩漏他國身分", async () => {
+  const { nat, cookie } = await mk("議會內閣制", 1);
+  const { intlOrgsTable, intlOrgPlansTable } = await import("@workspace/db");
+  const [o] = await db.select().from(intlOrgsTable).where(eq(intlOrgsTable.slug, "comintern"));
+  await db.update(intlOrgsTable).set({ tick: 10, influence: 35 }).where(eq(intlOrgsTable.id, o!.id));
+  await db.delete(intlOrgPlansTable).where(eq(intlOrgPlansTable.targetNationId, nat.id));
+  await db.insert(intlOrgPlansTable).values({ orgId: o!.id, targetNationId: nat.id, action: "funding", plannedTick: 9, executeTick: 12 });
+  const j = await view(cookie);
+  const c = j.orgs.find((x: any) => x.slug === "comintern");
+  assert.ok(c); assert.equal(c.attention, "high"); assert.equal(c.level, "growing");
+  assert.deepEqual(c.forYou, [{ action: "資助", eta: "2~3 回合內" }]);
+  assert.ok(c.capabilities.includes("資助") && !c.capabilities.includes("罷工潮"));
+  assert.ok(!JSON.stringify(j.orgs).includes(nat.id), "回應不應包含國家 id");
+  await db.delete(intlOrgPlansTable).where(eq(intlOrgPlansTable.targetNationId, nat.id));
+});
