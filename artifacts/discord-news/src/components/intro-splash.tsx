@@ -3,15 +3,6 @@ import React from "react";
 const INTRO_SRC = `${import.meta.env.BASE_URL}intro/intro.mp4`;
 const FADE_MS = 500;
 
-/** 使用者系統設定為「減少動態效果」時不自動播放開場動畫。 */
-function prefersReducedMotion(): boolean {
-  try {
-    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * 開場動畫：每次載入頁面（點開遊戲、重新整理）都會播放，點按畫面任一處可跳過。
  *
@@ -19,10 +10,13 @@ function prefersReducedMotion(): boolean {
  *   並提示玩家這次是靜音。點畫面一律是「跳過」（不另做開聲按鈕，維持單一行為）。
  *   靜音播放也被擋就直接放行，不卡住玩家。
  * - 播完、載入失敗（網路／檔案不存在）一律自動收起，永遠不會把遊戲擋在動畫後面。
+ *   （刻意不判斷系統「減少動態效果」：該設定常被系統省電／關閉動畫誤開，會讓玩家完全看不到動畫；
+ *    玩家隨時可點按跳過。）
+ * - 放行原因寫進 console，方便玩家回報「為什麼沒播」。
  * - 遊戲本體在動畫底下照常載入，動畫收起即可操作。
  */
 export function IntroSplash() {
-  const [active, setActive] = React.useState(() => !prefersReducedMotion());
+  const [active, setActive] = React.useState(true);
   const [leaving, setLeaving] = React.useState(false);
   const [mutedByBrowser, setMutedByBrowser] = React.useState(false);
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
@@ -46,7 +40,8 @@ export function IntroSplash() {
       // 有聲自動播放被擋：改靜音播放，並提示可點一下開聲音。
       v.muted = true;
       setMutedByBrowser(true);
-      v.play().catch(() => {
+      v.play().catch((err) => {
+        console.warn("[intro] 靜音播放也失敗，略過開場動畫：", err);
         if (!cancelled) finish();
       });
     });
@@ -98,7 +93,10 @@ export function IntroSplash() {
         playsInline
         preload="auto"
         onEnded={finish}
-        onError={finish}
+        onError={(e) => {
+          console.warn("[intro] 影片載入失敗，略過開場動畫：", (e.currentTarget as HTMLVideoElement).error);
+          finish();
+        }}
         style={{ width: "100%", height: "100%", objectFit: "contain", background: "#000" }}
       />
       <div
