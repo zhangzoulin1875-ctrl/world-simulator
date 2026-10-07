@@ -228,7 +228,6 @@ export function GameAdvisor({
       });
     }
 
-    // 四大階級滿意度：挑最低且低於門檻的一項提醒。
     // 議會滿意度(獨裁橡皮圖章不提醒;歸零即強制革命)
     const parl = parliamentQuery.data;
     if (parl && parl.tier !== "autocracy" && parl.satisfaction < 30) {
@@ -236,7 +235,7 @@ export function GameAdvisor({
         kind: "warning",
         dedupeKey: `warn:parliament:${bucket(parl.satisfaction)}`,
         text: `議會滿意度過低 ${Math.round(parl.satisfaction)},歸零將引發革命`,
-        linkPath: "/game/politics",
+        linkPath: "/game/parliament",
       });
     }
 

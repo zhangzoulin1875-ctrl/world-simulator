@@ -25,6 +25,7 @@ import {
   MapPinned,
   BookOpen,
   Siren,
+  Gavel,
 } from "lucide-react";
 import {
   Popover,
@@ -504,18 +505,18 @@ function GameScreen({
           {/* left action buttons */}
           <div className="order-2 px-4 py-4 md:order-none md:flex md:w-[400px] md:shrink-0 md:items-center md:px-6 md:py-0">
             {/* desktop: arc layout */}
-            <div className="relative hidden h-[440px] w-[340px] md:block">
+            <div className="relative hidden h-[540px] w-[340px] md:block">
               <ArcButton
                 label="地圖"
                 icon={Map}
                 center
-                style={{ left: 52, top: 128 }}
+                style={{ left: 52, top: 196 }}
                 href="/game/map"
               />
               <ArcButton
                 label="科技"
                 icon={FlaskConical}
-                style={{ left: 8, top: 300 }}
+                style={{ left: 8, top: 372 }}
                 href="/game/technology"
               />
               <ArcButton
@@ -527,26 +528,32 @@ function GameScreen({
               <ArcButton
                 label="超事件"
                 icon={Siren}
-                style={{ left: 8, top: 8 }}
+                style={{ left: 8, top: 52 }}
                 href="/game/super-events"
               />
               <ArcButton
                 label="經濟"
                 icon={Coins}
-                style={{ left: 216, top: 100 }}
+                style={{ left: 228, top: 52 }}
                 href="/game/economy"
               />
               <ArcButton
                 label="政治"
                 icon={Landmark}
-                style={{ left: 216, top: 244 }}
+                style={{ left: 236, top: 180 }}
                 href="/game/politics"
               />
               <ArcButton
                 label="外交"
                 icon={Handshake}
-                style={{ left: 118, top: 338 }}
+                style={{ left: 118, top: 428 }}
                 href="/game/diplomacy"
+              />
+              <ArcButton
+                label="議會"
+                icon={Gavel}
+                style={{ left: 228, top: 308 }}
+                href="/game/parliament"
               />
             </div>
 
@@ -561,6 +568,7 @@ function GameScreen({
                 href="/game/technology"
               />
               <MobileButton label="政治" icon={Landmark} href="/game/politics" />
+              <MobileButton label="議會" icon={Gavel} href="/game/parliament" />
               <MobileButton label="外交" icon={Handshake} href="/game/diplomacy" />
               <MobileButton label="超事件" icon={Siren} href="/game/super-events" />
             </div>

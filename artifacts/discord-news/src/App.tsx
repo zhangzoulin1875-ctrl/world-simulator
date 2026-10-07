@@ -44,6 +44,7 @@ import GameSuperEvents from "@/pages/game-super-events";
 import SuperEvents from "@/pages/super-events";
 import NpcNations from "@/pages/npc-nations";
 import GamePolitics from "@/pages/game-politics";
+import GameParliament from "@/pages/game-parliament";
 import GameCabinet from "@/pages/game-cabinet";
 import PoliticsSettings from "@/pages/politics-settings";
 import TurnSettings from "@/pages/turn-settings";
@@ -77,6 +78,7 @@ function Router() {
       <Route path="/game/technology">{() => <AutopilotGate><GameTechnology /></AutopilotGate>}</Route>
       <Route path="/game/diplomacy">{() => <AutopilotGate><GameDiplomacy /></AutopilotGate>}</Route>
       <Route path="/game/politics">{() => <AutopilotGate><GamePolitics /></AutopilotGate>}</Route>
+      <Route path="/game/parliament">{() => <AutopilotGate><GameParliament /></AutopilotGate>}</Route>
       <Route path="/game/cabinet">{() => <AutopilotGate><GameCabinet /></AutopilotGate>}</Route>
       <Route path="/game/economy">{() => <AutopilotGate><GameEconomy /></AutopilotGate>}</Route>
       <Route path="/game/super-events">{() => <AutopilotGate><GameSuperEvents /></AutopilotGate>}</Route>
