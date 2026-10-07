@@ -19,6 +19,7 @@ import {
 import { planParliamentTurn } from "./plan";
 import { buildParties, partyColor, type NationFacts } from "./parties";
 import { generateParliamentMessage } from "./messageAi";
+import { generatePartyNames, isTemplateName } from "./partyNames";
 import { buildNationContext } from "../nationContext";
 import { getCurrentEraSlug } from "../nationStats";
 import { isDemandDue, rulingParty as rulingPartyOf } from "./core";
@@ -69,9 +70,18 @@ async function buildWorldSituation(selfId: string): Promise<string> {
 }
 
 export async function rebuildParties(nation: Nation, state: { tick: number }, facts: NationFacts): Promise<SeatedParty[]> {
+  // 重組前先讀舊黨：同立場的黨沿用原名與黨綱，議會洗牌不會讓黨名跟著全換。
+  const prev = await db.select().from(parliamentPartiesTable).where(eq(parliamentPartiesTable.nationId, nation.id));
+  const prevByStance = new Map<string, { name: string; description: string }>();
+  for (const r of prev) if (!prevByStance.has(r.stance)) prevByStance.set(r.stance, { name: r.name, description: r.description });
   const seated = facts.tier === "autocracy"
     ? rubberStampParliament({ id: "p0", name: `${facts.nationName}愛國黨` })
-    : allocateSeats(buildParties(facts));
+    : allocateSeats(buildParties(facts)).map((p) => {
+        const old = prevByStance.get(p.stance);
+        return old && old.name !== SOCIALIST_PARTY_NAME ? { ...p, name: old.name } : p;
+      });
+  const descByStance = new Map<string, string>();
+  for (const [stance, v] of prevByStance) descByStance.set(stance, v.description);
   const ruling = rulingParty(seated);
   await db.transaction(async (tx) => {
     await tx.delete(parliamentPartiesTable).where(eq(parliamentPartiesTable.nationId, nation.id));
@@ -79,12 +89,47 @@ export async function rebuildParties(nation: Nation, state: { tick: number }, fa
       await tx.insert(parliamentPartiesTable).values(seated.map((p, i) => ({
         nationId: nation.id, name: p.name, stance: p.stance, weight: Math.max(1, Math.round(p.weight)),
         seats: p.seats, color: partyColor(i), isRuling: ruling?.id === p.id,
-        description: "",
+        description: prevByStance.get(p.stance)?.name === p.name ? (descByStance.get(p.stance) ?? "") : "",
       })));
     }
     await tx.update(parliamentStateTable).set({ lastPartiesTick: state.tick }).where(eq(parliamentStateTable.nationId, nation.id));
   });
+  // AI 命名在背景補上，不阻塞玩家請求或回合結算；失敗就保留模板名。
+  if (facts.tier !== "autocracy") {
+    void nameUnnamedParties(nation, prev.map((r) => r.name)).catch((err) =>
+      logger.warn({ err, nationId: nation.id }, "parliament: background party naming failed"));
+  }
   return seated;
+}
+
+/** 黨名等於「立場標籤+黨」模板的黨，背景請 AI 取名並寫回（只改 name/description，不動立場與席次）。 */
+export async function nameUnnamedParties(nation: Nation, previousNames: readonly string[] = []): Promise<number> {
+  const rows = await db.select().from(parliamentPartiesTable).where(eq(parliamentPartiesTable.nationId, nation.id));
+  const todo = rows.filter((r) => r.stance !== "loyalist" && r.name !== SOCIALIST_PARTY_NAME
+    && isTemplateName(r.name, r.stance as ParliamentStance));
+  if (todo.length === 0) return 0;
+  const eraSlug = await getCurrentEraSlug();
+  const context = await buildNationContext(nation, eraSlug);
+  const named = await generatePartyNames({
+    eraSlug, context, previousNames,
+    // AI 看的 id 用資料表 id，寫回時直接對得上。
+    parties: todo.map((r) => ({ id: String(r.id), stance: r.stance as ParliamentStance, seats: r.seats })),
+  });
+  if (!named) return 0;
+  // 與同國其他已命名的黨不得重名。
+  const taken = new Set(rows.filter((r) => !todo.includes(r)).map((r) => r.name));
+  let n = 0;
+  for (const r of named) {
+    if (taken.has(r.name)) continue;
+    taken.add(r.name);
+    // 條件式更新：期間若黨已被重組（id 不存在）或被改名，就不覆蓋。
+    const res = await db.update(parliamentPartiesTable)
+      .set({ name: r.name, description: r.description })
+      .where(and(eq(parliamentPartiesTable.id, Number(r.id)), eq(parliamentPartiesTable.nationId, nation.id)))
+      .returning({ id: parliamentPartiesTable.id });
+    n += res.length;
+  }
+  return n;
 }
 
 async function loadParties(nationId: string): Promise<SeatedParty[]> {
