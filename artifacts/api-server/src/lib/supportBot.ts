@@ -181,6 +181,9 @@ export function resetRewriteCache(): void {
   rewriteCache.clear();
 }
 
+/** 客服回答的取樣溫度：規則問答要穩，不要創作。 */
+export const SUPPORT_TEMPERATURE = 0.2;
+
 export const RULE_HITS = 6;
 export const GOAL_HITS_PER_ANGLE = 4;
 export const GOAL_TOTAL_HITS = 10;
@@ -278,6 +281,8 @@ export async function answerQuestion(question: string, history: MemoryTurn[] = [
   const reply = await runWithAiPriority(SUPPORT_AI_PRIORITY, () =>
     callGameAi(feature, "bulk", {
       system: SUPPORT_SYSTEM_PROMPT,
+      // 事實問答：低溫減少模型「發揮」與編造；改寫關鍵字（support.search）不受影響。
+      temperature: SUPPORT_TEMPERATURE,
       // 前情只有這位玩家自己的問答；依據與指示放在最後一則，確保模型以「現在的問題」為準。
       messages: [...memoryToMessages(history), { role: "user" as const, content: parts.join("\n\n") }],
     }),

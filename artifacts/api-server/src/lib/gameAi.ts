@@ -214,6 +214,8 @@ async function recordUsage(
 export interface GameAiParams {
   system?: string;
   messages: Array<{ role: "user" | "assistant"; content: string }>;
+  /** 取樣溫度；不傳＝沿用供應商預設（既有功能行為不變）。事實問答類（客服）傳低值以減少亂編。 */
+  temperature?: number;
 }
 
 /**
@@ -261,6 +263,7 @@ export async function callGameAi(
     const message = await anthropic.messages.create({
       model,
       max_tokens: maxTokens,
+      ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
       system: withWorldNeutrality(
         params.system !== undefined ? stripChineseDynasty(params.system) : undefined,
       ),
