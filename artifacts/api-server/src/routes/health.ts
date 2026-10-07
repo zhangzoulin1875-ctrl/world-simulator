@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { pool } from "@workspace/db";
+import { getBotDiagnostics, getStoredToken } from "../lib/discordBot";
 
 const router: IRouter = Router();
 
@@ -31,6 +32,36 @@ router.get("/healthz/db", async (_req, res) => {
   } catch (e) {
     res.status(503).json({ status: "degraded", db: "error", ms: Date.now() - started, error: (e as Error).message.slice(0, 120) });
   }
+});
+
+/**
+ * 給外部監控（UptimeRobot 等）用:Discord 機器人連線是否「真的活著」（心跳新鮮），不健康回 503。
+ * 刻意與 /healthz 分開——Render 的存活檢查不能因為機器人掛掉而 503，否則整個服務會被重啟。
+ * 還沒設定 Token 的全新部署不算異常（回 200，bot: "not-configured"），避免誤警報。
+ */
+router.get("/healthz/bot", async (_req, res) => {
+  let hasToken = false;
+  try {
+    hasToken = Boolean(await getStoredToken());
+  } catch {
+    hasToken = false;
+  }
+  const d = getBotDiagnostics();
+  if (!hasToken) {
+    res.json({ status: "ok", bot: "not-configured", commit: process.env["RENDER_GIT_COMMIT"] ?? null });
+    return;
+  }
+  const healthy = d.liveness === "healthy" || d.liveness === "connecting";
+  res.status(healthy ? 200 : 503).json({
+    status: healthy ? "ok" : "degraded",
+    bot: d.liveness,
+    pingMs: d.pingMs,
+    lastHeartbeatAgoSec: d.lastHeartbeatAgoSec,
+    lastDisconnect: d.lastDisconnectCode === null ? null : { code: d.lastDisconnectCode, reason: d.lastDisconnectReason, agoMin: d.lastDisconnectAgoMin },
+    autoRestarts: d.restarts,
+    lastRestartReason: d.lastRestartReason,
+    commit: process.env["RENDER_GIT_COMMIT"] ?? null,
+  });
 });
 
 export default router;

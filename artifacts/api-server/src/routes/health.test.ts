@@ -35,4 +35,29 @@ test("/healthz/db 資料庫出錯時 503,且 /healthz 不受影響", async () =>
   }
 });
 
+test("/healthz/bot：沒設 Token 的全新部署不算異常（200 not-configured），且不影響 /healthz", async () => {
+  process.env["DISCORD_BOT_TOKEN"] = "";
+  const { db, botSettingsTable } = await import("@workspace/db");
+  await db.delete(botSettingsTable);
+  const r = await fetch(`${base}/healthz/bot`);
+  assert.equal(r.status, 200);
+  assert.equal(((await r.json()) as { bot: string }).bot, "not-configured");
+  assert.equal((await fetch(`${base}/healthz`)).status, 200);
+});
+
+test("/healthz/bot：有 Token 但機器人沒連上 → 503 degraded，並帶出診斷；/healthz 仍 200（Render 不會因此重啟服務）", async () => {
+  process.env["DISCORD_BOT_TOKEN"] = "fake-token";
+  try {
+    const r = await fetch(`${base}/healthz/bot`);
+    const j = (await r.json()) as { status: string; bot: string; autoRestarts: number };
+    assert.equal(r.status, 503);
+    assert.equal(j.status, "degraded");
+    assert.equal(j.bot, "down");
+    assert.equal(typeof j.autoRestarts, "number");
+    assert.equal((await fetch(`${base}/healthz`)).status, 200);
+  } finally {
+    process.env["DISCORD_BOT_TOKEN"] = "";
+  }
+});
+
 test.after(() => srv.close());

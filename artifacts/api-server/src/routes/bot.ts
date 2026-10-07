@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { z } from "zod";
 import {
   getBotState,
+  getBotDiagnostics,
   validateToken,
   saveToken,
   restartDiscordBot,
@@ -28,6 +29,8 @@ router.get("/bot/status", async (_req, res) => {
     username: s.username,
     guildCount: s.guildCount,
     hasToken: Boolean(token),
+    // 診斷：連線是否真的活著（心跳）、最近一次斷線的關閉碼與原因、自動重啟次數。
+    diagnostics: getBotDiagnostics(),
   });
 });
 

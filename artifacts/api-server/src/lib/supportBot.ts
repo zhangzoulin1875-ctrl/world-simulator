@@ -13,6 +13,7 @@ import {
 } from "./supportKnowledge";
 import { getCodeIndex, getCodeIndexInfo } from "./supportCodeSource";
 import { stripJargon } from "./supportPlain";
+import type { BotDiagnostics } from "./discordBot";
 import {
   getMemory, memoryKey, memoryToMessages, pruneMemory, rememberTurn, type MemoryTurn,
 } from "./supportMemory";
@@ -356,6 +357,10 @@ export const SUPPORT_COMMAND_DEF = {
 } as const;
 
 let ownerIdCache: { id: string | null; at: number } | null = null;
+/** 測試用：清掉擁有者快取，模擬快取過期。 */
+export function __resetOwnerCacheForTest(): void {
+  ownerIdCache = null;
+}
 const OWNER_CACHE_MS = 10 * 60 * 1000;
 
 export async function getBotOwnerId(client: Client): Promise<string | null> {
@@ -366,48 +371,85 @@ export async function getBotOwnerId(client: Client): Promise<string | null> {
   return id;
 }
 
-async function handleCommand(client: Client, i: ChatInputCommandInteraction): Promise<void> {
+/** 斜線指令的資料庫／API 等慢操作上限；超過就放棄並明講，而不是讓 Discord 顯示「該申請未受回應」。 */
+export const COMMAND_STEP_TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+  let t: NodeJS.Timeout;
+  const timeout = new Promise<never>((_, rej) => {
+    t = setTimeout(() => rej(new Error(`${what} 逾時（${ms}ms）`)), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(t));
+}
+
+export async function handleCommand(client: Client, i: ChatInputCommandInteraction): Promise<void> {
   if (i.commandName !== SUPPORT_COMMAND_NAME) return;
-  const reply = (content: string) => i.reply({ content, flags: MessageFlags.Ephemeral }).catch(() => undefined);
 
-  let ownerId: string | null = null;
+  // Discord 要求 3 秒內必須回應，否則顯示「該申請未受回應」。查擁有者要打 Discord API、設定要寫資料庫
+  // （免費資料庫冷啟動常常超過 3 秒），所以第一件事就是 defer，後面的慢操作才有時間做。
+  const deferred = await i.deferReply({ flags: MessageFlags.Ephemeral }).then(() => true, () => false);
+  const reply = (content: string) =>
+    (deferred ? i.editReply({ content }) : i.reply({ content, flags: MessageFlags.Ephemeral })).catch(() => undefined);
+
   try {
-    ownerId = await getBotOwnerId(client);
-  } catch (err) {
-    logger.error({ err }, "support: failed to resolve bot owner");
-  }
-  // 查不到擁有者 → 一律拒絕（寧可不能設，也不能讓別人設）。
-  if (!ownerId || i.user.id !== ownerId) {
-    await reply("只有機器人擁有者可以設定客服頻道。");
-    return;
-  }
-
-  const sub = i.options.getSubcommand();
-  if (sub === "設定") {
-    const ch = i.channel;
-    if (!ch || ch.type !== ChannelType.GuildText) {
-      await reply("請在一般文字頻道使用這個指令。");
+    let ownerId: string | null = null;
+    try {
+      ownerId = await withTimeout(getBotOwnerId(client), COMMAND_STEP_TIMEOUT_MS, "查詢機器人擁有者");
+    } catch (err) {
+      logger.error({ err }, "support: failed to resolve bot owner");
+    }
+    // 查不到擁有者 → 一律拒絕（寧可不能設，也不能讓別人設）。
+    if (!ownerId || i.user.id !== ownerId) {
+      await reply("只有機器人擁有者可以設定客服頻道。");
       return;
     }
-    await setSupportChannelId(ch.id);
-    await reply(`已把 <#${ch.id}> 設為 AI 客服頻道。此頻道的每則訊息都會由客服回答。`);
-  } else if (sub === "取消") {
-    await setSupportChannelId(null);
-    await reply("已關閉 AI 客服。");
-  } else {
-    const id = await getSupportChannelId();
-    const st = getSupportQueueStats();
-    const ci = getCodeIndexInfo();
-    await reply(
-      `客服頻道：${id ? `<#${id}>` : "未設定"}\n排隊中：${st.length} 則｜已回答：${st.done}｜重試：${st.retries}｜放棄：${st.gaveUp}\n` +
-        (ci.ready ? `程式碼索引：${ci.files} 檔／${ci.chunks} 片段｜commit ${ci.commit}｜${ci.ageMin} 分鐘前更新` : "程式碼索引：尚未載入（目前只靠遊戲說明作答）"),
-    );
+
+    const sub = i.options.getSubcommand();
+    if (sub === "設定") {
+      const ch = i.channel;
+      if (!ch || ch.type !== ChannelType.GuildText) {
+        await reply("請在一般文字頻道使用這個指令。");
+        return;
+      }
+      await withTimeout(setSupportChannelId(ch.id), COMMAND_STEP_TIMEOUT_MS, "寫入設定");
+      await reply(`已把 <#${ch.id}> 設為 AI 客服頻道。此頻道的每則訊息都會由客服回答。`);
+    } else if (sub === "取消") {
+      await withTimeout(setSupportChannelId(null), COMMAND_STEP_TIMEOUT_MS, "寫入設定");
+      await reply("已關閉 AI 客服。");
+    } else {
+      const id = await withTimeout(getSupportChannelId(), COMMAND_STEP_TIMEOUT_MS, "讀取設定");
+      const st = getSupportQueueStats();
+      const ci = getCodeIndexInfo();
+      const d = diagnosticsProvider?.() ?? null;
+      await reply(
+        `客服頻道：${id ? `<#${id}>` : "未設定"}\n排隊中：${st.length} 則｜已回答：${st.done}｜重試：${st.retries}｜放棄：${st.gaveUp}\n` +
+          (ci.ready ? `程式碼索引：${ci.files} 檔／${ci.chunks} 片段｜commit ${ci.commit}｜${ci.ageMin} 分鐘前更新` : "程式碼索引：尚未載入（目前只靠遊戲說明作答）") +
+          (d
+            ? `\n連線：${d.liveness}｜延遲 ${d.pingMs ?? "?"}ms｜最後心跳 ${d.lastHeartbeatAgoSec ?? "?"} 秒前｜自動重啟 ${d.restarts} 次` +
+              (d.lastDisconnectCode !== null ? `\n最近斷線：${d.lastDisconnectReason}（${d.lastDisconnectAgoMin} 分鐘前）` : "")
+            : ""),
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, "support: command failed");
+    await reply(`指令執行失敗：${err instanceof Error ? err.message : "未知錯誤"}。請稍後再試。`);
   }
 }
 
 /** 掛到 Discord client 上（startDiscordBot 呼叫）。 */
+let memoryPruneTimer: NodeJS.Timeout | null = null;
+/** 連線診斷由 discordBot 注入（避免 supportBot ⇄ discordBot 的循環依賴）。 */
+let diagnosticsProvider: (() => BotDiagnostics) | null = null;
+export function setDiagnosticsProvider(fn: () => BotDiagnostics): void {
+  diagnosticsProvider = fn;
+}
+
 export function attachSupportBot(client: Client): void {
-  setInterval(() => pruneMemory(), 5 * 60 * 1000).unref();
+  // 看門狗每次重建 client 都會再呼叫這裡；計時器只能建一次，否則會一直累積。
+  if (!memoryPruneTimer) {
+    memoryPruneTimer = setInterval(() => pruneMemory(), 5 * 60 * 1000);
+    memoryPruneTimer.unref();
+  }
   client.on(Events.MessageCreate, (m) => {
     handleSupportMessage(m).catch((err) => logger.error({ err }, "support message handler failed"));
   });
@@ -416,6 +458,7 @@ export function attachSupportBot(client: Client): void {
     handleCommand(client, i).catch((err) => logger.error({ err }, "support command failed"));
   });
   client.once(Events.ClientReady, (c) => {
+    getBotOwnerId(c).catch(() => undefined); // 預熱擁有者快取
     // 以全域指令註冊（失敗不影響機器人其他功能）。
     c.application.commands.set([SUPPORT_COMMAND_DEF as never]).catch((err) =>
       logger.error({ err }, "support: register slash command failed"),
