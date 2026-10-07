@@ -24,7 +24,7 @@ import { runMapV2RegionReset } from "./lib/mapV2Reset";
 import { runMilitaryMigrations } from "./lib/militaryMigrations";
 import { runWeaponMigrations } from "./lib/weaponMigrations";
 import { runDiplomacyMigrations } from "./lib/diplomacyMigrations";
-import { runResourceMigrations } from "./lib/resourceMigrations";
+import { runResourceMigrations, ensureNationResourceColumns } from "./lib/resourceMigrations";
 import {
   startTreatyExpiryLoop,
   startRelationEventPruneLoop,
@@ -100,6 +100,12 @@ function openPort(): void {
 // applied by Replit's Publish flow, so these are effectively redundant there.
 async function runStartupMigrations(): Promise<void> {
   await bootStep("runGameMigrations", () => runGameMigrations());
+  // 熱表欄位保險:程式碼(drizzle select 全欄位)一旦依賴新欄位,欄位缺席會讓「所有」讀
+  // player_nations 的請求炸掉(曾因後面的大型地圖步驟失敗/卡鎖,導致 ammo 欄位沒補上)。
+  // 因此把 player_nations 的資源欄位遷移提到所有重量級同步之前、且只依賴 game 遷移建好的表。
+  await bootStep("ensureNationResourceColumns", () => ensureNationResourceColumns()).catch((err) =>
+    logger.error({ err }, "ensureNationResourceColumns failed; later migrations will retry the same columns"),
+  );
   // 預設歌單(四首公有領域國歌/軍樂):只在新庫第一次啟動播種;失敗不阻擋伺服器啟動。
   await bootStep("seedDefaultMusic", () => seedDefaultMusic()).catch((err) =>
     logger.warn({ err }, "seedDefaultMusic failed; continuing without default playlist"),

@@ -12,6 +12,20 @@ import { withTestMigrationStamp } from "./migrationLock";
  * 與其他啟動遷移一樣不包 try/catch：失敗必須讓 bootstrap 大聲失敗。
  * 所有 ADD COLUMN 一次性、永不 DROP（避免 pg_attribute slot 洩漏）。
  */
+/**
+ * player_nations 的資源庫存欄位(wood/ore/ammo)。全部 ADD COLUMN IF NOT EXISTS,冪等。
+ * 單獨抽出並在啟動最前面執行:drizzle 的 select() 會列出 schema 全部欄位,欄位缺席會讓
+ * 每一個讀國家的請求直接失敗,所以這幾個欄位不能排在地圖同步等重量級步驟之後。
+ * 與其他遷移一樣,失敗會往上拋;呼叫端(index.ts)負責容錯,不讓它拖垮後面的步驟。
+ */
+export async function ensureNationResourceColumns(): Promise<void> {
+  for (const col of ["wood", "ore", "ammo"]) {
+    await db.execute(sql.raw(
+      `ALTER TABLE player_nations ADD COLUMN IF NOT EXISTS ${col} bigint NOT NULL DEFAULT 0`,
+    ));
+  }
+}
+
 export async function runResourceMigrations(): Promise<void> {
   await withTestMigrationStamp("resource", runResourceMigrationsInner);
 }
