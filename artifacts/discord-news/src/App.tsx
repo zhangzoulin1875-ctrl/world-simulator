@@ -18,6 +18,7 @@ import {
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Layout } from "@/components/layout";
+import { IntroSplash } from "@/components/intro-splash";
 import { DomesticEventGate } from "@/components/domestic-event-gate";
 import { AppErrorBoundary } from "@/components/app-error-boundary";
 import { GameMusicProvider } from "@/components/game-music-context";
@@ -249,6 +250,8 @@ function App() {
           </AppErrorBoundary>
         </WouterRouter>
         <Toaster />
+        {/* 開場動畫：蓋在整個 App 之上，點按可跳過；遊戲在底下照常載入。 */}
+        <IntroSplash />
       </TooltipProvider>
     </PersistQueryClientProvider>
   );
