@@ -9,7 +9,7 @@ import { logger } from "../logger";
 import { tierOfNation, ensureParliamentSeeded } from "./service";
 import { effectiveParliamentTier, type SeatedParty, type ParliamentStance, type ParliamentTier } from "./core";
 import {
-  needsParliamentVote, normalizeTags, tallyVote,
+  needsParliamentVote, normalizeTags, tallyVoteWithGovernment,
   type PolicyResultType, type PolicyTag, type VoteResult,
 } from "./vote";
 import type { playerNationsTable } from "@workspace/db";
@@ -30,6 +30,16 @@ export async function loadSeatedParties(nationId: string): Promise<SeatedParty[]
   }));
 }
 
+/** 讀聯合政府成員與看守旗標(表決用)。查不到就當作沒有聯合。 */
+async function loadGovernmentFlags(nationId: string): Promise<{ memberIds: string[]; caretaker: boolean }> {
+  const [rows, [st]] = await Promise.all([
+    db.select({ id: parliamentPartiesTable.id, inCoalition: parliamentPartiesTable.inCoalition })
+      .from(parliamentPartiesTable).where(eq(parliamentPartiesTable.nationId, nationId)),
+    db.select({ caretaker: parliamentStateTable.caretaker }).from(parliamentStateTable).where(eq(parliamentStateTable.nationId, nationId)),
+  ]);
+  return { memberIds: rows.filter((r) => r.inCoalition).map((r) => String(r.id)), caretaker: st?.caretaker ?? false };
+}
+
 /**
  * 該國這項政策是否需要、並完成議會表決。
  * 任何環節失敗（查不到議會、DB 錯誤）都回傳 null：寧可退回舊機制，也不能卡住結算。
@@ -48,7 +58,9 @@ export async function voteOnPolicy(
     const tier = effectiveParliamentTier(baseTier, parties);
     if (!needsParliamentVote(tier, resultType)) return null;
     const tags = normalizeTags(rawTags);
-    return { tier, tags, result: tallyVote(parties, tags) };
+    // 聯合政府:成員黨合成「執政聯盟」一票(態度為成員折衷);看守政府的通過門檻更高。
+    const gov = await loadGovernmentFlags(nation.id);
+    return { tier, tags, result: tallyVoteWithGovernment(parties, tags, gov.memberIds, { caretaker: gov.caretaker }) };
   } catch (err) {
     logger.error({ err, nationId: nation.id }, "policy parliament vote failed — falling back to dice");
     return null;

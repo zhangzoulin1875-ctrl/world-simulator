@@ -6,6 +6,8 @@ export type ParliamentAlert = "ok" | "warn" | "critical" | "revolt";
 export interface ParliamentParty {
   id: number; name: string; stance: string; stanceLabel: string;
   seats: number; color: string; isRuling: boolean;
+  /** 是否為執政聯合政府成員(含總理黨)。 */
+  inCoalition?: boolean;
   /** AI 寫的一句黨綱(尚未命名或專制時為空字串)。 */
   description?: string;
 }
@@ -26,6 +28,18 @@ export interface ParliamentView {
   /** 被議會否決、等待玩家決定的政策(沒有則 null)。 */
   pendingVeto?: PendingVeto | null;
   election?: ElectionView;
+  government?: GovernmentView;
+}
+export type CoalitionRisk = "low" | "mid" | "high";
+export interface GovernmentView {
+  enabled: boolean;
+  kind: "coalition" | "single" | "caretaker" | "none";
+  primeId: number | null;
+  members: { id: number; name: string; seats: number }[];
+  seats: number; caretaker: boolean;
+  /** 看守政府時:還要失敗幾次就提前大選。 */
+  failuresLeft: number;
+  stability: number; risk: CoalitionRisk;
 }
 export type ElectionAction = "canvass" | "bribe" | "suppress";
 export type ElectionPhase = "none" | "campaign" | "polling";

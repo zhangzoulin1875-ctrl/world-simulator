@@ -19,6 +19,7 @@ import {
 import { planParliamentTurn } from "./plan";
 import { hasElections } from "./election";
 import { runElectionIfDue } from "./electionService";
+import { reformGovernment, tickGovernment } from "./coalitionService";
 import { buildParties, partyColor, type NationFacts } from "./parties";
 import { generateParliamentMessage } from "./messageAi";
 import { generatePartyNames, isTemplateName } from "./partyNames";
@@ -96,6 +97,9 @@ export async function rebuildParties(nation: Nation, state: { tick: number }, fa
     }
     await tx.update(parliamentStateTable).set({ lastPartiesTick: state.tick }).where(eq(parliamentStateTable.nationId, nation.id));
   });
+  // 新一批政黨 → 由議會重新組閣(專制會清掉聯合旗標)。失敗不影響重組本身。
+  try { await reformGovernment(nation.id, facts.tier, state.tick); }
+  catch (err) { logger.warn({ err, nationId: nation.id }, "parliament: coalition formation after rebuild failed"); }
   // AI 命名在背景補上，不阻塞玩家請求或回合結算；失敗就保留模板名。
   if (facts.tier !== "autocracy") {
     void nameUnnamedParties(nation, prev.map((r) => r.name)).catch((err) =>
@@ -276,6 +280,12 @@ export async function settleNationParliament(
     await runElectionIfDue(nation, planTier, plan.tick);
   } catch (err) {
     logger.error({ err, nationId: nation.id }, "parliament: election failed — skipped this round");
+  }
+  // 聯合政府:看守政府的扣分與重試、聯合夥伴的裂解與倒閣。失敗只記錄,不影響結算。
+  try {
+    await tickGovernment(nation.id, planTier, plan.tick);
+  } catch (err) {
+    logger.error({ err, nationId: nation.id }, "parliament: coalition tick failed — skipped");
   }
   return { revolt: false };
 }

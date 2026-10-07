@@ -4,6 +4,7 @@ import {
   parliamentCampaignActionsTable,
 } from "@workspace/db";
 import { logger } from "../logger";
+import { reformGovernment } from "./coalitionService";
 import { loadPenaltyScale } from "../penaltyScaleLoad";
 import { clampSat, type ParliamentStance, type ParliamentTier, type SeatedParty } from "./core";
 import {
@@ -188,5 +189,12 @@ export async function runElectionIfDue(
     });
     logger.info({ nationId: nation.id, tickAfter, turnover: result.turnover }, "parliament: election held");
     return { held: true, turnover: result.turnover, newRulingName: ruling?.name ?? null };
+  }).then(async (outcome) => {
+    // 開票後由議會重新組閣(獨立交易:組閣失敗不能讓已提交的選舉結果回滾)。
+    if (outcome.held) {
+      try { await reformGovernment(nation.id, tier, tickAfter); }
+      catch (err) { logger.error({ err, nationId: nation.id }, "parliament: post-election coalition formation failed"); }
+    }
+    return outcome;
   });
 }

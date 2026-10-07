@@ -62,6 +62,16 @@ export function partyAttitude(stance: ParliamentStance, tags: readonly PolicyTag
   return score;
 }
 
+/** 政府折衷態度(與 coalition.governmentStand 同公式;放這裡避免循環引用)。 */
+const COMPROMISE_DEADZONE_V = 0.15;
+function govStandOf(members: readonly SeatedParty[], tags: readonly PolicyTag[]): { stand: VoteStand; score: number } {
+  const total = members.reduce((n, p) => n + p.seats, 0);
+  if (total <= 0) return { stand: "abstain", score: 0 };
+  const score = members.reduce((n, p) => n + Math.max(-1, Math.min(1, partyAttitude(p.stance, tags))) * p.seats, 0) / total;
+  const stand: VoteStand = score > COMPROMISE_DEADZONE_V ? "for" : score < -COMPROMISE_DEADZONE_V ? "against" : "abstain";
+  return { stand, score: Math.round(score * 100) / 100 };
+}
+
 export type VoteStand = "for" | "against" | "abstain";
 
 export interface PartyVote {
@@ -103,6 +113,46 @@ export function tallyVote(
   const seatsAbstain = sum("abstain");
   const decided = seatsFor + seatsAgainst;
   const passed = decided === 0 ? true : seatsFor > seatsAgainst;
+  const againstRatio = decided === 0 ? 0 : seatsAgainst / decided;
+  return { votes, seatsFor, seatsAgainst, seatsAbstain, passed, againstRatio };
+}
+
+/**
+ * 聯合政府版表決:成員黨合成「政府」一票(席次 = 成員席次總和,態度 = 成員折衷),
+ * 其餘反對黨照舊各自表態。沒有聯合(成員 < 2 黨)時與 tallyVote 完全等價。
+ * `caretaker` = 看守政府:贊成席需明顯多於反對席(多出有表態席次的 CARETAKER_VOTE_MARGIN)才算通過。
+ */
+export function tallyVoteWithGovernment(
+  parties: readonly SeatedParty[],
+  tags: readonly PolicyTag[],
+  memberIds: readonly string[],
+  opts: { caretaker?: boolean; marginRatio?: number } = {},
+): VoteResult {
+  const ids = new Set(memberIds);
+  const members = parties.filter((p) => ids.has(p.id));
+  if (members.length < 2 && !opts.caretaker) return tallyVote(parties, tags);
+  const cleaned = normalizeTags(tags);
+  const gov = members.length >= 2 ? govStandOf(members, cleaned) : null;
+  const votes: PartyVote[] = [];
+  if (gov) {
+    const seats = members.reduce((n, p) => n + p.seats, 0);
+    const lead = [...members].sort((a, b) => b.seats - a.seats || a.id.localeCompare(b.id))[0]!;
+    votes.push({
+      partyId: lead.id, name: `執政聯盟(${members.map((m) => m.name).join("、")})`,
+      stance: lead.stance, seats, stand: gov.stand, attitude: gov.score,
+    });
+  }
+  for (const p of parties) {
+    if (gov && ids.has(p.id)) continue;
+    const attitude = partyAttitude(p.stance, cleaned);
+    const stand: VoteStand = attitude > 0 ? "for" : attitude < 0 ? "against" : "abstain";
+    votes.push({ partyId: p.id, name: p.name, stance: p.stance, seats: p.seats, stand, attitude });
+  }
+  const sum = (st: VoteStand) => votes.filter((v) => v.stand === st).reduce((a, v) => a + v.seats, 0);
+  const seatsFor = sum("for"), seatsAgainst = sum("against"), seatsAbstain = sum("abstain");
+  const decided = seatsFor + seatsAgainst;
+  const margin = opts.caretaker ? (opts.marginRatio ?? 0.1) * decided : 0;
+  const passed = decided === 0 ? true : seatsFor - seatsAgainst > margin;
   const againstRatio = decided === 0 ? 0 : seatsAgainst / decided;
   return { votes, seatsFor, seatsAgainst, seatsAbstain, passed, againstRatio };
 }

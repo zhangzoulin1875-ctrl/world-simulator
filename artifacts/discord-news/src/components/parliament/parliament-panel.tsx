@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Landmark, Loader2, Megaphone, ScrollText, AlertTriangle, Gavel, Vote } from "lucide-react";
+import { Landmark, Loader2, Megaphone, ScrollText, AlertTriangle, Gavel, Vote, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import {
   layoutHemicycle, useParliament, useSubmitReport, useDecideVeto, useCampaign,
@@ -98,6 +98,45 @@ function VetoCard({ veto, satisfaction }: { veto: NonNullable<ParliamentView["pe
         </button>
       </div>
       <p className="mt-2 text-[11px] text-white/50">下個回合結算前不決定,視同接受否決。</p>
+    </div>
+  );
+}
+
+const RISK_LABEL = { low: "穩固", mid: "有隱憂", high: "岌岌可危" } as const;
+const RISK_STYLE = {
+  low: "border-emerald-400/40 bg-emerald-500/15 text-emerald-300",
+  mid: "border-amber-400/40 bg-amber-500/15 text-amber-300",
+  high: "border-red-400/50 bg-red-500/20 text-red-300",
+} as const;
+
+/** 執政聯合政府:議會自己組,玩家只能看。政策由成員黨折衷,看守政府施政無力。 */
+function GovernmentCard({ view }: { view: ParliamentView }) {
+  const g = view.government;
+  if (!g || !g.enabled || g.kind === "none") return null;
+  const names = g.members.map((m) => m.name).join("、");
+  return (
+    <div className="mt-4 rounded-lg border border-white/10 bg-black/30 p-3" data-testid="card-government">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm font-semibold"><Users className="h-4 w-4 text-sky-300" />
+          {g.kind === "caretaker" ? "看守政府" : g.kind === "coalition" ? "聯合政府" : "執政黨"}</div>
+        {g.kind === "coalition" ? (
+          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${RISK_STYLE[g.risk]}`} data-testid="text-coalition-risk">
+            聯盟{RISK_LABEL[g.risk]}</span>) : null}
+      </div>
+      {g.kind === "caretaker" ? (
+        <p className="text-xs text-red-300" data-testid="text-caretaker">
+          沒有任何黨能組成過半政府,由看守政府暫時執政:政策更難通過,議會滿意度每回合小幅下滑。
+          再失敗 {g.failuresLeft} 次將提前大選。</p>
+      ) : (
+        <>
+          <p className="text-xs text-white/75" data-testid="text-government-members">
+            {names}<span className="ml-1 text-white/45">合計 {g.seats} 席</span></p>
+          <p className="mt-1 text-[11px] text-white/50">
+            {g.kind === "coalition"
+              ? "聯合政府由議會自行組成,政策態度由成員黨按席次折衷。成員立場差距大時容易裂解、倒閣。"
+              : view.tier === "semi" ? "半專制由現任執政黨掌權,不需過半。" : "執政黨單獨過半。"}</p>
+        </>
+      )}
     </div>
   );
 }
@@ -250,12 +289,14 @@ export function ParliamentPanel() {
                 <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: p.color }} />
                 <span className="min-w-0 flex-1 truncate">{p.name}<span className="ml-1 text-white/45">{p.stanceLabel}</span></span>
                 {p.isRuling && <Gavel className="h-3.5 w-3.5 text-amber-300" aria-label="執政黨" />}
+                {p.inCoalition && !p.isRuling && <Users className="h-3.5 w-3.5 text-sky-300" aria-label="執政聯盟成員" />}
                 <span className="font-semibold tabular-nums">{p.seats}</span>
               </div>
               {p.description ? <p className="mt-0.5 pl-[18px] text-[11px] leading-snug text-white/50" data-testid={`text-party-desc-${p.id}`}>{p.description}</p> : null}
             </li>))}
         </ul>
 
+        <GovernmentCard view={v} />
         <ElectionCard view={v} />
 
         {autocracy ? (

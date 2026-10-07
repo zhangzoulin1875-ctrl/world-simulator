@@ -1,3 +1,4 @@
+import { reformGovernment } from "../parliament/coalitionService";
 import { and, eq, gt, sql } from "drizzle-orm";
 import {
   db,
@@ -225,6 +226,12 @@ export async function resolveEvent(
   });
 
   if (!claimed) return { ok: false, reason: "already_resolved", message: "這個事件已經處理過了" };
+
+  // 事件改寫了議會席次 → 由議會重新組閣(獨立於事件交易;失敗只記錄,不影響事件結果)。
+  if (choice.effects.parliamentShift) {
+    try { await reformGovernment(nation.id, tier, tick); }
+    catch (err) { logger.warn({ err, nationId: nation.id }, "domestic event: coalition re-formation failed"); }
+  }
 
   if (civilWar) {
     try {

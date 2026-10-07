@@ -103,3 +103,21 @@ test("半專制可操作且價格折半", async () => {
     assert.ok(["democracy", "semi"].includes(v.tier), `意外的層級 ${v.tier}`);
   }
 });
+
+test("GET 議會帶政府視圖：聯合成員旗標與穩定度；專制不啟用", async () => {
+  const { nat, cookie } = await mk("議會內閣制", 1);
+  // mk 造的是 甲 60 席(執政) + 乙 40 席：甲單獨過半
+  const { reformGovernment } = await import("../lib/parliament/coalitionService");
+  await reformGovernment(nat.id, "democracy", 1);
+  const j = await view(cookie);
+  assert.equal(j.government.enabled, true); assert.equal(j.government.kind, "single");
+  assert.deepEqual(j.government.members.map((m: any) => m.name), ["甲黨"]);
+  assert.equal(j.parties.find((p: any) => p.name === "甲黨").inCoalition, true);
+  assert.equal(j.parties.find((p: any) => p.name === "乙黨").inCoalition, false);
+  assert.equal(j.government.risk, "low");
+
+  const stamp = await mk("君主專制", 1);
+  await db.delete(parliamentPartiesTable).where(eq(parliamentPartiesTable.nationId, stamp.nat.id));
+  await db.insert(parliamentPartiesTable).values({ nationId: stamp.nat.id, name: "愛國黨", stance: "loyalist", weight: 1, seats: 100, isRuling: true });
+  assert.equal((await view(stamp.cookie)).government.enabled, false);
+});

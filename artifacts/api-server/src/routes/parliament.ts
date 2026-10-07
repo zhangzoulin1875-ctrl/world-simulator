@@ -23,6 +23,7 @@ import { submitConstitution, recoverStaleReviews } from "../lib/constitution/sub
 import { loadPenaltyScale } from "../lib/penaltyScaleLoad";
 import { loadPendingVeto, decideVeto } from "../lib/parliament/vetoDecision";
 import { buildElectionView, performCampaignAction } from "../lib/parliament/electionService";
+import { buildGovernmentView } from "../lib/parliament/coalitionService";
 import { hasElections, type ElectionAction } from "../lib/parliament/election";
 
 const router: IRouter = Router();
@@ -62,7 +63,7 @@ async function buildView(nation: typeof playerNationsTable.$inferSelect) {
     totalSeats: 100,
     parties: parties.map((p) => ({
       id: p.id, name: p.name, stance: p.stance, stanceLabel: STANCE_LABELS[p.stance as ParliamentStance] ?? p.stance,
-      seats: p.seats, color: p.color, isRuling: p.isRuling, description: p.description,
+      seats: p.seats, color: p.color, isRuling: p.isRuling, inCoalition: p.inCoalition, description: p.description,
     })),
     /** 議會對玩家說的兩種內容 */
     protest: state?.protestText ?? "",
@@ -73,6 +74,7 @@ async function buildView(nation: typeof playerNationsTable.$inferSelect) {
     } : null,
     maxPenalty: MAX_PENALTY[tier],
     election: await buildElectionView(nation, tier),
+    government: await buildGovernmentView(nationId, tier),
     report: {
       allowed: canSubmitReport(tier),
       cooldownLeft: reportCooldownLeft(tick, state?.lastReportTick ?? null),

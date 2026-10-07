@@ -41,6 +41,10 @@ export const parliamentStateTable = pgTable(
     lastPartiesTick: integer("last_parties_tick"),
     /** 上次大選時的議會 tick;null = 從未舉行(下次大選以 0 為基準)。 */
     lastElectionTick: integer("last_election_tick"),
+    /** 看守政府:沒有任何黨能組成過半聯合時為 true(政策表決門檻升高、議會滿意度每回合小扣)。 */
+    caretaker: boolean("caretaker").notNull().default(false),
+    /** 連續組閣失敗次數;達上限就提前大選。 */
+    formationFailures: integer("formation_failures").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
       .$onUpdate(() => new Date()),
@@ -74,7 +78,10 @@ export const parliamentPartiesTable = pgTable(
     seats: integer("seats").notNull().default(0),
     /** 顯示顏色（#rrggbb）。 */
     color: text("color").notNull().default("#888888"),
+    /** 總理黨(聯合政府中席次最多者;單黨政府就是它自己)。 */
     isRuling: boolean("is_ruling").notNull().default(false),
+    /** 是否為執政聯合政府成員(含總理黨)。 */
+    inCoalition: boolean("in_coalition").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({

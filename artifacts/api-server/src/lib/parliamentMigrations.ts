@@ -72,6 +72,11 @@ export async function runParliamentMigrationsInner(
   await executor.execute(sql`ALTER TABLE parliament_state ADD COLUMN IF NOT EXISTS prev_army_pop text`);
   await executor.execute(sql`ALTER TABLE parliament_state ADD COLUMN IF NOT EXISTS prev_policy_count integer`);
   await executor.execute(sql`ALTER TABLE parliament_state ADD COLUMN IF NOT EXISTS last_election_tick integer`);
+  await executor.execute(sql`ALTER TABLE parliament_state ADD COLUMN IF NOT EXISTS caretaker boolean NOT NULL DEFAULT false`);
+  await executor.execute(sql`ALTER TABLE parliament_state ADD COLUMN IF NOT EXISTS formation_failures integer NOT NULL DEFAULT 0`);
+  await executor.execute(sql`ALTER TABLE parliament_parties ADD COLUMN IF NOT EXISTS in_coalition boolean NOT NULL DEFAULT false`);
+  // 既有存檔:把現在的總理黨(is_ruling)補成單黨政府成員,避免升級後有些國家完全沒有聯合成員。
+  await executor.execute(sql`UPDATE parliament_parties SET in_coalition = true WHERE is_ruling = true AND in_coalition = false`);
   await executor.execute(sql`
     CREATE TABLE IF NOT EXISTS parliament_campaign_actions (
       id serial PRIMARY KEY,
