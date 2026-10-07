@@ -19,6 +19,8 @@ export const MAJORITY_SEATS = Math.floor(PARLIAMENT_TOTAL_SEATS / 2) + 1;
 export const MAX_FORMATION_FAILURES = 3;
 /** 看守政府每回合扣的議會滿意度。 */
 export const CARETAKER_SAT_PENALTY = 1;
+/** 看守政府的扣分下限:滿意度只會被它磨到這個值,更低要靠別的原因(戰敗、政策被否決…)。 */
+export const CARETAKER_SAT_FLOOR = 20;
 /** 聯合倒閣(席次跌破過半)時扣的議會滿意度。 */
 export const COLLAPSE_SAT_PENALTY = 10;
 /** 立場相容度低於此值的黨不會被拉進聯合。 */
@@ -70,7 +72,7 @@ export interface CoalitionResult {
   ok: boolean;
 }
 
-const byStrength = (a: SeatedParty, b: SeatedParty) => b.seats - a.seats || a.id.localeCompare(b.id);
+const byStrength = (a: SeatedParty, b: SeatedParty) => b.seats - a.seats || Number(a.id) - Number(b.id) || a.id.localeCompare(b.id);
 
 /**
  * 組閣(確定性):最大黨當組閣者;單獨過半就直接執政;

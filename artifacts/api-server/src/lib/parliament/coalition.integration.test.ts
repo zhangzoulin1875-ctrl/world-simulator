@@ -199,3 +199,19 @@ test("政策表決：看守政府通過門檻更高", async () => {
   await db.update(parliamentStateTable).set({ caretaker: true }).where(eq(parliamentStateTable.nationId, nat.id));
   assert.equal((await voteOnPolicy(nat, "policy", tags))!.result.passed, false, "看守政府差距不到 10% 不通過");
 });
+
+test("看守政府只會把滿意度磨到下限（20），不會單靠它逼出 0 滿意度革命", async () => {
+  const { CARETAKER_SAT_FLOOR } = await import("./coalition");
+  const { nat } = await mk("議會內閣制", [["甲", "militarist", 25], ["乙", "militarist", 25], ["丙", "pacifist", 25], ["丁", "pacifist", 25]], 5, CARETAKER_SAT_FLOOR + 2);
+  await reformGovernment(nat.id, "democracy", 5);
+  assert.equal((await st(nat.id)).caretaker, true, "前提：這個席次組不成政府");
+  for (let t = 6; t < 16; t++) await tickGovernment(nat.id, "democracy", t);
+  assert.equal((await st(nat.id)).satisfaction, CARETAKER_SAT_FLOOR, "磨到下限就停");
+});
+
+test("看守政府不會把低於下限的滿意度再往下拉（別的原因造成的低點不受影響）", async () => {
+  const { nat } = await mk("議會內閣制", [["甲", "militarist", 25], ["乙", "militarist", 25], ["丙", "pacifist", 25], ["丁", "pacifist", 25]], 5, 8);
+  await reformGovernment(nat.id, "democracy", 5);
+  await tickGovernment(nat.id, "democracy", 6);
+  assert.equal((await st(nat.id)).satisfaction, 8, "已在下限以下：看守不再扣分，也不會把它拉高");
+});

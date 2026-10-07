@@ -5,7 +5,7 @@
  * 全部以「預告先寫入、到期才執行」為原則;單一預告的執行包在交易裡,先以 planned→executed 條件更新搶占,
  * 並行/重跑都不會重複套用。任何一步失敗只記 log,不中斷回合。
  */
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, lte, sql } from "drizzle-orm";
 import {
   db, intlOrgsTable, intlOrgPlansTable, playerNationsTable, parliamentStateTable, parliamentPartiesTable,
   parliamentLogTable, diplomacyWarsTable,
@@ -256,7 +256,12 @@ export async function runIntlOrgSettlement(
 
       // 4) 決策日:寫新預告
       if (tick >= org.nextDecisionTick) {
-        await db.update(intlOrgsTable).set({ nextDecisionTick: tick + DECISION_EVERY_TURNS }).where(eq(intlOrgsTable.id, org.id));
+        // 原子搶佔決策日:兩個實例/重試同時結算時,只有真的把 next_decision_tick 往後推的那一個
+        // 會繼續決策,另一個拿到 0 筆就跳過,不會在同一個決策週期寫出兩批預告。
+        const claimedDay = await db.update(intlOrgsTable).set({ nextDecisionTick: tick + DECISION_EVERY_TURNS })
+          .where(and(eq(intlOrgsTable.id, org.id), lte(intlOrgsTable.nextDecisionTick, tick)))
+          .returning({ id: intlOrgsTable.id });
+        if (claimedDay.length === 0) continue;
         const ctx: DecisionContext = {
           influence, nations: sits, lastTargetedTick: await lastTargeted(org.id),
           alreadyPlanned: (await plannedFor(org.id)).map((p) => p.targetNationId).filter((x): x is string => !!x), tick,

@@ -9,7 +9,7 @@ import { db, parliamentStateTable, parliamentPartiesTable, parliamentLogTable } 
 import { logger } from "../logger";
 import { clampSat, type ParliamentStance, type ParliamentTier, type SeatedParty } from "./core";
 import {
-  CARETAKER_SAT_PENALTY, COLLAPSE_SAT_PENALTY, MAJORITY_SEATS, MAX_FORMATION_FAILURES,
+  CARETAKER_SAT_FLOOR, CARETAKER_SAT_PENALTY, COLLAPSE_SAT_PENALTY, MAJORITY_SEATS, MAX_FORMATION_FAILURES,
   coalitionRisk, coalitionStability, formCoalition, rollDefections, semiCoalition,
   type CoalitionRisk, type Rng,
 } from "./coalition";
@@ -127,7 +127,8 @@ export async function tickGovernment(
   if (!st) return idle;
 
   if (st.caretaker) {
-    const after = clampSat(st.satisfaction - CARETAKER_SAT_PENALTY);
+    // 看守政府只會把滿意度磨到 CARETAKER_SAT_FLOOR 為止,不會單靠它把國家逼進 0 滿意度革命。
+    const after = clampSat(Math.max(Math.min(st.satisfaction, CARETAKER_SAT_FLOOR), st.satisfaction - CARETAKER_SAT_PENALTY));
     const delta = after - st.satisfaction;
     if (delta !== 0) {
       await db.transaction(async (tx) => {

@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 const { eq, like, and, isNull, sql } = await import("drizzle-orm");
 const { db, pool, playerNationsTable, regionControlsTable, diplomacyWarsTable, parliamentStateTable, parliamentPartiesTable, parliamentLogTable, territoryChangeHistoryTable } = await import("@workspace/db");
 const { runParliamentMigrations } = await import("../parliamentMigrations");
-const { settleNationParliament, runParliamentSettlement, ensureParliamentSeeded } = await import("./service");
+const { settleNationParliament, runParliamentSettlement, ensureParliamentSeeded, applyRevolution } = await import("./service");
 
 const MARK = "ParlT"; const run = randomBytes(3).toString("hex");
 const made: string[] = [];
@@ -89,6 +89,36 @@ test("革命(單一領地)：割 40% 給 NPC 分裂政權、對玩家宣戰、�
   assert.ok(hist.some((h) => h.changeType === "revolution"));
   const s = await st(n.id);
   assert.equal(s.satisfaction, 40, "革命後回到 40"); assert.equal(s.revolutions, 1); assert.equal(s.activeDemand, null);
+});
+
+test("applyRevolution：看守狀態與失敗次數被清掉，不會把國家卡死在 0 滿意度", async () => {
+  const [rid] = await freeRegions(1); assert.ok(rid, "需要一塊空地區");
+  const n = await mkNation("議會內閣制");
+  await db.insert(regionControlsTable).values({ regionId: rid!, nationId: n.id, percent: 100 });
+  await db.insert(parliamentStateTable).values({ nationId: n.id, satisfaction: 0, tick: 5, lastPartiesTick: 4,
+    caretaker: true, formationFailures: 2 }).onConflictDoNothing();
+  await applyRevolution(await fresh(n.id), 5);
+  const s = await st(n.id);
+  assert.equal(s.caretaker, false, "革命後不再是看守狀態");
+  assert.equal(s.formationFailures, 0, "失敗次數歸零,下個結算重新組閣");
+});
+
+test("看守政府單獨造成的扣分有下限：滿意度從下限附近起算，看守不再往下磨", async () => {
+  const n = await mkNation("議會內閣制");
+  // 滿意度已在看守下限(20)之下:看守政府不應再讓它變低(其他原因如逾期要求、無憲法另計)。
+  await db.insert(parliamentStateTable).values({ nationId: n.id, satisfaction: 19, tick: 5, lastPartiesTick: 4,
+    caretaker: true, formationFailures: 1 }).onConflictDoNothing();
+  await db.insert(parliamentPartiesTable).values([
+    { nationId: n.id, name: "甲", stance: "militarist", weight: 25, seats: 25 },
+    { nationId: n.id, name: "乙", stance: "militarist", weight: 25, seats: 25 },
+    { nationId: n.id, name: "丙", stance: "pacifist", weight: 25, seats: 25 },
+    { nationId: n.id, name: "丁", stance: "pacifist", weight: 25, seats: 25 },
+  ]);
+  for (let i = 0; i < 6; i++) await settleNationParliament(await fresh(n.id), null, 0);
+  const lg = await db.select().from(parliamentLogTable).where(eq(parliamentLogTable.nationId, n.id));
+  const caretakerDrain = lg.filter((l) => l.kind === "coalition" && l.satDelta < 0);
+  assert.equal(caretakerDrain.length, 0, "已在下限以下:看守政府沒有再扣任何分");
+  assert.equal((await st(n.id)).caretaker, true, "前提:這批席次一直組不成政府");
 });
 
 test("專制即使議會滿意度 0 也不革命（靠軍方，不靠議會）", async () => {

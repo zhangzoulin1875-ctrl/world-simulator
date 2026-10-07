@@ -28,7 +28,26 @@ function InfluenceBar({ value, actions }: { value: number; actions: OrgDetail["a
   );
 }
 
-function OrgBlock({ o }: { o: OrgDetail }) {
+/** 後端欄位暫時缺失(部署交替、舊版快取)時補預設值,避免整個分頁因讀 undefined 白屏。 */
+function normalizeOrg(raw: OrgDetail): OrgDetail {
+  return {
+    ...raw,
+    actions: raw.actions ?? [],
+    forYou: raw.forYou ?? [],
+    elsewhere: raw.elsewhere ?? [],
+    worldRecent: raw.worldRecent ?? [],
+    recent: raw.recent ?? [],
+    stats: {
+      executedTotal: raw.stats?.executedTotal ?? 0,
+      fizzled: raw.stats?.fizzled ?? 0,
+      plannedTotal: raw.stats?.plannedTotal ?? 0,
+      targetingYou: raw.stats?.targetingYou ?? 0,
+    },
+  };
+}
+
+function OrgBlock({ o: raw }: { o: OrgDetail }) {
+  const o = normalizeOrg(raw);
   return (
     <section className="rounded-xl border border-white/10 bg-black/40 p-4 backdrop-blur" data-testid={`panel-org-${o.slug}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -110,6 +129,6 @@ export function IntlOrgsPanel() {
     <div className="flex items-center justify-center gap-2 py-10 text-sm text-white/70" data-testid="state-orgs-loading">
       <Loader2 className="h-4 w-4 animate-spin" />載入國際組織…</div>);
   if (isError || !data) return <p className="py-10 text-center text-sm text-white/60" data-testid="state-orgs-error">讀取國際組織資料失敗,請稍後再試。</p>;
-  if (data.orgs.length === 0) return <p className="py-10 text-center text-sm text-white/60" data-testid="state-orgs-empty">目前世界上沒有活躍的國際組織。</p>;
+  if (!data.orgs || data.orgs.length === 0) return <p className="py-10 text-center text-sm text-white/60" data-testid="state-orgs-empty">目前世界上沒有活躍的國際組織。</p>;
   return <div className="mt-1 space-y-4" data-testid="panel-intl-orgs">{data.orgs.map((o) => <OrgBlock key={o.slug} o={o} />)}</div>;
 }

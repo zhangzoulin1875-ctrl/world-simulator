@@ -168,3 +168,69 @@ test("完整結算：議會 tick 推到大選日就自動開票，且不再被�
   await settleNationParliament(await fresh(nat.id), null, 0);
   assert.deepEqual((await parties(nat.id)).map((p) => p.name).sort(), names);
 });
+
+/** 本機測試用的 PGlite 不提供 SELECT…FOR UPDATE 的互斥(實測三個並發交易全讀到同一個舊值)。
+ *  真 Postgres(Aiven)上鎖會序列化。這個探針在不支援時讓「靠鎖」的並發測試跳過,不寫死必掛的斷言。 */
+async function rowLocksWork(): Promise<boolean> {
+  const { sql } = await import("drizzle-orm");
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS _lockprobe_el (id int primary key, v int)`);
+  await db.execute(sql`INSERT INTO _lockprobe_el VALUES (1,0) ON CONFLICT DO NOTHING`);
+  await db.execute(sql`UPDATE _lockprobe_el SET v=0`);
+  const job = () => db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT * FROM _lockprobe_el WHERE id=1 FOR UPDATE`);
+    const r: any = await tx.execute(sql`SELECT v FROM _lockprobe_el WHERE id=1`);
+    const v = Number((r.rows ?? r)[0].v);
+    await new Promise((res) => setTimeout(res, 40));
+    await tx.execute(sql`UPDATE _lockprobe_el SET v=${v + 1} WHERE id=1`);
+  });
+  await Promise.all([job(), job(), job()]);
+  const r: any = await db.execute(sql`SELECT v FROM _lockprobe_el WHERE id=1`);
+  await db.execute(sql`DROP TABLE _lockprobe_el`);
+  return Number((r.rows ?? r)[0].v) === 3;
+}
+const SKIP_LOCK = "此資料庫不支援列鎖互斥(PGlite);請在真 Postgres 上驗證";
+
+test("並發：不同黨／不同招同時送出，也不能衝破每屆 8 次上限", async (t) => {
+  if (!(await rowLocksWork())) return t.skip(SKIP_LOCK);
+  const nat = await mk(); const ps = await seed(nat.id, CAMP);
+  // 3 黨 × 3 招 = 9 種互不衝突的組合,全部同時送出;每屆上限 8、每黨上限 3。
+  const jobs: Promise<unknown>[] = [];
+  for (const p of ps) for (const a of ["canvass", "bribe", "suppress"] as const) jobs.push(performCampaignAction(nat, "democracy", String(p.id), a, NEVER));
+  const res = (await Promise.all(jobs)) as Array<{ ok: boolean }>;
+  assert.equal(res.filter((r) => r.ok).length, 8, "最多只成功 8 筆");
+  assert.equal((await acts(nat.id)).length, 8, "資料庫裡也只有 8 筆");
+});
+
+test("並發：同一黨同時送三招以上，不能超過每黨 3 次", async (t) => {
+  if (!(await rowLocksWork())) return t.skip(SKIP_LOCK);
+  const nat = await mk(); const ps = await seed(nat.id, CAMP);
+  const id = String(ps[0]!.id);
+  const res = await Promise.all((["canvass", "bribe", "suppress"] as const).map((a) => performCampaignAction(nat, "democracy", id, a, NEVER)));
+  assert.equal(res.filter((r) => r.ok).length, 3);
+  const extra = await performCampaignAction(nat, "democracy", id, "canvass", NEVER);
+  assert.ok(!extra.ok);
+});
+
+test("並發被抓：兩筆扣分都要落地，不會被舊值互相覆蓋", async (t) => {
+  if (!(await rowLocksWork())) return t.skip(SKIP_LOCK);
+  setPenaltyScaleForTest(1);
+  const nat = await mk(); const ps = await seed(nat.id, CAMP, null, 60);
+  const [a, b] = await Promise.all([
+    performCampaignAction(nat, "democracy", String(ps[0]!.id), "bribe", ALWAYS),
+    performCampaignAction(nat, "democracy", String(ps[1]!.id), "bribe", ALWAYS),
+  ]);
+  assert.ok(a.ok && b.ok && a.caught && b.caught);
+  const { CAUGHT_SAT_PENALTY } = await import("./election");
+  assert.equal((await st(nat.id)).satisfaction, 60 - CAUGHT_SAT_PENALTY.bribe * 2, "兩次扣分累加");
+});
+
+test("舊國家（議會已走一段、沒有任何選舉紀錄）升級後：補選舉基準，有完整競選期而不是直接開票", async () => {
+  const nat = await mk();
+  await seed(nat.id, 26, null);   // 舊存檔：tick 26、last_election_tick 為空
+  await settleNationParliament(nat, null, 0);
+  const s = await st(nat.id);
+  assert.equal(s.lastElectionTick, 24, "基準補成已過的最近一個 12 的倍數");
+  const v = await buildElectionView(await fresh(nat.id), "democracy");
+  assert.notEqual(v.phase, "polling", "不該一升級就進入開票");
+  assert.ok(v.turnsUntil > 0);
+});

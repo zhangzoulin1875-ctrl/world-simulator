@@ -17,7 +17,7 @@ import {
   type ParliamentStance, type ParliamentTier,
 } from "./core";
 import { planParliamentTurn } from "./plan";
-import { hasElections } from "./election";
+import { ELECTION_INTERVAL, hasElections } from "./election";
 import { runElectionIfDue } from "./electionService";
 import { reformGovernment, tickGovernment } from "./coalitionService";
 import { buildParties, partyColor, type NationFacts } from "./parties";
@@ -44,6 +44,15 @@ export async function tierOfNation(n: Pick<Nation, "government">): Promise<{ tie
 async function ensureState(nationId: string) {
   await db.insert(parliamentStateTable).values({ nationId, satisfaction: PARLIAMENT_SATISFACTION_START }).onConflictDoNothing();
   const [s] = await db.select().from(parliamentStateTable).where(eq(parliamentStateTable.nationId, nationId));
+  // 升級前就存在的國家:議會已走了一段,卻沒有任何選舉紀錄。若放著不管,
+  // 「tick >= 0+12」會讓它第一次結算就直接開票,玩家完全沒有競選期。
+  // 把基準補成「已過的最近一個 12 的倍數」,讓它自然接進現行週期(有完整的 3 回合競選期)。
+  if (s && s.lastElectionTick === null && s.tick >= ELECTION_INTERVAL) {
+    const base = Math.floor(s.tick / ELECTION_INTERVAL) * ELECTION_INTERVAL;
+    await db.update(parliamentStateTable).set({ lastElectionTick: base })
+      .where(and(eq(parliamentStateTable.nationId, nationId), isNull(parliamentStateTable.lastElectionTick)));
+    return { ...s, lastElectionTick: base };
+  }
   return s!;
 }
 
@@ -301,6 +310,13 @@ export async function applyRevolution(
   await db.transaction(async (tx) => {
     const r = await startCivilWar(tx, nation, ideology, tick, label);
     if (r.started) landSplit = true;
+    // 革命後舊的看守狀態不能延續:同一批組不成閣的席次會讓看守政府每回合扣分、
+    // 把滿意度重新磨到 0,而已在內戰時第二次革命會被拒絕,國家就此卡死。
+    // 清掉看守與失敗次數,下個結算會用現有席次重新組閣。
+    if (r.started) {
+      await tx.update(parliamentStateTable).set({ caretaker: false, formationFailures: 0 })
+        .where(eq(parliamentStateTable.nationId, nation.id));
+    }
     if (r.started || r.reason === "already_civil_war") return;
     // 沒有土地可切:後備處置 = 直接更替政體(維持原本行為)
     await tx.update(playerNationsTable)

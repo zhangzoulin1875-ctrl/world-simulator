@@ -255,3 +255,14 @@ test("時代基礎影響力：影響力低於基礎值時，結算會往基礎�
   const after = (await org()).influence;
   assert.ok(after > 4, `影響力應上升，實際 ${after}`);
 });
+
+test("決策日原子搶佔：兩個結算同時進行，同一個決策週期只寫一批預告", async () => {
+  await cleanPlans();
+  const a = track(await mk(HOT)); const b = track(await mk(HOT));
+  await setOrg({ tick: 200, influence: 80, nextDecisionTick: 201, setbacks: 0 });
+  await Promise.all([runIntlOrgSettlement(), runIntlOrgSettlement()]);
+  const o = await org();
+  const mine = (await plans()).filter((p) => p.targetNationId === a.id || p.targetNationId === b.id);
+  assert.ok(mine.length <= 2, `同一決策週期最多 2 個目標，實際 ${mine.length}`);
+  assert.ok(o.nextDecisionTick >= 201 + 1, "決策日已往後推");
+});

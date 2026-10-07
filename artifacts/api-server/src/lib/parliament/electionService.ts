@@ -96,7 +96,16 @@ export async function performCampaignAction(
   const penalty = caught ? CAUGHT_SAT_PENALTY[action] : 0;
 
   const outcome = await db.transaction(async (tx) => {
-    // 交易內重查,擋住大部分重複操作(次數上限、同黨同招)。
+    // 先鎖住這個國家的議會狀態列:同一國的競選操作在此排隊,
+    // 否則兩個並發請求會同時看到「還剩一次」,各自插入不同(黨,招式)而衝破每屆/每黨次數上限。
+    // 鎖定後重讀最新的滿意度與回合,扣分也以鎖內的最新值為準(不會用交易外讀到的舊值覆蓋別人剛扣的分)。
+    const [locked] = await tx.select().from(parliamentStateTable)
+      .where(eq(parliamentStateTable.nationId, nation.id)).for("update");
+    if (!locked) return { kind: "refused" as const, error: "議會尚未建立" };
+    if (electionPhase(tier, locked.tick, locked.lastElectionTick) !== "campaign") {
+      return { kind: "refused" as const, error: "目前不在競選期" };
+    }
+    // 交易內重查(已在鎖內,不會再被並發繞過):次數上限、同黨同招。
     const existing = (await tx.select().from(parliamentCampaignActionsTable).where(and(
       eq(parliamentCampaignActionsTable.nationId, nation.id), eq(parliamentCampaignActionsTable.electionTick, due),
     ))).map(toAction);
@@ -119,10 +128,10 @@ export async function performCampaignAction(
     }
     let satAfter: number | null = null;
     if (penalty > 0) {
-      satAfter = clampSat(st.satisfaction - penalty);
+      satAfter = clampSat(locked.satisfaction - penalty);
       await tx.update(parliamentStateTable).set({ satisfaction: satAfter }).where(eq(parliamentStateTable.nationId, nation.id));
       await tx.insert(parliamentLogTable).values({
-        nationId: nation.id, tick: st.tick, kind: "election",
+        nationId: nation.id, tick: locked.tick, kind: "election",
         summary: `${ACTION_LABELS[action]}「${party.name}」的行動敗露,議會譁然。`, satDelta: -penalty,
       });
     }
