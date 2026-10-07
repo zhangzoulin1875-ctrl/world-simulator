@@ -40,7 +40,7 @@ export function describeNation(code: string, n: NationSituation): string {
 /** 建 prompt 與代號對照表。候選 = 非內戰國中動盪度最高的 AI_MAX_CANDIDATES 個(平手以 nationId 決勝,確定性)。 */
 export function buildDecisionPrompt(ctx: DecisionContext, brief: OrgBrief): { prompt: string; anon: AnonNation[] } {
   const ranked = [...ctx.nations]
-    .filter((n) => !n.inCivilWar)
+    .filter((n) => !n.inCivilWar && !n.aligned)
     .sort((a, b) => unrest(b) - unrest(a) || a.nationId.localeCompare(b.nationId))
     .slice(0, AI_MAX_CANDIDATES);
   const anon: AnonNation[] = ranked.map((n, i) => ({ code: `N${i + 1}`, nationId: n.nationId }));

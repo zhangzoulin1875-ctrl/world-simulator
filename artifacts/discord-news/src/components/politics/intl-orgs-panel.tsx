@@ -43,7 +43,8 @@ function OrgBlock({ o }: { o: OrgDetail }) {
 
       <p className="mt-2 text-xs text-white/65">{ATTENTION_ADVICE[o.attention]}</p>
       <p className="mt-1 text-[11px] text-white/40">
-        這是世界級的獨立勢力,不受任何玩家控制,也無法結盟或收買。它大約每 {o.decisionEvery} 回合重新盤算一次,行動會提前至少 2 回合預告。</p>
+        這是世界級的獨立勢力,不受任何玩家控制,也無法結盟或收買。它大約每 {o.decisionEvery} 回合重新盤算一次,行動會提前至少 2 回合預告。
+        {o.ideology === "red" ? "同路人(委員會制、社會主義委員會)不會成為它的目標。" : ""}</p>
 
       <InfluenceBar value={o.influence} actions={o.actions} />
       <ul className="mt-2 grid gap-1 sm:grid-cols-2" data-testid={`list-org-actions-${o.slug}`}>

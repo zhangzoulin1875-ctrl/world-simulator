@@ -41,8 +41,8 @@ export async function decideWithAi(
   timeoutMs: number = AI_DECISION_TIMEOUT_MS,
 ): Promise<DecideResult> {
   const fallback = (): DecideResult => ({ decisions: ruleBasedDecision(ctx), source: "rule" });
-  // 沒有任何國家可選(或全是內戰)就不必花 AI
-  if (ctx.nations.every((n) => n.inCivilWar)) return { decisions: [], source: "rule" };
+  // 沒有任何國家可選(全是內戰或同路人)就不必花 AI
+  if (ctx.nations.every((n) => n.inCivilWar || n.aligned)) return { decisions: [], source: "rule" };
   try {
     const eraSlug = await getCurrentEraSlug();
     const { prompt, anon } = buildDecisionPrompt(ctx, { ideology: org.ideology, eraSlug });

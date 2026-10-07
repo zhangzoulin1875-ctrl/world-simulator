@@ -47,13 +47,31 @@ export function actionPower(influence: number): number {
 }
 
 // ── 世界局勢 → 影響力 ──────────────────────────────────────────────────
-/** 時代對影響力的「自然上限」:古代很低,工業之後才可能衝高。未知時代給中間值。 */
-export const ERA_INFLUENCE_CAP: Readonly<Record<string, number>> = {
-  ancient: 20, classical: 30, medieval: 40, renaissance: 55, industrial: 85, modern: 100,
+/**
+ * 時代對影響力的兩條線(slug 必須與 mapRegionEras.ERAS 一致,測試會鎖住):
+ *  - 基礎值(base):就算世界很太平,組織在這個時代也至少有的底子;影響力不會低於它。
+ *  - 上限(cap):世界極度動盪時能衝到的高度。
+ * 17 世紀(discovery 大航海)基礎 18:能做宣傳、還沒到資助(30)。
+ */
+export const ERA_INFLUENCE: Readonly<Record<string, { base: number; cap: number }>> = {
+  classical: { base: 5, cap: 20 },
+  roman: { base: 6, cap: 24 },
+  early_medieval: { base: 7, cap: 28 },
+  high_medieval: { base: 8, cap: 34 },
+  renaissance: { base: 12, cap: 40 },
+  discovery: { base: 18, cap: 50 },
+  scientific: { base: 22, cap: 58 },
+  enlightenment: { base: 28, cap: 66 },
+  industrial: { base: 35, cap: 78 },
+  ww1: { base: 42, cap: 86 },
+  ww2: { base: 48, cap: 92 },
+  cold_war: { base: 60, cap: 100 },
+  modern: { base: 60, cap: 100 },
+  future: { base: 60, cap: 100 },
 };
-export function eraCap(eraSlug: string): number {
-  return ERA_INFLUENCE_CAP[eraSlug] ?? 50;
-}
+const UNKNOWN_ERA = { base: INFLUENCE_START, cap: 50 };
+export const eraCap = (eraSlug: string): number => (ERA_INFLUENCE[eraSlug] ?? UNKNOWN_ERA).cap;
+export const eraBase = (eraSlug: string): number => (ERA_INFLUENCE[eraSlug] ?? UNKNOWN_ERA).base;
 
 /** 單一國家對組織的「可乘之機」摘要(公式輸入,不含任何名稱)。 */
 export interface NationSituation {
@@ -67,6 +85,8 @@ export interface NationSituation {
   /** 是否已在內戰中。 */
   inCivilWar: boolean;
   isPlayer: boolean;
+  /** 已是該組織的同路人(共產國際 vs 委員會制/社會主義委員會):組織不干涉。省略 = false。 */
+  aligned?: boolean;
 }
 
 /** 國家的「動盪度」0–1:議會越不滿、穩定度越低、極端黨越強、打仗,越高。 */
@@ -83,9 +103,12 @@ const clampPct = (v: number) => Math.max(0, Math.min(100, v));
  * 目標值 = 時代上限 × 世界平均動盪度(動盪的世界組織才有空間),被打擊(failures)時再扣。
  */
 export function nextInfluence(current: number, eraSlug: string, avgUnrest: number, setbacks = 0): number {
-  const target = Math.max(INFLUENCE_START, eraCap(eraSlug) * (0.4 + 0.6 * Math.max(0, Math.min(1, avgUnrest))));
+  const u = Math.max(0, Math.min(1, avgUnrest));
+  const base = eraBase(eraSlug);
+  const target = Math.max(base, eraCap(eraSlug) * (0.4 + 0.6 * u));
   const step = Math.max(-3, Math.min(3, target - current));
-  return clampInfluence(current + step - setbacks);
+  // 挫折最多把它壓到「時代基礎值」,不會被打回零:這個時代它至少有這點底子
+  return clampInfluence(Math.max(base, current + step - setbacks));
 }
 
 // ── 目標資格與效果(全部公式) ────────────────────────────────────────
@@ -97,6 +120,7 @@ export function actionAllowedOn(action: OrgAction, n: NationSituation, influence
   if (action === "idle") return true;
   if (influence < ACTION_MIN_INFLUENCE[action]) return false;
   if (n.inCivilWar) return false; // 已在內戰的國家不再被干涉
+  if (n.aligned) return false; // 同路人(例如共產國家)不干涉
   if (action === "subvert") {
     return n.parliamentSat !== null && n.parliamentSat <= SUBVERT_MAX_PARLIAMENT_SAT && n.radicalSeatShare >= SUBVERT_MIN_RADICAL_SEATS;
   }
@@ -210,7 +234,7 @@ export const RULE_UNREST_THRESHOLD = 0.45;
 export function ruleBasedDecision(ctx: DecisionContext): Decision[] {
   const ranked = [...ctx.nations]
     .map((n) => ({ n, u: unrest(n) }))
-    .filter((x) => x.u >= RULE_UNREST_THRESHOLD && !x.n.inCivilWar)
+    .filter((x) => x.u >= RULE_UNREST_THRESHOLD && !x.n.inCivilWar && !x.n.aligned)
     .sort((a, b) => b.u - a.u || a.n.nationId.localeCompare(b.n.nationId));
   const order: OrgAction[] = ["subvert", "strikes", "funding", "propaganda"];
   const raw: Decision[] = [];
@@ -224,6 +248,7 @@ export function ruleBasedDecision(ctx: DecisionContext): Decision[] {
 /** 預告要給玩家看的「關注程度」:這個國家在組織眼中的位置。 */
 export type Attention = "high" | "watched" | "none";
 export function attentionOf(nationId: string, plans: readonly Pick<Plan, "targetNationId" | "status">[], n: NationSituation | undefined): Attention {
+  if (n?.aligned) return "none"; // 同路人不在它的視野裡
   if (plans.some((p) => p.status === "planned" && p.targetNationId === nationId)) return "high";
   if (n && unrest(n) >= RULE_UNREST_THRESHOLD) return "watched";
   return "none";

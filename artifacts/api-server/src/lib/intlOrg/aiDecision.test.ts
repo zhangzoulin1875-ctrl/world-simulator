@@ -78,3 +78,11 @@ test("整合：AI 超過 2 個目標被截斷；同國重複被去重", () => {
   const out = resolveAiDecisions(raw, anon, ctx(nations));
   assert.equal(out.length, 2); assert.equal(new Set(out.map((d) => d.targetNationId)).size, 2);
 });
+
+test("同路人（共產國家）不進 AI 候選；AI 硬要選也會被擋", () => {
+  const nations = [N("red", { ...HOT, aligned: true }), N("other", HOT)];
+  const { anon, prompt } = buildDecisionPrompt(ctx(nations), brief);
+  assert.deepEqual(anon.map((a) => a.nationId), ["other"]);
+  assert.ok(!prompt.includes("N2"), "只剩一個候選");
+  assert.deepEqual(guardDecisions([{ targetNationId: "red", action: "propaganda" }], ctx(nations)), []);
+});

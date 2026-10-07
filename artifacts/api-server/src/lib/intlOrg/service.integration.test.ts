@@ -13,9 +13,9 @@ import { PLAN_LEAD_TURNS, DECISION_EVERY_TURNS, INFLUENCE_START } from "./core";
 
 /** 國際組織 — 真資料庫整合測試。 */
 const MARK = "OrgT"; const run = randomBytes(3).toString("hex"); let n = 0;
-async function mk(o: { sat?: number; stab?: number; npc?: boolean; leftSeats?: number } = {}) {
+async function mk(o: { sat?: number; stab?: number; npc?: boolean; leftSeats?: number; gov?: string } = {}) {
   const [nat] = await db.insert(playerNationsTable).values({
-    discordUserId: `og-${run}-${n}`, name: `${MARK}${run}${n++}`, leaderName: "t", government: "議會內閣制",
+    discordUserId: `og-${run}-${n}`, name: `${MARK}${run}${n++}`, leaderName: "t", government: o.gov ?? "議會內閣制",
     money: 100_000, stability: o.stab ?? 70, isNpc: o.npc ?? false,
   } as any).returning();
   await db.insert(parliamentStateTable).values({ nationId: nat!.id, tick: 5, satisfaction: o.sat ?? 70, lastPartiesTick: 5 });
@@ -173,7 +173,9 @@ test("冷卻：剛被針對過的國家，決策日不會再被排預告", async
 test("已在內戰的國家不會被排預告", async () => {
   await cleanPlans();
   const a = track(await mk(HOT)); const b = track(await mk({ npc: true }));
-  await db.insert(diplomacyWarsTable).values({ nationAId: a.id, nationBId: b.id, declaredByNationId: b.id, isCivilWar: true } as any);
+  // 資料表有 CHECK (nation_a_id < nation_b_id)：雙方必須依 id 大小排序，否則約一半機率違反約束
+  const [lo, hi] = a.id < b.id ? [a.id, b.id] : [b.id, a.id];
+  await db.insert(diplomacyWarsTable).values({ nationAId: lo, nationBId: hi, declaredByNationId: b.id, isCivilWar: true } as any);
   await setOrg({ tick: 90, influence: 80, nextDecisionTick: 91, setbacks: 0 });
   await runIntlOrgSettlement();
   assert.equal((await plans()).filter((p) => p.targetNationId === a.id).length, 0);
@@ -213,4 +215,43 @@ test("玩家視圖：關注程度、針對你/他國的預告（模糊時間）�
   assert.ok(v.elsewhere.length >= 1 && !JSON.stringify(v.elsewhere).includes(other.id), "不洩漏他國身分");
   assert.ok(v.capabilities.includes("罷工潮") && !v.capabilities.includes("策反"));
   assert.equal(v.recent.length, 1); assert.equal(v.recent[0]!.summary, "議會滿意度 -4");
+});
+
+test("共產國家（委員會制／社會主義委員會）：局勢標為同路人、決策日不排預告、視圖顯示未受關注", async () => {
+  await cleanPlans();
+  const { governmentLabel } = await import("../governments");
+  const c1 = track(await mk({ ...HOT, gov: governmentLabel("council_system")! }));
+  const c2 = track(await mk({ ...HOT, gov: governmentLabel("socialist_council")! }));
+  const other = track(await mk(HOT));
+  const sits = await loadSituations("red");
+  assert.equal(sits.find((s) => s.nationId === c1.id)!.aligned, true);
+  assert.equal(sits.find((s) => s.nationId === c2.id)!.aligned, true);
+  assert.equal(sits.find((s) => s.nationId === other.id)!.aligned, false);
+  await setOrg({ tick: 130, influence: 80, nextDecisionTick: 131, setbacks: 0 });
+  await runIntlOrgSettlement();
+  const ps = await plans();
+  assert.equal(ps.filter((p) => p.targetNationId === c1.id || p.targetNationId === c2.id).length, 0, "共產國家不該被排預告");
+  const v = (await buildOrgViews(c1.id)).find((x) => x.slug === "comintern")!;
+  assert.equal(v.attention, "none"); assert.deepEqual(v.forYou, []);
+});
+
+test("預告寫好之後目標才轉共產：到期執行時取消、不套任何效果", async () => {
+  await cleanPlans();
+  const { governmentLabel } = await import("../governments");
+  const a = track(await mk({ sat: 30, stab: 40, leftSeats: 15 }));
+  await setOrg({ tick: 140, influence: 60, nextDecisionTick: 9999, setbacks: 0 });
+  await db.insert(intlOrgPlansTable).values({ orgId: (await org()).id, targetNationId: a.id, action: "strikes", plannedTick: 138, executeTick: 141 });
+  await db.update(playerNationsTable).set({ government: governmentLabel("council_system") }).where(eq(playerNationsTable.id, a.id));
+  await runIntlOrgSettlement();
+  assert.equal(await sat(a.id), 30); assert.equal(await stab(a.id), 40);
+  const p = (await plans()).find((x) => x.targetNationId === a.id)!;
+  assert.equal(p.status, "cancelled"); assert.match(p.resultSummary ?? "", /同路人/);
+});
+
+test("時代基礎影響力：影響力低於基礎值時，結算會往基礎值爬", async () => {
+  await cleanPlans();
+  await setOrg({ tick: 150, influence: 4, nextDecisionTick: 9999, setbacks: 0 });
+  await runIntlOrgSettlement();
+  const after = (await org()).influence;
+  assert.ok(after > 4, `影響力應上升，實際 ${after}`);
 });

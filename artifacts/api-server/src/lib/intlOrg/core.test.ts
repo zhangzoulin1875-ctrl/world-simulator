@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  ACTION_MIN_INFLUENCE, INFLUENCE_START, MAX_TARGETS_PER_DECISION, PLAN_LEAD_TURNS, TARGET_COOLDOWN_TURNS,
-  actionAllowedOn, actionEffect, actionPower, attentionOf, clampInfluence, eraCap, fuzzyEta, isDue,
+  ACTION_MIN_INFLUENCE, ERA_INFLUENCE, INFLUENCE_START, MAX_TARGETS_PER_DECISION, PLAN_LEAD_TURNS, TARGET_COOLDOWN_TURNS,
+  actionAllowedOn, actionEffect, actionPower, attentionOf, clampInfluence, eraBase, eraCap, fuzzyEta, isDue,
   leadIsEnough, nextInfluence, ruleBasedDecision, unlockedActions, unrest, validateDecisions,
   type DecisionContext, type NationSituation,
 } from "./core";
@@ -39,19 +39,54 @@ test("動盪度 0–1：越不滿越高；沒有議會的國家用中性值", ()
 });
 
 test("古代時代上限低：影響力不會在古代衝高，工業之後才能", () => {
-  assert.ok(eraCap("ancient") < eraCap("industrial"));
-  let v = INFLUENCE_START; for (let i = 0; i < 200; i++) v = nextInfluence(v, "ancient", 1);
-  assert.ok(v <= eraCap("ancient"), `古代影響力 ${v} 超過上限`);
-  assert.ok(v < ACTION_MIN_INFLUENCE.funding || eraCap("ancient") >= ACTION_MIN_INFLUENCE.funding);
+  assert.ok(eraCap("classical") < eraCap("industrial"));
+  let v = INFLUENCE_START; for (let i = 0; i < 200; i++) v = nextInfluence(v, "classical", 1);
+  assert.ok(v <= eraCap("classical"), `古典時代影響力 ${v} 超過上限`);
+  assert.ok(v < ACTION_MIN_INFLUENCE.strikes, "古典時代連罷工潮都解鎖不了");
   let w = INFLUENCE_START; for (let i = 0; i < 200; i++) w = nextInfluence(w, "industrial", 1);
   assert.ok(w >= ACTION_MIN_INFLUENCE.subvert, `工業動盪世界應解鎖策反，實際 ${w}`);
 });
 
 test("影響力每回合最多 ±3；世界平靜時回落；被打擊會再扣", () => {
-  assert.equal(nextInfluence(10, "industrial", 1), 13);
-  assert.ok(nextInfluence(80, "ancient", 0) < 80); assert.ok(nextInfluence(80, "ancient", 0) >= 77);
-  assert.equal(nextInfluence(40, "industrial", 1, 2), 41);
-  assert.ok(nextInfluence(INFLUENCE_START, "ancient", 0) >= INFLUENCE_START - 0, "不會低於開局值的目標下限");
+  assert.equal(nextInfluence(40, "industrial", 1), 43);
+  assert.ok(nextInfluence(80, "classical", 0) < 80); assert.ok(nextInfluence(80, "classical", 0) >= 77);
+  assert.equal(nextInfluence(60, "industrial", 1, 2), 61);
+});
+
+test("時代表的 slug 與遊戲時代完全一致（不再用不存在的 ancient/medieval）", async () => {
+  const { ERAS } = await import("../mapRegionEras");
+  assert.deepEqual(Object.keys(ERA_INFLUENCE).sort(), ERAS.map((e) => e.slug).sort());
+  for (const e of ERAS) { const x = ERA_INFLUENCE[e.slug]!; assert.ok(x.base < x.cap && x.base >= 0 && x.cap <= 100); }
+});
+
+test("時代基礎影響力：越晚越高；17 世紀（大航海）有底子，能宣傳、但還沒到資助", () => {
+  const order = ["classical", "roman", "early_medieval", "high_medieval", "renaissance", "discovery", "scientific", "enlightenment", "industrial", "ww1", "ww2", "cold_war"];
+  for (let i = 1; i < order.length; i++) assert.ok(eraBase(order[i]!) >= eraBase(order[i - 1]!), `${order[i]} 基礎不應低於前一時代`);
+  assert.equal(eraBase("discovery"), 18);
+  assert.ok(eraBase("discovery") > INFLUENCE_START, "17 世紀應比開局值高");
+  assert.ok(eraBase("discovery") < ACTION_MIN_INFLUENCE.funding, "但還沒到資助");
+  assert.ok(unlockedActions(eraBase("discovery")).includes("propaganda"));
+});
+
+test("世界再太平，影響力也會回到時代基礎值、不會掉到更低；被打擊最多壓到基礎值", () => {
+  let v = 50; for (let i = 0; i < 100; i++) v = nextInfluence(v, "discovery", 0);
+  assert.ok(v >= eraBase("discovery") && v <= Math.ceil(eraCap("discovery") * 0.4) + 1, `太平世界 ${v}`);
+  assert.equal(nextInfluence(18, "discovery", 0, 10), 18, "挫折不能把它打到基礎值以下");
+  assert.equal(nextInfluence(5, "discovery", 0), 18, "低於時代基礎值時直接回到基礎值（那是這個時代的底子）");
+});
+
+test("17 世紀動盪的世界：影響力能爬到資助門檻、碰不到罷工潮", () => {
+  let v = INFLUENCE_START; for (let i = 0; i < 200; i++) v = nextInfluence(v, "discovery", 1);
+  assert.equal(v, eraCap("discovery")); assert.ok(v >= ACTION_MIN_INFLUENCE.funding && v <= ACTION_MIN_INFLUENCE.strikes);
+});
+
+test("同路人（共產國家）：任何動作都不合法、規則版不選、關注度永遠是未受關注", () => {
+  const red = N("red", { ...HOT, aligned: true });
+  for (const a of ["propaganda", "funding", "strikes", "subvert"] as const) assert.equal(actionAllowedOn(a, red, 100), false, a);
+  assert.deepEqual(ruleBasedDecision({ influence: 100, nations: [red], lastTargetedTick: {}, alreadyPlanned: [], tick: 9 }), []);
+  assert.deepEqual(validateDecisions([{ targetNationId: "red", action: "propaganda" }], { influence: 100, nations: [red], lastTargetedTick: {}, alreadyPlanned: [], tick: 9 }), []);
+  assert.equal(attentionOf("red", [{ targetNationId: "red", status: "planned" }], red), "none");
+  assert.equal(actionAllowedOn("propaganda", N("x", { ...HOT, aligned: false }), 100), true, "沒標同路人的照常");
 });
 
 test("策反需要雙重門檻：議會滿意度 ≤25 且有紅線黨 ≥10%", () => {

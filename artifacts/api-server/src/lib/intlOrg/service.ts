@@ -11,6 +11,7 @@ import {
   parliamentLogTable, diplomacyWarsTable,
 } from "@workspace/db";
 import { logger } from "../logger";
+import { governmentSlugByLabel } from "../governments";
 import { getCurrentEraSlug } from "../nationStats";
 import { persistNotificationInBackground } from "../playerNotify";
 import { tierOfNation } from "../parliament/service";
@@ -28,6 +29,9 @@ type Nation = typeof playerNationsTable.$inferSelect;
 
 /** 罷工潮要建立的既有國內事件。 */
 export const STRIKE_EVENT_KIND = "soc_labor_strike";
+
+/** 該意識形態視為「同路人」的政體 slug:組織不干涉它們(共產國際 vs 委員會制/社會主義委員會)。 */
+const ALIGNED_GOVERNMENTS: Record<string, readonly string[]> = { red: ["council_system", "socialist_council"] };
 
 /**
  * 該意識形態對應的「極端黨」立場。紅線 = 民生福利派:黨名由 AI 動態生成(或國內事件的「社會黨」),
@@ -56,6 +60,7 @@ export async function loadSituations(ideology: string): Promise<NationSituation[
     if (w.civil) { civil.add(w.a); civil.add(w.b); }
   }
   const radStance = RADICAL_STANCE[ideology];
+  const alignedSlugs = ALIGNED_GOVERNMENTS[ideology] ?? [];
   return nations.map((n) => {
     const ps = partiesBy.get(n.id) ?? [];
     const total = ps.reduce((a, p) => a + p.seats, 0);
@@ -69,6 +74,7 @@ export async function loadSituations(ideology: string): Promise<NationSituation[
       atWar: atWar.has(n.id),
       inCivilWar: civil.has(n.id),
       isPlayer: !n.isNpc,
+      aligned: alignedSlugs.includes(governmentSlugByLabel(n.government) ?? ""),
     };
   });
 }
@@ -113,6 +119,7 @@ export async function executePlan(org: Org, plan: PlanRow, tick: number, rand: R
   const sits = await loadSituations(org.ideology);
   const sit = sits.find((s) => s.nationId === nation.id);
   if (!sit || sit.inCivilWar) return cancel("目標國已陷入內戰,組織轉向");
+  if (sit.aligned) return cancel("目標國已成為同路人,行動取消");
   const action = plan.action as OrgAction;
   if (action !== "idle" && unrest(sit) < 0.3) {
     await db.update(intlOrgPlansTable).set({ resultSummary: "目標國局勢好轉,行動落空" }).where(eq(intlOrgPlansTable.id, plan.id));
