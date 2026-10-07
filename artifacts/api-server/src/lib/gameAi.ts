@@ -95,6 +95,7 @@ export const AI_FEATURES = {
   "domestic.event": { label: "國內事件文字", defaultMaxTokens: 700 },
   "parliament.report": { label: "議會:國情報告評分", defaultMaxTokens: 400 },
   "parliament.party_names": { label: "議會:政黨命名", defaultMaxTokens: 700 },
+  "intl_org.decision": { label: "國際組織:戰略決策", defaultMaxTokens: 400 },
   "constitution.quality": { label: "憲法:品質審查", defaultMaxTokens: 900 },
   "constitution.vote": { label: "憲法:各黨投票", defaultMaxTokens: 1200 },
   "constitution.flaws": { label: "憲法:漏洞掃描", defaultMaxTokens: 1400 },

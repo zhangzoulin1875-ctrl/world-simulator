@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, Landmark } from "lucide-react";
+import { ArrowLeft, Globe2, Landmark } from "lucide-react";
 import type { PoliticsOverview } from "@workspace/api-client-react";
 import { GameNotifications } from "@/components/game-notifications";
 import { HelpButton } from "@/components/help-button";
@@ -10,7 +11,26 @@ import { PolicyPanel } from "./policy-panel";
 import { MilitaryPanel } from "./military-panel";
 import { MilitaryDemandCard } from "./military-demand-card";
 import { FocusPanel } from "@/components/focus/focus-panel";
+import { IntlOrgsPanel } from "./intl-orgs-panel";
 import { PoliticsHistoryTimeline } from "./politics-history-timeline";
+
+type PoliticsTab = "domestic" | "orgs";
+
+/** 分頁記在網址 ?tab=orgs:可直接連結、重新整理不會掉回第一頁。 */
+function readTab(): PoliticsTab {
+  if (typeof window === "undefined") return "domestic";
+  return new URLSearchParams(window.location.search).get("tab") === "orgs" ? "orgs" : "domestic";
+}
+function writeTab(tab: PoliticsTab) {
+  const url = new URL(window.location.href);
+  if (tab === "orgs") url.searchParams.set("tab", "orgs"); else url.searchParams.delete("tab");
+  window.history.replaceState(null, "", url.toString());
+}
+
+const TABS: { id: PoliticsTab; label: string; Icon: typeof Landmark }[] = [
+  { id: "domestic", label: "內政", Icon: Landmark },
+  { id: "orgs", label: "國際組織", Icon: Globe2 },
+];
 
 export function PoliticsScreen({
   bg,
@@ -19,6 +39,8 @@ export function PoliticsScreen({
   bg: string;
   overview: PoliticsOverview;
 }) {
+  const [tab, setTab] = useState<PoliticsTab>(readTab);
+  const pick = (t: PoliticsTab) => { setTab(t); writeTab(t); };
   return (
     <div
       className="fixed inset-0 z-50 overflow-y-auto bg-cover bg-center pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-white"
@@ -53,22 +75,46 @@ export function PoliticsScreen({
           </div>
         </header>
 
-        {/* 政府治理：政體＋政治註記＋支持度／接受度＋政府決策 */}
-        <GovernmentPanel overview={overview} />
+        {/* 子頁分頁列 */}
+        <nav className="mb-3 flex gap-2" role="tablist" aria-label="政治子頁" data-testid="tabs-politics">
+          {TABS.map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              role="tab"
+              aria-selected={tab === id}
+              onClick={() => pick(id)}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3.5 py-1.5 text-sm font-semibold backdrop-blur transition ${
+                tab === id ? "border-amber-300/60 bg-amber-400/20 text-amber-100" : "border-white/15 bg-black/40 text-white/65 hover:bg-white/10"
+              }`}
+              data-testid={`tab-politics-${id}`}
+            >
+              <Icon className="h-4 w-4" />{label}
+            </button>
+          ))}
+        </nav>
 
-        {/* 國策樹:政體轉型與各項國策 */}
-        <FocusPanel />
+        {tab === "orgs" ? (
+          <IntlOrgsPanel />
+        ) : (
+          <>
+          {/* 政府治理：政體＋政治註記＋支持度／接受度＋政府決策 */}
+          <GovernmentPanel overview={overview} />
 
-        <AdvisorSlotsPanel unlocked={overview.social.advisorSlotEnabled} />
+          {/* 國策樹:政體轉型與各項國策 */}
+          <FocusPanel />
 
-        {/* Task #402 — 軍方面板 */}
-        <MilitaryDemandCard />
-        <MilitaryPanel overview={overview} />
+          <AdvisorSlotsPanel unlocked={overview.social.advisorSlotEnabled} />
 
-        <PolicyPanel overview={overview} />
+          {/* Task #402 — 軍方面板 */}
+          <MilitaryDemandCard />
+          <MilitaryPanel overview={overview} />
 
-        {/* 政治歷史時間軸 */}
-        <PoliticsHistoryTimeline />
+          <PolicyPanel overview={overview} />
+
+          {/* 政治歷史時間軸 */}
+          <PoliticsHistoryTimeline />
+          </>
+        )}
       </div>
     </div>
   );

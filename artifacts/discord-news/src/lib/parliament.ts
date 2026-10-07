@@ -41,6 +41,14 @@ export interface OrgView {
   elsewhere: { action: string; eta: string }[];
   recent: { action: string; summary: string }[];
 }
+export interface OrgDetail extends OrgView {
+  ideology: string;
+  nextUnlock: { action: string; at: number } | null;
+  actions: { action: string; unlockAt: number; unlocked: boolean }[];
+  worldRecent: { action: string; ago: string; onYou: boolean }[];
+  stats: { plannedTotal: number; executedTotal: number; fizzled: number; targetingYou: number };
+  decisionEvery: number;
+}
 export type CoalitionRisk = "low" | "mid" | "high";
 export interface GovernmentView {
   enabled: boolean;
@@ -115,6 +123,16 @@ async function postCampaign(input: { partyId: number; action: ElectionAction }):
   });
   if (!res.ok) throw await readError(res);
   return res.json();
+}
+
+export const INTL_ORGS_QUERY_KEY = ["intl-orgs"] as const;
+async function fetchIntlOrgs(): Promise<{ orgs: OrgDetail[] }> {
+  const res = await fetch("/api/intl-orgs", { credentials: "include" });
+  if (!res.ok) throw new Error("讀取國際組織失敗");
+  return res.json();
+}
+export function useIntlOrgs(enabled = true) {
+  return useQuery({ queryKey: INTL_ORGS_QUERY_KEY, queryFn: fetchIntlOrgs, enabled, staleTime: 15_000, refetchInterval: 60_000 });
 }
 
 export function useParliament(enabled = true) {

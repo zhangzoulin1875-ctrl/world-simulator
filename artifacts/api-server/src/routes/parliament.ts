@@ -24,7 +24,7 @@ import { loadPenaltyScale } from "../lib/penaltyScaleLoad";
 import { loadPendingVeto, decideVeto } from "../lib/parliament/vetoDecision";
 import { buildElectionView, performCampaignAction } from "../lib/parliament/electionService";
 import { buildGovernmentView } from "../lib/parliament/coalitionService";
-import { buildOrgViews } from "../lib/intlOrg/service";
+import { buildOrgViews, buildOrgDetails } from "../lib/intlOrg/service";
 import { hasElections, type ElectionAction } from "../lib/parliament/election";
 
 const router: IRouter = Router();
@@ -102,6 +102,18 @@ router.get("/parliament", async (req, res) => {
 });
 
 /** 競選期對某黨做一次操作:拉票 / 買票 / 打壓。 */
+/** 國際組織子頁(政治大分類):各組織的狀況、解鎖進度、預告與世界動態。唯讀、不含他國身分。 */
+router.get("/intl-orgs", async (req, res) => {
+  const auth = await requirePlayer(req, res);
+  if (!auth) return;
+  try {
+    res.json({ orgs: await buildOrgDetails(auth.nation.id) });
+  } catch (err) {
+    logger.error({ err, nationId: auth.nation.id }, "intl-orgs view failed");
+    res.status(500).json({ error: "讀取國際組織資料失敗" });
+  }
+});
+
 router.post("/parliament/campaign", async (req, res) => {
   const auth = await requirePlayer(req, res); if (!auth) return;
   const body = (req.body ?? {}) as { partyId?: unknown; action?: unknown };

@@ -1,3 +1,4 @@
+import { Link } from "wouter";
 import { useMemo, useState } from "react";
 import { Landmark, Loader2, Megaphone, ScrollText, AlertTriangle, Gavel, Vote, Users, Globe2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -179,6 +180,8 @@ function OrgCard({ view }: { view: ParliamentView }) {
             <p className="mt-1 text-[11px] text-white/45">它也在盤算對其他國家的行動({o.elsewhere.length} 項)。</p>) : null}
           <p className="mt-1 text-[11px] text-white/45">
             目前能做的事:{o.capabilities.length > 0 ? o.capabilities.join("、") : "只能按兵不動"}</p>
+          <Link href="/game/politics?tab=orgs" className="mt-1.5 inline-block text-[11px] text-sky-300 hover:underline" data-testid={`link-org-detail-${o.slug}`}>
+            查看國際組織詳情 →</Link>
           {o.recent.length > 0 ? (
             <div className="mt-2 border-t border-white/10 pt-2">
               <p className="mb-1 text-[11px] font-semibold text-white/55">最近對你的行動</p>

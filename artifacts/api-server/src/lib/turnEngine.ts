@@ -44,6 +44,7 @@ import {
 } from "./politicsSettlement";
 import { runParliamentSettlement } from "./parliament/service";
 import { runIntlOrgSettlement } from "./intlOrg/service";
+import { decideWithAi } from "./intlOrg/aiRunner";
 import { runFocusSettlement } from "./focus/service";
 import { runDomesticEventSettlement } from "./domesticEvents/service";
 import { runNpcFocusDecisions } from "./focus/npcRunner";
@@ -1325,7 +1326,7 @@ async function doRunTurn(
   // 國際組織(共產國際…):議會結算之後跑(局勢要讀最新議會滿意度)。
   // 先執行到期預告、再依局勢寫新預告;獨立 try/catch,失敗只記 log,絕不中斷回合。
   try {
-    const intlOrgs = await runIntlOrgSettlement();
+    const intlOrgs = await runIntlOrgSettlement({ decide: async (org, ctx) => decideWithAi(org, ctx) });
     summary.intlOrgs = { ok: true, ...intlOrgs };
   } catch (err) {
     summary.intlOrgs = {

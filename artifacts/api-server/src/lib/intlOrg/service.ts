@@ -18,7 +18,7 @@ import { createEvent } from "../domesticEvents/service";
 import { getEventDef } from "../domesticEvents/core";
 import { startCivilWar } from "../civilWarEngine";
 import {
-  ACTION_LABELS, DECISION_EVERY_TURNS, PLAN_LEAD_TURNS, SETBACK_WHEN_RECOVERED, actionEffect, attentionOf,
+  ACTION_LABELS, ACTION_MIN_INFLUENCE, ORG_ACTIONS, DECISION_EVERY_TURNS, PLAN_LEAD_TURNS, SETBACK_WHEN_RECOVERED, actionEffect, attentionOf,
   fuzzyEta, nextInfluence, ruleBasedDecision, unrest, unlockedActions,
   type Attention, type Decision, type DecisionContext, type NationSituation, type OrgAction, type Rng,
 } from "./core";
@@ -184,7 +184,7 @@ function notifyTarget(nation: Nation, org: Org, kind: "planned" | "hit" | "dodge
     : kind === "hit" ? `${org.name}對你的國家採取了行動` : `${org.name}的行動落空了`;
   const b = kind === "planned" ? `預計 ${eta ?? "數回合內"} 對你的國家進行「${label}」。提高議會滿意度與穩定度可以讓它落空。`
     : kind === "hit" ? `${org.name}對你的國家執行了「${label}」。` : `你的國家局勢穩定,${org.name}的「${label}」沒有造成影響。`;
-  persistNotificationInBackground({ discordUserId: nation.discordUserId, type: "intl_org", title: t, body: b, linkPath: "/game/diplomacy" });
+  persistNotificationInBackground({ discordUserId: nation.discordUserId, type: "intl_org", title: t, body: b, linkPath: "/game/politics?tab=orgs" });
 }
 
 // ── 寫預告 ─────────────────────────────────────────────────────────────
@@ -298,6 +298,56 @@ export async function buildOrgViews(nationId: string): Promise<OrgView[]> {
       elsewhere: planned.filter((p) => p.targetNationId !== nationId).map((p) => ({ action: ACTION_LABELS[p.action as OrgAction], eta: eta(p) })),
       recent: plans.filter((p) => p.status === "executed" && p.targetNationId === nationId && p.resultSummary)
         .sort((a, b) => b.id - a.id).slice(0, 5).map((p) => ({ action: ACTION_LABELS[p.action as OrgAction], summary: p.resultSummary! })),
+    });
+  }
+  return out;
+}
+
+// ── 國際組織子頁(完整視圖) ───────────────────────────────────────────
+export interface OrgDetail extends OrgView {
+  ideology: string;
+  /** 影響力等級的下一道門檻(給玩家預判它何時變危險);已滿級為 null。 */
+  nextUnlock: { action: string; at: number } | null;
+  /** 全部動作與解鎖狀態。 */
+  actions: { action: string; unlockAt: number; unlocked: boolean }[];
+  /** 世界動態:最近幾筆已執行的行動(全球,不含國別;只有「針對你」的才在 recent 帶摘要)。 */
+  worldRecent: { action: string; ago: string; onYou: boolean }[];
+  /** 全球統計:不洩漏國別。 */
+  stats: { plannedTotal: number; executedTotal: number; fizzled: number; targetingYou: number };
+  /** 決策間隔(幾回合一次),讓玩家知道節奏。 */
+  decisionEvery: number;
+}
+
+export async function buildOrgDetails(nationId: string): Promise<OrgDetail[]> {
+  const views = await buildOrgViews(nationId);
+  const orgs = await db.select().from(intlOrgsTable);
+  const out: OrgDetail[] = [];
+  for (const v of views) {
+    const org = orgs.find((o) => o.slug === v.slug);
+    if (!org) continue;
+    const plans = await db.select().from(intlOrgPlansTable).where(eq(intlOrgPlansTable.orgId, org.id));
+    const locked = ORG_ACTIONS.filter((a) => a !== "idle" && org.influence < ACTION_MIN_INFLUENCE[a])
+      .sort((a, b) => ACTION_MIN_INFLUENCE[a] - ACTION_MIN_INFLUENCE[b]);
+    const executed = plans.filter((p) => p.status === "executed");
+    out.push({
+      ...v,
+      ideology: org.ideology,
+      nextUnlock: locked[0] ? { action: ACTION_LABELS[locked[0]], at: ACTION_MIN_INFLUENCE[locked[0]] } : null,
+      actions: ORG_ACTIONS.filter((a) => a !== "idle").map((a) => ({
+        action: ACTION_LABELS[a], unlockAt: ACTION_MIN_INFLUENCE[a], unlocked: org.influence >= ACTION_MIN_INFLUENCE[a],
+      })),
+      worldRecent: [...executed].sort((a, b) => b.id - a.id).slice(0, 8).map((p) => ({
+        action: ACTION_LABELS[p.action as OrgAction],
+        ago: org.tick - p.executeTick <= 0 ? "剛剛" : `${org.tick - p.executeTick} 回合前`,
+        onYou: p.targetNationId === nationId,
+      })),
+      stats: {
+        plannedTotal: plans.filter((p) => p.status === "planned").length,
+        executedTotal: executed.length,
+        fizzled: executed.filter((p) => (p.resultSummary ?? "").includes("落空")).length,
+        targetingYou: plans.filter((p) => p.status === "planned" && p.targetNationId === nationId).length,
+      },
+      decisionEvery: DECISION_EVERY_TURNS,
     });
   }
   return out;

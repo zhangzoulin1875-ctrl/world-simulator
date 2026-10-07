@@ -137,3 +137,27 @@ test("GET 議會帶國際組織動向：預告對你顯示模糊時間、不洩�
   assert.ok(!JSON.stringify(j.orgs).includes(nat.id), "回應不應包含國家 id");
   await db.delete(intlOrgPlansTable).where(eq(intlOrgPlansTable.targetNationId, nat.id));
 });
+
+test("GET /intl-orgs 子頁：解鎖進度、全球統計、世界動態；不洩漏他國身分；未登入 401", async () => {
+  const { nat, cookie } = await mk("議會內閣制", 1);
+  const { intlOrgsTable, intlOrgPlansTable } = await import("@workspace/db");
+  const [o] = await db.select().from(intlOrgsTable).where(eq(intlOrgsTable.slug, "comintern"));
+  await db.update(intlOrgsTable).set({ tick: 20, influence: 35 }).where(eq(intlOrgsTable.id, o!.id));
+  await db.delete(intlOrgPlansTable);
+  await db.insert(intlOrgPlansTable).values([
+    { orgId: o!.id, targetNationId: nat.id, action: "funding", plannedTick: 19, executeTick: 22 },
+    { orgId: o!.id, targetNationId: nat.id, action: "propaganda", plannedTick: 10, executeTick: 12, status: "executed", resultSummary: "議會滿意度 -4" },
+    { orgId: o!.id, targetNationId: nat.id, action: "strikes", plannedTick: 14, executeTick: 16, status: "executed", resultSummary: "目標國局勢好轉,行動落空" },
+  ]);
+  const r = await fetch(`${base}/api/intl-orgs`, { headers: { cookie } });
+  assert.equal(r.status, 200);
+  const j: any = await r.json();
+  const c = j.orgs.find((x: any) => x.slug === "comintern");
+  assert.equal(c.nextUnlock.action, "罷工潮"); assert.equal(c.nextUnlock.at, 50);
+  assert.deepEqual(c.actions.filter((a: any) => a.unlocked).map((a: any) => a.action), ["宣傳", "資助"]);
+  assert.deepEqual(c.stats, { plannedTotal: 1, executedTotal: 2, fizzled: 1, targetingYou: 1 });
+  assert.equal(c.worldRecent.length, 2); assert.ok(c.worldRecent.every((w: any) => w.onYou === true));
+  assert.ok(!JSON.stringify(j).includes(nat.id));
+  assert.equal((await fetch(`${base}/api/intl-orgs`)).status, 401);
+  await db.delete(intlOrgPlansTable);
+});
