@@ -53,11 +53,13 @@ test("stabilityMultiplier — 線性 ±30%", () => {
   assert.equal(stabilityMultiplier(100, 10), 1.1);
 });
 
-test("warWearinessAttackModifier — 每 10% 厭戰度扣 10% 攻擊", () => {
+test("warWearinessAttackModifier — 每 10% 厭戰度扣 10% 攻擊,至多扣 50%", () => {
   assert.equal(warWearinessAttackModifier(0), 1);
   assert.equal(warWearinessAttackModifier(30), 0.7);
-  assert.equal(warWearinessAttackModifier(100), 0);
-  assert.equal(warWearinessAttackModifier(120), 0);
+  // 2026-10-08:原本 100% 厭戰攻擊力歸零(惡性循環鎖死),現設扣減上限 50%。
+  assert.equal(warWearinessAttackModifier(50), 0.5);
+  assert.equal(warWearinessAttackModifier(100), 0.5);
+  assert.equal(warWearinessAttackModifier(120), 0.5);
 });
 
 test("warWearinessRecovery — 和平／戰時分流，非負整數", () => {

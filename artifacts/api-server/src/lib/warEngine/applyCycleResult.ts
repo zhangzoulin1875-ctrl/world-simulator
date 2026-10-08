@@ -62,6 +62,7 @@ import {
 } from "../gameBalance";
 import {
   scaleWarWearinessGain,
+  applyWinnerWearinessDiscount,
   warWearinessAttackModifier,
 } from "../politics";
 import type { WarCycleAiResult } from "../warAi";
@@ -961,8 +962,17 @@ export async function applyCycleResult(
     // 的 population_bonus（僅作用於本戰役的攻/守地區，每地區下限 0）。
     for (const side of sides) {
       // 主厭戰度增量套用可調上升幅度倍率（gameBalance；不含反噬）。
+      // 先對本輪佔上風的一方折減(厭戰是打不贏的代價),再套全域倍率。
+      const ownTroops =
+        side.key === "attacker" ? attackerPower.troops : defenderPower.troops;
+      const enemyTroops =
+        side.key === "attacker" ? defenderPower.troops : attackerPower.troops;
       const wearinessDelta = scaleWarWearinessGain(
-        side.warWearinessDelta,
+        applyWinnerWearinessDiscount(
+          side.warWearinessDelta,
+          ownTroops,
+          enemyTroops,
+        ),
         ctx.warWearinessGainMultiplierPct,
       );
       const popLoss =

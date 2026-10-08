@@ -295,9 +295,51 @@ export function stabilityMultiplier(
   return 1 + ((s - 50) / 50) * (maxBonusPct / 100);
 }
 
-/** 厭戰度攻擊修正：攻擊力 ×(1 − 厭戰度/100)。 */
+/**
+ * 厭戰度對攻擊力的最大扣減(百分點)。厭戰度本身仍可到 100,但攻擊力最多只被
+ * 扣到 ×(1 − 50%) = ×0.5。
+ *
+ * 為什麼要有上限:厭戰度越高 → 攻擊力越低 → 打得更差、拖得更久 → 厭戰度更高,
+ * 這是玩家反映的「無限惡性循環」。原公式在 100% 時攻擊力歸零,等於鎖死;
+ * 設上限後再厭戰也還有一半戰力,循環有機會被打破。
+ */
+export const WAR_WEARINESS_MAX_ATTACK_PENALTY_PCT = 50;
+
+/** 厭戰度攻擊修正：攻擊力 ×(1 − min(厭戰度, 上限)/100)。 */
 export function warWearinessAttackModifier(warWeariness: number): number {
-  return 1 - clampPct(warWeariness) / 100;
+  // 非有限數(NaN/±Infinity)視為 0 厭戰:寧可不扣攻擊,也不讓 NaN 毒化戰力計算。
+  const safe = Number.isFinite(warWeariness) ? warWeariness : 0;
+  const penalty = Math.min(
+    clampPct(safe),
+    WAR_WEARINESS_MAX_ATTACK_PENALTY_PCT,
+  );
+  return 1 - penalty / 100;
+}
+
+/**
+ * 本輪佔上風的一方,厭戰度增量折減比例(%)。厭戰應是「打不贏的代價」,
+ * 不該是「打仗本身的稅」:贏的一方增量減半,輸的與持平的照舊。
+ */
+export const WAR_WEARINESS_WINNER_GAIN_PCT = 50;
+
+/**
+ * 依本輪雙方有效戰力決定各邊的厭戰度增量。戰力較高者為佔上風方,
+ * 其增量 × WAR_WEARINESS_WINNER_GAIN_PCT%(四捨五入、非負);持平或資料
+ * 無效時雙方皆照原增量(不偏袒任何一方)。
+ */
+export function applyWinnerWearinessDiscount(
+  delta: number,
+  ownTroops: number,
+  enemyTroops: number,
+): number {
+  if (!(delta > 0)) return 0;
+  const hasEdge =
+    Number.isFinite(ownTroops) &&
+    Number.isFinite(enemyTroops) &&
+    ownTroops > enemyTroops;
+  return hasEdge
+    ? Math.max(0, Math.round((delta * WAR_WEARINESS_WINNER_GAIN_PCT) / 100))
+    : delta;
 }
 
 /**

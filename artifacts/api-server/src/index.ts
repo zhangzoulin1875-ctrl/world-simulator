@@ -49,6 +49,7 @@ import { recalcArmyProductionReservations } from "./lib/armyReservationRecalc";
 import { runWallMigrations } from "./lib/wallMigrations";
 import { runWorldSimMigrations } from "./lib/worldSimMigrations";
 import { runTradeMigrations } from "./lib/tradeMigrations";
+import { runWarWearinessRebalanceMigration } from "./lib/warWearinessRebalanceMigration";
 import { startCostTuningRefresh } from "./lib/costTuningLoad";
 import { runGameNewsMigrations } from "./lib/gameNewsMigrations";
 import { runAccountBanMigrations } from "./lib/accountBanMigrations";
@@ -166,6 +167,9 @@ async function runStartupMigrations(): Promise<void> {
   await bootStep("runSuperEventMigrations", () => runSuperEventMigrations());
   // Task #451 — 遊戲平衡設定＋AI 濫用紀錄（無 FK，可放最後）。
   await bootStep("runGameBalanceMigrations", () => runGameBalanceMigrations());
+  // 厭戰度再平衡:把「仍是舊預設」的已存設定升級到新預設(一次性,不碰管理員調過的值)。
+  // 已放在 runGameBalanceMigrations(建表)之後。
+  await bootStep("runWarWearinessRebalanceMigration", () => runWarWearinessRebalanceMigration());
   // Task #593 — AI 用量紀錄＋各功能 token 上限（無 FK，可放最後）。
   await bootStep("runAiUsageMigrations", () => runAiUsageMigrations());
   // v3 — AI 閒時預產快取表（FK 依賴 player_nations，放遷移鏈尾端）。

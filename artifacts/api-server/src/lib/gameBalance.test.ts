@@ -450,10 +450,11 @@ test("war schema：反噬欄位超界被拒、缺欄位回填預設 0", () => {
   assert.equal(ok.data.war.backlashStabilityDrop, 0);
   assert.equal(ok.data.war.backlashUnrestRise, 0);
   assert.equal(ok.data.war.backlashWarWearinessRise, 0);
-  // 厭戰度變化幅度：和平每回合回復 3、戰時 0、上升倍率 100%（行為不變）。
-  assert.equal(ok.data.war.warWearinessPeacetimeRecovery, 3);
-  assert.equal(ok.data.war.warWearinessWartimeRecovery, 0);
-  assert.equal(ok.data.war.warWearinessGainMultiplierPct, 100);
+  // 厭戰度變化幅度(2026-10-08 再平衡,緩解「只升不降」的惡性循環):
+  // 和平每回合回復 5(原 3)、戰時 2(原 0)、上升倍率 65%(原 100)。
+  assert.equal(ok.data.war.warWearinessPeacetimeRecovery, 5);
+  assert.equal(ok.data.war.warWearinessWartimeRecovery, 2);
+  assert.equal(ok.data.war.warWearinessGainMultiplierPct, 65);
   // 界限：回復 0–30、倍率 0–500。
   assert.equal(
     gameBalanceSettingsSchema.safeParse({

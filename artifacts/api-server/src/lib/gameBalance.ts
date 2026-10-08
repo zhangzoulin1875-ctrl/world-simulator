@@ -138,21 +138,22 @@ export const gameBalanceSettingsSchema = z.object({
       /**
        * 厭戰度每回合回復（衰減）：修正「停戰／戰爭結束後厭戰度永不下降」。
        * 回合引擎每回合對所有國家套用（SQL clamp ≥0）。無進行中戰爭（endedAt
-       * IS NULL）→ peacetime；仍在進行中戰爭 → wartime（預設 0＝戰時不回復）。
+       * IS NULL）→ peacetime（預設 5）；仍在進行中戰爭 → wartime（預設 2）。
+       * 2026-10-08：戰時由 0 改 2、平時由 3 改 5，緩解「厭戰度只升不降」的惡性循環。
        */
-      warWearinessPeacetimeRecovery: z.number().int().min(0).max(30).default(3),
-      warWearinessWartimeRecovery: z.number().int().min(0).max(30).default(0),
+      warWearinessPeacetimeRecovery: z.number().int().min(0).max(30).default(5),
+      warWearinessWartimeRecovery: z.number().int().min(0).max(30).default(2),
       /**
        * 厭戰度上升幅度倍率（%）：套用於每次戰役結算的 AI 厭戰度增量
        * （applyCycleResult 主增量；不影響反噬 backlashWarWearinessRise）。
-       * 100＝原始幅度（預設，行為不變）；0＝完全不上升，500＝五倍。
+       * 預設 65（2026-10-08 由 100 下調）；100＝原始幅度；0＝完全不上升，500＝五倍。
        */
       warWearinessGainMultiplierPct: z
         .number()
         .int()
         .min(0)
         .max(500)
-        .default(100),
+        .default(65),
       /**
        * 傷兵池線性復原速率（%/回合）：每回合復原初始傷兵數的此百分比。
        * 例：10（預設）→ 10% → 10 回合完全復原；20 → 5 回合；1 → 100 回合。
