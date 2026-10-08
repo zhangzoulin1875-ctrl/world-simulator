@@ -388,3 +388,48 @@ test("validateWorldProposal：省略 maxTechEraSlug 時科技指標原樣通過"
   const plan = validateWorldProposal(proposal, ctx());
   assert.equal(plan.creates[0].techEraMilitary, "future");
 });
+
+test("validateWorldProposal：交戰中的 NPC 不可被刪除或改寫領土（略過，其餘操作照常）", () => {
+  const proposal: WorldProposal = {
+    summary: "戰時保護",
+    operations: [
+      { op: "deleteNation", nationId: NPC_A },
+      { op: "updateNation", nationId: NPC_B, regions: [{ regionId: 2, percent: 50 }] },
+    ],
+  } as WorldProposal;
+  const plan = validateWorldProposal(
+    proposal,
+    ctx({
+      warLockedNationIds: new Set([NPC_A]),
+      currentControls: [{ regionId: 1, nationId: NPC_A, percent: 48 }],
+    }),
+  );
+  assert.deepEqual(plan.deletes, [], "交戰中的 NPC 不得被刪除");
+  assert.deepEqual(plan.skippedWarLocked, [NPC_A]);
+  assert.equal(plan.updates.length, 1, "未交戰的 NPC 仍可正常改寫");
+  assert.equal(plan.updates[0]!.nationId, NPC_B);
+});
+
+test("validateWorldProposal：交戰中的 NPC 領土改寫同樣被略過", () => {
+  const proposal: WorldProposal = {
+    summary: "戰時保護",
+    operations: [
+      { op: "updateNation", nationId: NPC_A, regions: [{ regionId: 3, percent: 100 }] },
+    ],
+  } as WorldProposal;
+  const plan = validateWorldProposal(
+    proposal,
+    ctx({ warLockedNationIds: new Set([NPC_A]) }),
+  );
+  assert.equal(plan.updates.length, 0);
+  assert.deepEqual(plan.skippedWarLocked, [NPC_A]);
+});
+
+test("validateWorldProposal：沒有戰時鎖定時行為不變", () => {
+  const proposal: WorldProposal = {
+    summary: "一般",
+    operations: [{ op: "deleteNation", nationId: NPC_A }],
+  } as WorldProposal;
+  const plan = validateWorldProposal(proposal, ctx());
+  assert.deepEqual(plan.deletes, [NPC_A]);
+});

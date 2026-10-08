@@ -1,7 +1,9 @@
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import {
   db,
+  diplomacyWarsTable,
   playerNationsTable,
+  warCampaignsTable,
   playerResearchedTreeNodesTable,
   playerTechTreeStateTable,
   regionControlsTable,
@@ -54,6 +56,8 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export interface WorldContext {
   protectedNationIds: Set<string>;
+  /** 戰時鎖定的 NPC（進行中戰役／未結束戰爭），世界模擬不得刪除或改寫。 */
+  warLockedNationIds: Set<string>;
   editableNationIds: Set<string>;
   validRegionIds: Set<number>;
   currentControls: RegionControlRow[];
@@ -87,6 +91,31 @@ async function readWorldContext(tx: Tx): Promise<WorldContext> {
     else editableNationIds.add(n.id);
   }
 
+  // 戰時鎖定：有 active 戰役（攻或守）或未結束戰爭的國家。
+  const warLockedNationIds = new Set<string>();
+  const activeCampaigns = await tx
+    .select({
+      a: warCampaignsTable.attackerNationId,
+      d: warCampaignsTable.defenderNationId,
+    })
+    .from(warCampaignsTable)
+    .where(eq(warCampaignsTable.status, "active"));
+  for (const c of activeCampaigns) {
+    warLockedNationIds.add(c.a);
+    warLockedNationIds.add(c.d);
+  }
+  const openWars = await tx
+    .select({
+      a: diplomacyWarsTable.nationAId,
+      d: diplomacyWarsTable.nationBId,
+    })
+    .from(diplomacyWarsTable)
+    .where(isNull(diplomacyWarsTable.endedAt));
+  for (const w of openWars) {
+    warLockedNationIds.add(w.a);
+    warLockedNationIds.add(w.d);
+  }
+
   const regions = await tx
     .select({ id: mapRegionsTable.id })
     .from(mapRegionsTable);
@@ -107,6 +136,7 @@ async function readWorldContext(tx: Tx): Promise<WorldContext> {
 
   return {
     protectedNationIds,
+    warLockedNationIds,
     editableNationIds,
     validRegionIds,
     currentControls: controls,
@@ -221,6 +251,7 @@ export async function previewWorldProposal(
     const context = await readWorldContext(tx);
     const plan = validateWorldProposal(proposal, {
       protectedNationIds: context.protectedNationIds,
+      warLockedNationIds: context.warLockedNationIds,
       editableNationIds: context.editableNationIds,
       validRegionIds: context.validRegionIds,
       currentControls: context.currentControls,
@@ -266,6 +297,7 @@ export async function applyWorldProposal(
     const context = await readWorldContext(tx);
     const plan = validateWorldProposal(proposal, {
       protectedNationIds: context.protectedNationIds,
+      warLockedNationIds: context.warLockedNationIds,
       editableNationIds: context.editableNationIds,
       validRegionIds: context.validRegionIds,
       currentControls: context.currentControls,

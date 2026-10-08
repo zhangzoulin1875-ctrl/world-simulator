@@ -40,20 +40,29 @@ export function isWeaponSkillEffect(v: string): v is WeaponSkillEffect {
 }
 
 /**
- * AI 相容類別輸出夾限：過濾非法值、去重、最多 3 個；全空時回退為
- * 全類別（避免武器無法裝備任何兵種）。
+ * AI 相容類別輸出夾限：過濾非法值、去重、最多 3 個。
+ *
+ * allowed（可選）= 玩家目前可用的類別：不在其中的（例如研發火槍兵後的射手、
+ * 古代的空軍）一律剔除。全空時回退為 allowed（沒給則全類別），避免武器無法裝備任何兵種。
+ * 不傳 allowed 時行為與舊版完全相同。
  */
 export function clampCompatibleCategories(
   raw: unknown,
+  allowed?: readonly MilitaryCategory[],
 ): MilitaryCategory[] {
-  if (!Array.isArray(raw)) return [...MILITARY_CATEGORIES];
+  const fallback = allowed && allowed.length > 0 ? allowed : MILITARY_CATEGORIES;
+  if (!Array.isArray(raw)) return [...fallback];
   const seen = new Set<string>();
   for (const item of raw) {
-    if (typeof item === "string" && isMilitaryCategory(item)) {
+    if (
+      typeof item === "string" &&
+      isMilitaryCategory(item) &&
+      (!allowed || allowed.includes(item))
+    ) {
       seen.add(item);
     }
   }
-  if (seen.size === 0) return [...MILITARY_CATEGORIES];
+  if (seen.size === 0) return [...fallback];
   return [...seen].slice(0, 3) as MilitaryCategory[];
 }
 
@@ -153,4 +162,51 @@ export function serializeWeapon(
     skillBonusPct: weapon.skillBonusPct,
     eraSlug: weapon.eraSlug,
   };
+}
+
+/**
+ * 依武器名稱/玩家需求中的兵種關鍵字推斷「明確指名」的相容類別（確定性兜底）。
+ *
+ * 動機：AI 看到「騎兵長槍」常因「槍」字判成 infantry，造成名字是騎兵槍卻只能給步兵
+ * 用（玩家回報「一直設計不出騎兵武器」）。名稱/需求明確寫了兵種時，以玩家意圖為準。
+ *
+ * 只回傳「名稱或需求裡明確出現」的類別；沒有任何關鍵字則回空陣列（交給 AI 判斷）。
+ */
+const CATEGORY_NAME_KEYWORDS: ReadonlyArray<
+  readonly [MilitaryCategory, readonly string[]]
+> = [
+  ["armor", ["騎兵", "騎士", "騎槍", "騎射", "戰馬", "重騎", "輕騎", "鐵騎", "騎乘", "馬上", "坦克", "戰車", "裝甲"]],
+  ["ranged", ["弓", "弩", "射手", "箭"]],
+  ["ship", ["戰艦", "艦", "船", "艇", "水師"]],
+  ["air", ["戰機", "飛機", "轟炸機", "空軍", "飛行"]],
+  ["artillery", ["火砲", "火炮", "大砲", "大炮", "榴彈砲", "加農"]],
+  ["siege", ["攻城", "投石", "衝車", "雲梯", "破城"]],
+];
+
+export function inferExplicitCategories(
+  ...texts: readonly string[]
+): MilitaryCategory[] {
+  const joined = texts.join(" ");
+  const out: MilitaryCategory[] = [];
+  for (const [category, words] of CATEGORY_NAME_KEYWORDS) {
+    if (words.some((w) => joined.includes(w))) out.push(category);
+  }
+  return out;
+}
+
+/**
+ * 合併 AI 建議與明確指名的類別：明確指名者（且玩家可用）優先排前，其後接 AI 建議，
+ * 去重、最多 3 個；合併後為空則回退 allowed。
+ */
+export function mergeCompatibleCategories(
+  aiSuggested: readonly MilitaryCategory[],
+  explicit: readonly MilitaryCategory[],
+  allowed: readonly MilitaryCategory[],
+): MilitaryCategory[] {
+  const merged: MilitaryCategory[] = [];
+  for (const c of [...explicit, ...aiSuggested]) {
+    if (allowed.includes(c) && !merged.includes(c)) merged.push(c);
+  }
+  if (merged.length === 0) return [...allowed];
+  return merged.slice(0, 3);
 }

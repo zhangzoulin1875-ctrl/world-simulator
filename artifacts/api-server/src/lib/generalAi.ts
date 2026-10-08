@@ -10,7 +10,12 @@ import {
 import { callGameAi } from "./gameAi";
 import { logger } from "./logger";
 import { ERAS, getEraIndex } from "./mapRegionEras";
-import { MILITARY_CATEGORIES, type MilitaryCategory } from "./military";
+import {
+  eraAvailableCategories,
+  isCategoryUnlocked,
+  isMilitaryCategory,
+  type MilitaryCategory,
+} from "./military";
 import { REGION_ASSIGNMENTS } from "./mapConstants.generated";
 import { PROFILE_CULTURE } from "./nationGeoCulture";
 import { GENERAL_SKILL_SPECS } from "./generals";
@@ -78,6 +83,17 @@ export function assembleSkills(narrative: GeneralNarrative): GeneralSkill[] {
     bonusPct: spec.bonusPct,
     unlockGrade: spec.unlockGrade,
   }));
+}
+
+/**
+ * 從「可用類別」隨機抽一個。可用清單為空（理論上不會：步兵恆可用）時回退步兵。
+ * 武將預產、池空 fallback 共用，確保不會產出該時代/該玩家不可用的兵種專精。
+ */
+export function pickGeneralCategory(
+  available: readonly MilitaryCategory[],
+): MilitaryCategory {
+  if (available.length === 0) return "infantry";
+  return available[Math.floor(Math.random() * available.length)]!;
 }
 
 const CATEGORY_LABEL: Readonly<Record<MilitaryCategory, string>> = {
@@ -311,6 +327,11 @@ export async function loadDominantCultureProfile(
 export async function takeGeneralFromPool(params: {
   eraSlug: string;
   cultureProfile: string;
+  /**
+   * 玩家已研發的關鍵技術。給定時，池中屬於「該玩家已鎖定類別」的牌（例如研發火槍兵
+   * 後的射手）一律跳過、不被取走，留給其他玩家。未給定時不過濾（舊行為）。
+   */
+  researchedKeySlugs?: readonly string[];
 }): Promise<{
   name: string;
   title: string;
@@ -332,9 +353,16 @@ export async function takeGeneralFromPool(params: {
       .where(where)
       .orderBy(sql`created_at asc`)
       .limit(24);
-    if (rows.length === 0) return null;
+    const usable = params.researchedKeySlugs
+      ? rows.filter(
+          (r) =>
+            isMilitaryCategory(r.category) &&
+            isCategoryUnlocked(r.category, params.researchedKeySlugs!),
+        )
+      : rows;
+    if (usable.length === 0) return null;
     // 隨機挑一列（同桶內新舊均勻），原子刪除搶列：刪到 = 得牌。
-    const shuffled = [...rows].sort(() => Math.random() - 0.5);
+    const shuffled = [...usable].sort(() => Math.random() - 0.5);
     for (const row of shuffled) {
       const deleted = await db
         .delete(generalPoolTable)
@@ -364,6 +392,8 @@ export async function takeGeneralFromPool(params: {
 export async function generateGeneralSync(params: {
   eraSlug: string;
   cultureProfile: string;
+  /** 玩家目前可用的類別（缺省 = 該時代預設可用）。 */
+  availableCategories?: readonly MilitaryCategory[];
 }): Promise<{
   name: string;
   title: string;
@@ -372,8 +402,9 @@ export async function generateGeneralSync(params: {
   skills: GeneralSkill[];
   historical: boolean;
 }> {
-  const category =
-    MILITARY_CATEGORIES[Math.floor(Math.random() * MILITARY_CATEGORIES.length)]!;
+  const category = pickGeneralCategory(
+    params.availableCategories ?? eraAvailableCategories(params.eraSlug),
+  );
   return generateGeneralCard({
     eraSlug: params.eraSlug,
     category,
@@ -401,8 +432,9 @@ export async function topUpGeneralPool(params: {
     );
   if (Number(n) >= params.targetPerBucket) return false;
 
-  const category =
-    MILITARY_CATEGORIES[Math.floor(Math.random() * MILITARY_CATEGORIES.length)]!;
+  // 預產時不知道會發給誰：只產該時代預設可用的類別（火槍時代起不再產射手、
+  // 古代不產空軍/艦船）。玩家個人鎖定另在發牌時過濾（takeGeneralFromPool）。
+  const category = pickGeneralCategory(eraAvailableCategories(params.eraSlug));
   const narrative = await generateGeneralNarrativeWithRetry(
     { eraSlug: params.eraSlug, category, cultureProfile: params.cultureProfile },
     2,

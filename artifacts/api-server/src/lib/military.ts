@@ -73,6 +73,34 @@ export function categoryLabel(
   return CATEGORY_BASE_LABEL[category];
 }
 
+/**
+ * 玩家目前「可用」的兵種類別（已解鎖者）。武器設計與武將抽取共用，避免各處自行
+ * 決定類別而與兵種設計頁的鎖定規則不一致（曾導致火槍時代仍產射手武器/武將）。
+ */
+export function availableCategories(
+  researchedKeySlugs: readonly string[],
+): MilitaryCategory[] {
+  return MILITARY_CATEGORIES.filter((c) =>
+    isCategoryUnlocked(c, researchedKeySlugs),
+  );
+}
+
+/**
+ * 某時代「預設已自動解鎖」的關鍵技術 slug（世界進入該時代時，其關鍵技術自動解鎖，
+ * 見 categoryLockInfo 的 lockReason）。用於無法得知特定玩家的場合（武將預產池）。
+ */
+export function eraDefaultKeySlugs(eraSlug: string): string[] {
+  const idx = getEraIndex(eraSlug);
+  return MILITARY_KEY_TECHS.filter(
+    (k) => getEraIndex(k.eraSlug) <= idx,
+  ).map((k) => k.keySlug);
+}
+
+/** 某時代預設可用的兵種類別（武將預產池用；已含「火槍兵取代射手」的反向鎖定）。 */
+export function eraAvailableCategories(eraSlug: string): MilitaryCategory[] {
+  return availableCategories(eraDefaultKeySlugs(eraSlug));
+}
+
 /** 類別解鎖所需的關鍵技術 key_slug（null = 不需研發）。 */
 export function categoryRequiredKeyTech(
   category: MilitaryCategory,

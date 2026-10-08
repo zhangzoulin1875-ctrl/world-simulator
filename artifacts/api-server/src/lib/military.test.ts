@@ -388,3 +388,27 @@ test("summarizeTechBonuses: zero-sum entries dropped; empty input → empty", ()
   assert.deepEqual(summarizeTechBonuses(techs), []);
   assert.deepEqual(summarizeTechBonuses([]), []);
 });
+
+import {
+  availableCategories as _availableCategories,
+  eraAvailableCategories as _eraAvailableCategories,
+} from "./military";
+
+test("eraAvailableCategories：火槍時代起沒有射手、古代沒有空軍/艦船/火砲", () => {
+  const classical = _eraAvailableCategories("classical");
+  assert.ok(classical.includes("ranged"));
+  assert.ok(!classical.includes("air"));
+  assert.ok(!classical.includes("ship"));
+  assert.ok(!classical.includes("artillery"));
+  for (const era of ["renaissance", "industrial", "ww2", "modern"]) {
+    assert.ok(!_eraAvailableCategories(era).includes("ranged"), `${era} 不應有射手`);
+    assert.ok(_eraAvailableCategories(era).includes("armor"), `${era} 應有騎兵/裝甲`);
+    assert.ok(_eraAvailableCategories(era).includes("infantry"));
+  }
+  assert.ok(_eraAvailableCategories("ww1").includes("air"));
+});
+
+test("availableCategories：玩家研發火槍兵後射手被剔除", () => {
+  assert.ok(_availableCategories(["marksmanship"]).includes("ranged"));
+  assert.ok(!_availableCategories(["marksmanship", "musketeer"]).includes("ranged"));
+});

@@ -142,6 +142,8 @@ export interface NormalizedWorldPlan {
   creates: NormalizedCreate[];
   updates: NormalizedUpdate[];
   deletes: string[];
+  /** 因戰時鎖定而被略過的操作所指向的國家 id（稽核/日誌用）。 */
+  skippedWarLocked?: string[];
 }
 
 /** 既有 region_controls 一列（純資料）。 */
@@ -156,6 +158,12 @@ export interface WorldProposalContext {
   protectedNationIds: ReadonlySet<string>;
   /** 可編輯國家 id（現有 NPC 或無主國家）。 */
   editableNationIds: ReadonlySet<string>;
+  /**
+   * 戰時鎖定的 NPC id（有進行中戰役或未結束戰爭）。對這些國家的 updateNation /
+   * deleteNation 會被「略過」（不丟錯、不影響其餘操作）：否則 AI 可在玩家打到一半時
+   * 刪掉對手或重畫其領土，戰爭與戰役隨國家 CASCADE 消失，玩家只佔到部分地卻無從續攻。
+   */
+  warLockedNationIds?: ReadonlySet<string>;
   /** 合法地區 id（373 區）。 */
   validRegionIds: ReadonlySet<number>;
   /** 目前所有 region_controls（含玩家列，用於 Σ≤100 計算）。 */
@@ -245,6 +253,7 @@ export function validateWorldProposal(
   const creates: NormalizedCreate[] = [];
   const updates: NormalizedUpdate[] = [];
   const deletes: string[] = [];
+  const skippedWarLocked: string[] = [];
 
   const seenTempIds = new Set<string>();
   const targetedNationIds = new Set<string>();
@@ -300,6 +309,11 @@ export function validateWorldProposal(
       );
     }
     targetedNationIds.add(nationId);
+    // 戰時鎖定：交戰中的 NPC 不可被世界模擬刪除或改寫（略過此操作）。
+    if (ctx.warLockedNationIds?.has(nationId)) {
+      skippedWarLocked.push(nationId);
+      continue;
+    }
 
     if (op.op === "deleteNation") {
       deletes.push(nationId);
@@ -329,6 +343,7 @@ export function validateWorldProposal(
     creates,
     updates,
     deletes,
+    skippedWarLocked,
   };
 
   // 領土 Σ≤100/地區（含玩家既有掌控）

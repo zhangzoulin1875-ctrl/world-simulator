@@ -162,3 +162,34 @@ test("Step-by-step general draw process execution", async () => {
     .returning();
   console.log("created general:", created);
 });
+
+test("takeGeneralFromPool：玩家已鎖定射手時，池中的射手牌不會被發給他（也不會被取走）", async () => {
+  const eraSlug = `pooltest-${runId}`;
+  await db.insert(generalPoolTable).values([
+    { name: "射手甲", title: "t", background: "b", category: "ranged", skills: [], eraSlug, cultureProfile: "x" },
+  ]);
+  // 只有射手牌、玩家已研發火槍兵 → 不該拿到牌
+  const none = await takeGeneralFromPool({
+    eraSlug,
+    cultureProfile: "x",
+    researchedKeySlugs: ["marksmanship", "musketeer"],
+  });
+  assert.equal(none, null, "鎖定射手的玩家不該拿到射手牌");
+  // 射手牌仍在池中（留給其他玩家）
+  const still = await db.select().from(generalPoolTable).where(eq(generalPoolTable.eraSlug, eraSlug));
+  assert.equal(still.length, 1, "被跳過的牌不可被刪除");
+  // 加一張步兵牌 → 拿到步兵、射手仍保留
+  await db.insert(generalPoolTable).values({
+    name: "步兵乙", title: "t", background: "b", category: "infantry", skills: [], eraSlug, cultureProfile: "x",
+  });
+  const got = await takeGeneralFromPool({
+    eraSlug,
+    cultureProfile: "x",
+    researchedKeySlugs: ["marksmanship", "musketeer"],
+  });
+  assert.equal(got?.category, "infantry");
+  const left = await db.select().from(generalPoolTable).where(eq(generalPoolTable.eraSlug, eraSlug));
+  assert.equal(left.length, 1);
+  assert.equal(left[0]!.category, "ranged");
+  await db.delete(generalPoolTable).where(eq(generalPoolTable.eraSlug, eraSlug));
+});

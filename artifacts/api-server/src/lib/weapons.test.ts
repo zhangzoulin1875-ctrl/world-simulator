@@ -166,3 +166,30 @@ test("computeEffectivePower：不相容懲罰乘數降低戰力", () => {
   const c = computeEffectivePower(bad);
   assert.ok(c.offense < a.offense && c.defense < a.defense);
 });
+
+import { inferExplicitCategories, mergeCompatibleCategories } from "./weapons";
+
+test("clampCompatibleCategories：帶 allowed 時剔除被鎖定類別，全空回退 allowed", () => {
+  const allowed = ["infantry", "armor"] as const;
+  assert.deepEqual(
+    clampCompatibleCategories(["ranged", "infantry", "air"], allowed),
+    ["infantry"],
+  );
+  assert.deepEqual(clampCompatibleCategories(["ranged"], allowed), ["infantry", "armor"]);
+});
+
+test("inferExplicitCategories / mergeCompatibleCategories：騎兵槍必含 armor（即使 AI 只給步兵）", () => {
+  const explicit = inferExplicitCategories("騎兵長槍", "我要一把騎兵用的長槍");
+  assert.ok(explicit.includes("armor"));
+  const merged = mergeCompatibleCategories(["infantry"], explicit, ["infantry", "armor", "artillery"]);
+  assert.equal(merged[0], "armor", "明確指名者排最前");
+  assert.ok(merged.includes("infantry"));
+});
+
+test("mergeCompatibleCategories：被鎖定的類別即使名稱提到也不會出現", () => {
+  const explicit = inferExplicitCategories("強弩", "");
+  assert.ok(explicit.includes("ranged"));
+  const merged = mergeCompatibleCategories([], explicit, ["infantry", "armor"]);
+  assert.ok(!merged.includes("ranged"));
+  assert.deepEqual(merged, ["infantry", "armor"]);
+});

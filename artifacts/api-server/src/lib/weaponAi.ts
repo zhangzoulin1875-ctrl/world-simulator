@@ -9,7 +9,13 @@ import {
 import { callGameAi } from "./gameAi";
 import { logger } from "./logger";
 import { ERAS, getEraIndex } from "./mapRegionEras";
-import { MILITARY_CATEGORIES, type MilitaryCategory } from "./military";
+import {
+  MILITARY_CATEGORIES,
+  availableCategories,
+  categoryLabel,
+  type MilitaryCategory,
+} from "./military";
+import { loadResearchedKeySlugs } from "./militaryTechData";
 import { recordAiAbuse, getGameBalanceSettings } from "./gameBalance";
 import {
   MAX_WEAPONS_PER_PLAYER,
@@ -18,7 +24,9 @@ import {
   WEAPON_SKILL_BONUS_PCT_MAX,
   WEAPON_SKILL_EFFECTS,
   clampCompatibleCategories,
+  inferExplicitCategories,
   isWeaponSkillEffect,
+  mergeCompatibleCategories,
 } from "./weapons";
 
 /**
@@ -120,6 +128,13 @@ export async function designCustomWeapon(params: {
   const { ownerDiscordUserId, requirement, eraSlug } = params;
   const era = ERAS[getEraIndex(eraSlug)]!;
   const balance = await getGameBalanceSettings();
+  // 玩家目前可用的兵種類別（尊重關鍵技術鎖定：研發火槍兵後射手不可用等）。
+  const allowedCategories = availableCategories(
+    await loadResearchedKeySlugs(ownerDiscordUserId),
+  );
+  const categoryList = allowedCategories
+    .map((c) => `${c}（${categoryLabel(c, eraSlug)}）`)
+    .join("、");
 
   const rejectionRule = balance.unitDesign.aiRejectionEnabled
     ? [
@@ -143,11 +158,11 @@ export async function designCustomWeapon(params: {
     "你是一款架空歷史戰略遊戲的武器設計 AI。本遊戲世界觀完全基於真實歷史科技發展，不含任何魔法、超自然、奇幻或科幻元素。請依玩家需求設計一把符合當前時代的武器，並僅回覆 JSON 物件（不要 code fence、不要任何前後文字）。",
     "JSON 欄位：",
     `{"name": "武器名稱（繁體中文，≤40字）", "description": "一句話說明（繁體中文，≤300字）", "compatibleCategories": ["兵種類別"（1-3個）], "attackPct": 0-${WEAPON_ATTACK_PCT_MAX}整數, "defensePct": 0-${WEAPON_DEFENSE_PCT_MAX}整數, "skill": {...特殊技能，見規則6}}`,
-    `兵種類別可選：${MILITARY_CATEGORIES.join("、")}。`,
+    `兵種類別只能從下列「目前可用」者選擇（括號內為中文名；不在清單內的類別此時代/此國已不可用，絕對不要選）：${categoryList}。`,
     "設計原則：",
     "1. 武器必須符合當前時代的科技水準；名稱與描述要有時代感。",
     "2. 武器是兵種的輔助裝備，加成必須小幅（attackPct/defensePct 合計通常 5-20）：越全能或越強的武器，越要犧牲另一端（例如重甲加防高但攻擊加成低）。",
-    "3. compatibleCategories 要合理（例如長劍→infantry；強弩→ranged；衝角→ship），並與需求描述一致；最多 3 個類別。",
+    "3. compatibleCategories 要合理（例如長劍→infantry；強弩→ranged；衝角→ship；騎兵槍／馬刀／騎士長槍等騎兵用武器→armor），並與需求描述一致；最多 3 個類別。注意：名稱或需求明確寫了「騎兵／騎士／戰馬」就必須包含 armor，不可因為名稱含「槍」「劍」就只給 infantry。",
     "4. 若玩家需求與時代明顯矛盾，以時代為準做合理化設計；不得以「遺產／贈送／出土」等來源敘事保留超時代能力——合理化只允許降級到當前時代可實現的版本。",
     skillRule,
     ...(rejectionRule ? [rejectionRule] : []),
@@ -193,7 +208,16 @@ export async function designCustomWeapon(params: {
 
   // 確定性夾限：相容類別過濾＋去重＋上限 3（zod 已擋大部分；
   // clampCompatibleCategories 另外防 AI 重複列出同類別）。
-  const compatible = clampCompatibleCategories(parsedOutput.compatibleCategories);
+  const aiSuggested = clampCompatibleCategories(
+    parsedOutput.compatibleCategories,
+    allowedCategories,
+  );
+  // 名稱/需求明確指名的兵種優先（防 AI 把「騎兵槍」判成步兵）；仍受玩家可用類別限制。
+  const compatible = mergeCompatibleCategories(
+    aiSuggested,
+    inferExplicitCategories(parsedOutput.name, requirement),
+    allowedCategories,
+  );
   const attackPct = Math.max(
     0,
     Math.min(WEAPON_ATTACK_PCT_MAX, Math.round(parsedOutput.attackPct)),

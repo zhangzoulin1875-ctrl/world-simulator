@@ -19,11 +19,12 @@ import {
 } from "../lib/economy";
 import { loadCurrentTurnRecruitSpend } from "../lib/recruitSpend";
 import {
+  availableCategories,
   categoryLabel,
   isMilitaryCategory,
-  MILITARY_CATEGORIES,
   type MilitaryCategory,
 } from "../lib/military";
+import { loadResearchedKeySlugs } from "../lib/militaryTechData";
 import { logger } from "../lib/logger";
 import {
   GENERAL_CAP_RECRUITED,
@@ -37,6 +38,7 @@ import {
   buildFallbackGeneralCard,
   generateGeneralCard,
   loadDominantCultureProfile,
+  pickGeneralCategory,
   takeGeneralFromPool,
 } from "../lib/generalAi";
 import { callGameAi } from "../lib/gameAi";
@@ -388,14 +390,19 @@ router.post("/military/generals/draw", aiRateLimit, async (req, res) => {
     });
 
     // 發牌：池優先（零延遲，直接是候選卡）；池空則發「生成中」卡，背景補敘事。
-    const card = await takeGeneralFromPool({ eraSlug: currentEra, cultureProfile });
+    // 玩家個人的兵種鎖定（例如研發火槍兵後不再可用射手）：發牌與 fallback 都要遵守。
+    const researchedKeySlugs = nation.discordUserId
+      ? await loadResearchedKeySlugs(nation.discordUserId)
+      : [];
+    const available = availableCategories(researchedKeySlugs);
+    const card = await takeGeneralFromPool({
+      eraSlug: currentEra,
+      cultureProfile,
+      researchedKeySlugs,
+    });
     if (card) notePregenWork(); // 池卡被抽走 → 喚醒預產 worker 補位
 
-    const category =
-      card?.category ??
-      (MILITARY_CATEGORIES[
-        Math.floor(Math.random() * MILITARY_CATEGORIES.length)
-      ]! as string);
+    const category = card?.category ?? (pickGeneralCategory(available) as string);
 
     const [created] = await db
       .insert(generalsTable)
