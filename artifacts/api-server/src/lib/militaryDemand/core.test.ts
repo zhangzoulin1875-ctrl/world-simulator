@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  decideMilitaryAction, afterRefuse, pickTarget, DEMAND_CHANCE_PCT, type TargetCandidate,
+  decideMilitaryAction, afterRefuse, pickTarget, DEMAND_CHANCE_PCT, DEMAND_ROLL_EVERY_TURNS, type TargetCandidate,
   isDemandExpired, demandTurnsLeft, DEMAND_DEADLINE_TURNS,
 } from "./core";
 
@@ -16,11 +16,33 @@ test("民主國家軍方永遠無要求,連低滿意度也不自動開戰", () =
   for (const sat of [100, 60, 49, 14, 0]) assert.equal(act("democracy", sat, false, 0).kind, "none");
 });
 
-test("滿意度 >= 50:依 20% 擲骰決定是否提出要求", () => {
-  assert.equal(act("autocracy", 60, false, 0.19).kind, "demand");
-  assert.equal(act("autocracy", 60, false, 0.2).kind, "none");   // 恰好 20 不中
+test("滿意度 >= 50:在擲骰回合依 18% 擲骰決定是否提出要求", () => {
+  assert.equal(act("autocracy", 60, false, 0.17).kind, "demand");
+  assert.equal(act("autocracy", 60, false, 0.18).kind, "none");  // 恰好 18 不中
   assert.equal(act("semi", 50, false, 0.0).kind, "demand");      // 恰好 50 仍是詢問
-  assert.equal(DEMAND_CHANCE_PCT, 20);
+  assert.equal(DEMAND_CHANCE_PCT, 18);
+  assert.equal(DEMAND_ROLL_EVERY_TURNS, 4);
+});
+
+test("每 4 回合才擲一次：tick 非 4 的倍數時，即使亂數必中也不提要求", () => {
+  const at = (tick: number) =>
+    decideMilitaryAction({ tier: "autocracy", satisfaction: 70, hasPendingDemand: false, rand: () => 0, tick }).kind;
+  assert.equal(at(0), "demand");
+  assert.equal(at(1), "none");
+  assert.equal(at(2), "none");
+  assert.equal(at(3), "none");
+  assert.equal(at(4), "demand");
+  assert.equal(at(8), "demand");
+  assert.equal(at(9), "none");
+});
+
+test("非擲骰回合不消耗亂數；低滿意度的自動開戰與政變仍每回合判定", () => {
+  let calls = 0;
+  const rand = () => { calls++; return 0; };
+  decideMilitaryAction({ tier: "autocracy", satisfaction: 70, hasPendingDemand: false, rand, tick: 3 });
+  assert.equal(calls, 0);
+  assert.equal(decideMilitaryAction({ tier: "autocracy", satisfaction: 40, hasPendingDemand: false, rand: () => 0.9, tick: 3 }).kind, "auto_war");
+  assert.equal(decideMilitaryAction({ tier: "autocracy", satisfaction: 10, hasPendingDemand: false, rand: () => 0.9, tick: 3 }).kind, "coup");
 });
 
 test("已有待回應要求時不再擲新的", () => {
@@ -48,11 +70,15 @@ test("政變比例統計:約 60/40", () => {
   assert.ok(Math.abs(classic / N - 0.6) < 0.02, `classic=${classic / N}`);
 });
 
-test("擲骰比例統計:約 20%", () => {
-  let hit = 0; const N = 50000;
-  for (let i = 0; i < N; i++)
-    if (decideMilitaryAction({ tier: "autocracy", satisfaction: 70, hasPendingDemand: false, rand: Math.random }).kind === "demand") hit++;
-  assert.ok(Math.abs(hit / N - 0.2) < 0.01, `rate=${hit / N}`);
+test("統計:擲骰回合約 18%；每回合平均約 4.5%（18% ÷ 4）", () => {
+  let hitRoll = 0, hitAll = 0; const N = 80000;
+  for (let i = 0; i < N; i++) {
+    const tick = i % 4; // 四個回合一循環
+    const k = decideMilitaryAction({ tier: "autocracy", satisfaction: 70, hasPendingDemand: false, rand: Math.random, tick }).kind;
+    if (k === "demand") { hitAll++; if (tick === 0) hitRoll++; }
+  }
+  assert.ok(Math.abs(hitRoll / (N / 4) - 0.18) < 0.012, `rollRate=${hitRoll / (N / 4)}`);
+  assert.ok(Math.abs(hitAll / N - 0.045) < 0.005, `perTurn=${hitAll / N}`);
 });
 
 test("拒絕扣 15 並夾限 0 到 100", () => {

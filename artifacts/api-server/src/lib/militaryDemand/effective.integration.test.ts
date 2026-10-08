@@ -106,7 +106,7 @@ test("反向:基底 70 + 政策 -30:畫面 40% → 應自動開戰(與畫面一�
   void nb;
 });
 
-test("有效值判定的 20% 要求:基底 40 + 政策 +20 → 可提出要求(而非自動開戰)", async () => {
+test("有效值判定的 18% 要求:基底 40 + 政策 +20 → 可提出要求(而非自動開戰)", async () => {
   const [mine] = await freePair(2);
   const n = await mkNation("軍事獨裁", 40); await control(mine, n.id); await addMilitaryPolicy(n.id, 20);
   const r = await settleNationMilitaryDemand(n, armies, noCoup, seq(0.05));
@@ -119,12 +119,27 @@ test("有效值判定的 20% 要求:基底 40 + 政策 +20 → 可提出要求(�
 
 test("要求建立時記錄回合與到期回合(tick + 2)", async () => {
   const [mine] = await freePair(3);
-  const n = await mkNation("軍事獨裁", 70); await control(mine, n.id); await setTick(n.id, 10);
+  const n = await mkNation("軍事獨裁", 70); await control(mine, n.id); await setTick(n.id, 12); // 擲骰回合必為 4 的倍數(每 4 回合才擲一次)
   await settleNationMilitaryDemand(n, armies, noCoup, seq(0.05));
   const d = (await getPendingDemand(n.id))!;
-  assert.equal(d.createdTick, 10);
-  assert.equal(d.dueTick, 10 + DEMAND_DEADLINE_TURNS);
-  assert.equal(d.dueTick, 12);
+  assert.equal(d.createdTick, 12);
+  assert.equal(d.dueTick, 12 + DEMAND_DEADLINE_TURNS);
+  assert.equal(d.dueTick, 14);
+});
+
+test("每 4 回合才擲一次：非擲骰回合即使亂數必中也不產生要求，擲骰回合才會", async () => {
+  const [mine] = await freePair(8);
+  const n = await mkNation("軍事獨裁", 70); await control(mine, n.id);
+  for (const tick of [13, 14, 15]) {
+    await setTick(n.id, tick);
+    const r = await settleNationMilitaryDemand(await fresh(n.id), armies, noCoup, seq(0));
+    assert.equal(r.action, "none", `tick=${tick} 不該提出要求`);
+    assert.equal(await getPendingDemand(n.id), null);
+  }
+  await setTick(n.id, 16);
+  const hit = await settleNationMilitaryDemand(await fresh(n.id), armies, noCoup, seq(0));
+  assert.equal(hit.action, "demand", "tick=16 為擲骰回合");
+  assert.ok(await getPendingDemand(n.id));
 });
 
 test("未逾時:不處理、不扣分,且不會擲新的要求", async () => {
@@ -140,9 +155,9 @@ test("未逾時:不處理、不扣分,且不會擲新的要求", async () => {
 
 test("逾時:視同拒絕、扣 15、狀態 timed_out;再結算不重複扣分", async () => {
   const [mine] = await freePair(5);
-  const n = await mkNation("軍事獨裁", 70); await control(mine, n.id); await setTick(n.id, 30);
+  const n = await mkNation("軍事獨裁", 70); await control(mine, n.id); await setTick(n.id, 32); // 擲骰回合必為 4 的倍數
   await settleNationMilitaryDemand(n, armies, noCoup, seq(0.05));
-  await setTick(n.id, 32); // 到期
+  await setTick(n.id, 34); // 到期
   const r = await settleNationMilitaryDemand(await fresh(n.id), armies, noCoup, seq(0.99));
   assert.equal(r.action, "none");
   assert.equal((await fresh(n.id)).satisfactionMilitary, 55, "70 - 15");
@@ -169,7 +184,7 @@ test("逾時扣分後跌破 50:同回合落入自動開戰判定(扣分有效)",
 
 test("逾時與玩家同時回應:只扣一次(樂觀鎖)", async () => {
   const [mine] = await freePair(7);
-  const n = await mkNation("軍事獨裁", 70); await control(mine, n.id); await setTick(n.id, 50);
+  const n = await mkNation("軍事獨裁", 70); await control(mine, n.id); await setTick(n.id, 52); // 擲骰回合必為 4 的倍數
   await settleNationMilitaryDemand(n, armies, noCoup, seq(0.05));
   const d = (await getPendingDemand(n.id))!;
   const [a, b] = await Promise.all([

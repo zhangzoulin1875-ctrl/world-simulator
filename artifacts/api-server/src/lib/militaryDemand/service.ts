@@ -209,7 +209,7 @@ export async function settleNationMilitaryDemand(
   // 判定一律用「有效值」(玩家畫面上的數字),不是資料庫基底值。
   const effective = await getEffectiveMilitarySatisfaction(nation);
   const action = decideMilitaryAction({
-    tier, satisfaction: effective, hasPendingDemand: pending !== null, rand,
+    tier, satisfaction: effective, hasPendingDemand: pending !== null, rand, tick,
   });
 
   if (action.kind === "coup") {

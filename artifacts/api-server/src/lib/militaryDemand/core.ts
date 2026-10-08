@@ -2,7 +2,8 @@
  * 軍方進攻要求:純邏輯核心(不碰資料庫,可單元測試)
  *
  * 規格(2026-10-04 使用者確認):
- *  - 每回合 20% 機率,軍方要求進攻某地區;拒絕則軍方滿意度 -15
+ *  - 每 4 回合擲一次骰(tick % 4 === 0),18% 機率軍方要求進攻某地區;拒絕則軍方滿意度 -15
+ *    (2026-10-08 由「每回合 20%」下修:獨裁/半獨裁軍方要求過於頻繁,易陷入惡性循環)
  *  - 軍方滿意度 < 50:不再詢問,直接開戰
  *  - 軍方滿意度 < 15:政變(60% 沿用現有軍方政變,40% 獨立出軍閥國家內戰)
  *  - 民主國家軍方永遠不提要求
@@ -16,7 +17,9 @@
 
 export type MilitaryTier = "autocracy" | "semi" | "democracy";
 
-export const DEMAND_CHANCE_PCT = 20;
+export const DEMAND_CHANCE_PCT = 18;
+/** 每幾回合才擲一次要求骰(以該國議會 tick 為準)。 */
+export const DEMAND_ROLL_EVERY_TURNS = 4;
 export const REFUSE_PENALTY = 15;
 export const AUTO_WAR_BELOW = 50;
 export const COUP_BELOW = 15;
@@ -54,8 +57,11 @@ export function decideMilitaryAction(input: {
   satisfaction: number;
   hasPendingDemand: boolean;
   rand: () => number;
+  /** 該國議會回合計數;缺省視為 0(每次都落在擲骰回合,維持舊呼叫端相容)。 */
+  tick?: number;
 }): MilitaryAction {
   const { tier, satisfaction, hasPendingDemand, rand } = input;
+  const tick = input.tick ?? 0;
   // 民主國家:軍方永遠無要求(也不會自動開戰,政變仍沿用既有軍方機制,不在此處理)
   if (tier === "democracy") return { kind: "none" };
 
@@ -64,6 +70,8 @@ export function decideMilitaryAction(input: {
   }
   if (satisfaction < AUTO_WAR_BELOW) return { kind: "auto_war" };
   if (hasPendingDemand) return { kind: "none" };
+  // 非擲骰回合不提要求(也不消耗亂數)。
+  if (tick % DEMAND_ROLL_EVERY_TURNS !== 0) return { kind: "none" };
   if (rand() * 100 < DEMAND_CHANCE_PCT) return { kind: "demand" };
   return { kind: "none" };
 }

@@ -81,7 +81,7 @@ after(async () => {
   await pool.end();
 });
 
-test("獨裁:擲中 20% → 產生要求(目標=相鄰無主地),且不扣分", async () => {
+test("獨裁:擲中 18% → 產生要求(目標=相鄰無主地),且不扣分", async () => {
   const [mine, nb] = await freePair(0);
   const n = await mkNation("軍事獨裁", 70); await control(mine, n.id);
   const r = await settleNationMilitaryDemand(n, armies, noCoup, seq(0.05));
