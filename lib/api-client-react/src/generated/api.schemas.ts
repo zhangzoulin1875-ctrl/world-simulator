@@ -1491,6 +1491,64 @@ export interface FoodOverview {
   regions: FoodRegionLine[];
 }
 
+export type WarehouseGoodSlug =
+  (typeof WarehouseGoodSlug)[keyof typeof WarehouseGoodSlug];
+
+export const WarehouseGoodSlug = {
+  wood: "wood",
+  ore: "ore",
+  ironcoal: "ironcoal",
+  oil: "oil",
+  rare: "rare",
+  spice: "spice",
+  cloth: "cloth",
+} as const;
+
+export type WarehouseGoodTier =
+  (typeof WarehouseGoodTier)[keyof typeof WarehouseGoodTier];
+
+export const WarehouseGoodTier = {
+  basic: "basic",
+  industrial: "industrial",
+  luxury: "luxury",
+} as const;
+
+export interface WarehouseSource {
+  regionName: string;
+  /** 控制比例 0–100 */
+  percent: number;
+  /** 該地區對此貨物的每回合產量 */
+  perTurn: number;
+  /** 是否主產區(強度 3) */
+  major: boolean;
+}
+
+export interface WarehouseGood {
+  slug: WarehouseGoodSlug;
+  label: string;
+  tier: WarehouseGoodTier;
+  /** 目前庫存 */
+  stock: number;
+  /** 每回合特產入帳量(已套控制比例與時代解鎖) */
+  perTurn: number;
+  /** false = 目前時代尚未解鎖,產量為 0 */
+  unlocked: boolean;
+  /** 解鎖時代 slug,無限制為 null */
+  unlockEra: string | null;
+  sources: WarehouseSource[];
+}
+
+/**
+ * 倉庫(貿易系統階段 2)。糧食不在此(見糧食頁籤)。perTurn 與回合引擎入帳同一套計算
+ */
+export interface Warehouse {
+  /** 目前 stats 時代 slug */
+  statsEra: string;
+  /** 特產基準量(主產全控 = 3 × 基準量) */
+  baseOutput: number;
+  goods: WarehouseGood[];
+}
+
 /**
  * 至少需指定一項政策開關。
  */

@@ -157,7 +157,7 @@ export const playerNationsTable = pgTable("player_nations", {
    * 經濟系統（Task #117）。
    * taxRatePct：人口稅率（%，新建國家預設 3；既有國家不動）。只能透過 AI 判定的財政政策調整，
    *   不是直接滑桿——加稅／減稅的代價由 AI 決定。
-   * taxEfficiencyBonus：稅收效率的額外加成（%，未來經濟科技用；基礎效率由
+   * taxEfficiencyBonus：稅收效率的額外加成（%，預設 0、僅管理員 NPC 編輯可調、仍參與稅收；基礎效率由
    *   時代決定，見 lib/economy.ts）。
    * （四項預算分配 budget_*_pct 已於 Task #401 整組移除。）
    */

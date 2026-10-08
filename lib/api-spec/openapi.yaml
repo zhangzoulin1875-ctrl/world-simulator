@@ -2483,6 +2483,28 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorMessage" }
 
+  /economy/warehouse:
+    get:
+      operationId: getWarehouse
+      tags: [economy]
+      summary: 倉庫 — 7 種貨物(不含糧食)的庫存、每回合特產產量與來源地區
+      responses:
+        "200":
+          description: Warehouse state for the logged-in player
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Warehouse" }
+        "400":
+          description: No nation founded yet
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
   /economy/food/policies:
     post:
       operationId: updateFoodPolicies
@@ -5208,6 +5230,41 @@ components:
         overflow: { type: integer, description: "預測本回合超過上限被捨棄的量" }
         shortfall: { type: integer, description: "預測本回合缺口(庫存用完仍不夠吃,>0 即饑荒)" }
         nextStock: { type: integer, description: "預測本回合結算後的庫存" }
+
+    Warehouse:
+      type: object
+      required: [statsEra, baseOutput, goods]
+      description: "倉庫(貿易系統階段 2)。糧食不在此(見糧食頁籤)。perTurn 與回合引擎入帳同一套計算"
+      properties:
+        statsEra: { type: string, description: "目前 stats 時代 slug" }
+        baseOutput: { type: integer, description: "特產基準量(主產全控 = 3 × 基準量)" }
+        goods:
+          type: array
+          items: { $ref: "#/components/schemas/WarehouseGood" }
+
+    WarehouseGood:
+      type: object
+      required: [slug, label, tier, stock, perTurn, unlocked, unlockEra, sources]
+      properties:
+        slug: { type: string, enum: [wood, ore, ironcoal, oil, rare, spice, cloth] }
+        label: { type: string }
+        tier: { type: string, enum: [basic, industrial, luxury] }
+        stock: { type: integer, description: "目前庫存" }
+        perTurn: { type: integer, description: "每回合特產入帳量(已套控制比例與時代解鎖)" }
+        unlocked: { type: boolean, description: "false = 目前時代尚未解鎖,產量為 0" }
+        unlockEra: { type: string, nullable: true, description: "解鎖時代 slug,無限制為 null" }
+        sources:
+          type: array
+          items: { $ref: "#/components/schemas/WarehouseSource" }
+
+    WarehouseSource:
+      type: object
+      required: [regionName, percent, perTurn, major]
+      properties:
+        regionName: { type: string }
+        percent: { type: integer, description: "控制比例 0–100" }
+        perTurn: { type: integer, description: "該地區對此貨物的每回合產量" }
+        major: { type: boolean, description: "是否主產區(強度 3)" }
 
     FoodTreatyFlows:
       type: object

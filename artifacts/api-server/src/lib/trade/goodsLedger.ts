@@ -1,5 +1,5 @@
-import { sql } from "drizzle-orm";
-import { db } from "@workspace/db";
+import { eq, sql } from "drizzle-orm";
+import { db, regionControlsTable, mapRegionsTable } from "@workspace/db";
 import { TABLE_GOOD_SLUGS, type GoodSlug } from "./goods";
 
 /**
@@ -65,4 +65,19 @@ export async function readGoods(
     out[row.good] = Number(row.stock);
   }
   return out;
+}
+
+/**
+ * 一國控制的地區(名稱 + 控制比例),與回合引擎特產產出用同一個條件
+ * (percent > 0、以 map_regions.name 對特產表)。倉庫頁用,純讀取。
+ */
+export async function readControlledRegions(
+  nationId: string,
+): Promise<{ name: string; percent: number }[]> {
+  const rows = await db
+    .select({ name: mapRegionsTable.name, percent: regionControlsTable.percent })
+    .from(regionControlsTable)
+    .innerJoin(mapRegionsTable, eq(mapRegionsTable.id, regionControlsTable.regionId))
+    .where(sql`${regionControlsTable.nationId} = ${nationId} AND ${regionControlsTable.percent} > 0`);
+  return rows.map((r) => ({ name: r.name, percent: Number(r.percent) }));
 }

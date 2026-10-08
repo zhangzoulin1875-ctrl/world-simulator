@@ -4453,6 +4453,50 @@ export const GetFoodOverviewResponse = zod.object({
 });
 
 /**
+ * @summary 倉庫 — 7 種貨物(不含糧食)的庫存、每回合特產產量與來源地區
+ */
+export const GetWarehouseResponse = zod
+  .object({
+    statsEra: zod.string().describe("目前 stats 時代 slug"),
+    baseOutput: zod.number().describe("特產基準量(主產全控 = 3 × 基準量)"),
+    goods: zod.array(
+      zod.object({
+        slug: zod.enum([
+          "wood",
+          "ore",
+          "ironcoal",
+          "oil",
+          "rare",
+          "spice",
+          "cloth",
+        ]),
+        label: zod.string(),
+        tier: zod.enum(["basic", "industrial", "luxury"]),
+        stock: zod.number().describe("目前庫存"),
+        perTurn: zod
+          .number()
+          .describe("每回合特產入帳量(已套控制比例與時代解鎖)"),
+        unlocked: zod.boolean().describe("false = 目前時代尚未解鎖,產量為 0"),
+        unlockEra: zod
+          .string()
+          .nullable()
+          .describe("解鎖時代 slug,無限制為 null"),
+        sources: zod.array(
+          zod.object({
+            regionName: zod.string(),
+            percent: zod.number().describe("控制比例 0–100"),
+            perTurn: zod.number().describe("該地區對此貨物的每回合產量"),
+            major: zod.boolean().describe("是否主產區(強度 3)"),
+          }),
+        ),
+      }),
+    ),
+  })
+  .describe(
+    "倉庫(貿易系統階段 2)。糧食不在此(見糧食頁籤)。perTurn 與回合引擎入帳同一套計算",
+  );
+
+/**
  * @summary 切換糧食政策（增產動員 / 節約配給）
  */
 export const UpdateFoodPoliciesBody = zod

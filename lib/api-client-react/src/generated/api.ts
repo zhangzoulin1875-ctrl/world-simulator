@@ -147,6 +147,7 @@ import type {
   WarResupplyRequest,
   WarResupplyResult,
   WarSupplyForecast,
+  Warehouse,
   WeaponDeleteResult,
   WeaponDesignRequest,
   WeaponDesignResult,
@@ -7845,6 +7846,81 @@ export function useGetFoodOverview<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetFoodOverviewQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary 倉庫 — 7 種貨物(不含糧食)的庫存、每回合特產產量與來源地區
+ */
+export const getGetWarehouseUrl = () => {
+  return `/api/economy/warehouse`;
+};
+
+export const getWarehouse = async (
+  options?: RequestInit,
+): Promise<Warehouse> => {
+  return customFetch<Warehouse>(getGetWarehouseUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetWarehouseQueryKey = () => {
+  return [`/api/economy/warehouse`] as const;
+};
+
+export const getGetWarehouseQueryOptions = <
+  TData = Awaited<ReturnType<typeof getWarehouse>>,
+  TError = ErrorType<ErrorMessage>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getWarehouse>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetWarehouseQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getWarehouse>>> = ({
+    signal,
+  }) => getWarehouse({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getWarehouse>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetWarehouseQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getWarehouse>>
+>;
+export type GetWarehouseQueryError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary 倉庫 — 7 種貨物(不含糧食)的庫存、每回合特產產量與來源地區
+ */
+
+export function useGetWarehouse<
+  TData = Awaited<ReturnType<typeof getWarehouse>>,
+  TError = ErrorType<ErrorMessage>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getWarehouse>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetWarehouseQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

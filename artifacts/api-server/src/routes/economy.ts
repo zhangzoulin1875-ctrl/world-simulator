@@ -22,6 +22,9 @@ import {
   type WallTier,
 } from "@workspace/db";
 import { getSession, readSessionToken } from "../lib/sessions";
+import { buildWarehouse } from "../lib/trade/warehouse";
+import { SPECIALTY_BASE_OUTPUT } from "../lib/trade/production";
+import { readGoods, readControlledRegions } from "../lib/trade/goodsLedger";
 import {
   computeAdjustedNationStats,
   computeNationStats,
@@ -1236,6 +1239,39 @@ router.get("/economy/food", async (req, res) => {
   } catch (err) {
     req.log.error({ err, nationId: nation.id }, "food overview failed");
     res.status(500).json({ error: "無法載入糧食資料，請稍後再試" });
+  }
+});
+
+// ── 倉庫（貿易系統階段 2）────────────────────────────────────────
+
+/**
+ * GET /api/economy/warehouse — 7 種貨物(不含糧食)的庫存、每回合特產產量與來源地區。
+ * 純讀取:每回合產量與回合引擎同一套 nationSpecialtyOutput,顯示必然等於實際入帳。
+ */
+router.get("/economy/warehouse", async (req, res) => {
+  const auth = await requirePlayer(req, res);
+  if (!auth) return;
+  const { nation } = auth;
+  try {
+    const { statsEra } = await getEraSlugs();
+    const [goods, regions] = await Promise.all([
+      readGoods(nation.id),
+      readControlledRegions(nation.id),
+    ]);
+    res.json({
+      statsEra,
+      baseOutput: SPECIALTY_BASE_OUTPUT,
+      goods: buildWarehouse({
+        wood: nation.wood,
+        ore: nation.ore,
+        goods,
+        regions,
+        statsEra,
+      }),
+    });
+  } catch (err) {
+    req.log.error({ err, nationId: nation.id }, "warehouse overview failed");
+    res.status(500).json({ error: "無法載入倉庫資料，請稍後再試" });
   }
 });
 

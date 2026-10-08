@@ -6,8 +6,8 @@ import {
   Loader2,
   LogIn,
   Map as MapIcon,
+  Package,
   Percent,
-  ReceiptText,
   Scale,
   Shield,
   TrendingDown,
@@ -28,13 +28,13 @@ import { GameNotifications } from "@/components/game-notifications";
 import { HelpButton } from "@/components/help-button";
 import { FinanceTab } from "@/components/economy/finance-tab";
 import { RegionsTab } from "@/components/economy/regions-tab";
-import { EconomyTechTab } from "@/components/economy/economy-tech-tab";
+import { WarehouseTab } from "@/components/economy/warehouse-tab";
 import { FoodTab } from "@/components/economy/food-tab";
 
 const BASE = import.meta.env.BASE_URL;
 const DEFAULT_BG = `${BASE}game/home-bg-default.webp`;
 
-type TabKey = "finance" | "food" | "regions" | "tech";
+type TabKey = "finance" | "food" | "warehouse" | "regions";
 
 export default function GameEconomy() {
   const { data: me, isLoading: loadingMe } = useCurrentUser();
@@ -258,8 +258,8 @@ function EconomyScreen({
   const tabs: { key: TabKey; label: string; icon: typeof Scale }[] = [
     { key: "finance", label: "財政", icon: Scale },
     { key: "food", label: "糧食", icon: Wheat },
+    { key: "warehouse", label: "倉庫", icon: Package },
     { key: "regions", label: "地區", icon: MapIcon },
-    { key: "tech", label: "經濟科技", icon: ReceiptText },
   ];
 
   return (
@@ -317,8 +317,8 @@ function EconomyScreen({
 
         {tab === "finance" && <FinanceTab overview={overview} />}
         {tab === "food" && <FoodTab />}
+        {tab === "warehouse" && <WarehouseTab />}
         {tab === "regions" && <RegionsTab />}
-        {tab === "tech" && <EconomyTechTab />}
       </div>
     </div>
   );

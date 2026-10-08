@@ -35,7 +35,7 @@ async function runEconomyMigrationsInner(): Promise<void> {
       DROP COLUMN IF EXISTS budget_religion_pct,
       DROP COLUMN IF EXISTS budget_rights_pct
   `);
-  // 稅收效率額外加成（%）：未來經濟科技用，基礎 0。
+  // 稅收效率額外加成（%）：預設 0，目前只有管理員 NPC 編輯能調，仍參與稅收計算，勿刪（經濟科技分頁已於 2026-10 移除）。
   await db.execute(sql`
     ALTER TABLE player_nations
       ADD COLUMN IF NOT EXISTS tax_efficiency_bonus integer NOT NULL DEFAULT 0
