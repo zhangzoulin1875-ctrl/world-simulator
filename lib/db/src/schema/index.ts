@@ -29,3 +29,4 @@ export * from "./gameBalance";
 export * from "./aiPregen";
 export * from "./militaryDemands";
 export * from "./domesticEvents";
+export * from "./trade";

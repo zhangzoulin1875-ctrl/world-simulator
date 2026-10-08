@@ -48,6 +48,7 @@ import { runTechTreeMigrations } from "./lib/techTreeMigrations";
 import { recalcArmyProductionReservations } from "./lib/armyReservationRecalc";
 import { runWallMigrations } from "./lib/wallMigrations";
 import { runWorldSimMigrations } from "./lib/worldSimMigrations";
+import { runTradeMigrations } from "./lib/tradeMigrations";
 import { startCostTuningRefresh } from "./lib/costTuningLoad";
 import { runGameNewsMigrations } from "./lib/gameNewsMigrations";
 import { runAccountBanMigrations } from "./lib/accountBanMigrations";
@@ -142,6 +143,8 @@ async function runStartupMigrations(): Promise<void> {
   await bootStep("runFocusMigrations", () => runFocusMigrations());
   await bootStep("runDomesticEventMigrations", () => runDomesticEventMigrations());
   await bootStep("runEconomyMigrations", () => runEconomyMigrations());
+  // 貿易系統 — nation_goods(只建新表,不碰 player_nations;FK 依賴 player_nations 已存在)。
+  await bootStep("runTradeMigrations", () => runTradeMigrations());
   // Task #479 — 一次性歸零負值 production_bonus（舊生產力維護費死亡螺旋
   // 的歷史欠債；game_flags 原子認領，只跑一次）。
   await bootStep("repairNegativeProductionBonus", () => repairNegativeProductionBonus());
