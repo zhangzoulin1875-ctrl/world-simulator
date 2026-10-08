@@ -191,6 +191,19 @@
   h1, h2, h3, h4, h5, h6 {
     @apply font-serif tracking-tight text-foreground;
   }
+
+  /* 暗底頁面的標題要跟著容器的淺色字走。
+   * 上面的全域規則把標題直接設成 text-foreground(淺色主題下是深藍黑),
+   * 「直接宣告」會蓋掉從 text-white 容器繼承來的白字,結果暗底卡片上的
+   * 標題變成深字看不清楚(倉庫、糧食、議會、外交等都中過)。
+   * 這裡只要標題位在 text-white / text-slate-100 的容器內就改為繼承。
+   * 注意不能用 :where() 把優先權壓到 0:同在 base 層,標題規則 (0,0,1) 會贏。
+   * 標題自己寫的 text-* class 在 utilities 層,層級高於 base,所以仍然優先;
+   * 淺底頁面(管理後台、shadcn Dialog)沒有這些容器 class,完全不受影響。 */
+  .text-white :is(h1, h2, h3, h4, h5, h6),
+  .text-slate-100 :is(h1, h2, h3, h4, h5, h6) {
+    color: inherit;
+  }
 }
 
 /* ── 手機/觸控優化 ─────────────────────────────────────────────
