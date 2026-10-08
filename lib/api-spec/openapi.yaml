@@ -2505,6 +2505,82 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorMessage" }
 
+  /economy/market:
+    get:
+      operationId: getMarket
+      tags: [economy]
+      summary: 黑市 — 目前時代可交易貨物的報價、本回合剩餘額度與持有量(純讀取)
+      responses:
+        "200":
+          description: Market overview for the logged-in player
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketOverview" }
+        "400":
+          description: No nation founded yet
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /economy/market/preview:
+    post:
+      operationId: previewMarketTrade
+      tags: [economy]
+      summary: 黑市 — 試算一筆交易(不成交、不動帳)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MarketTradeRequest" }
+      responses:
+        "200":
+          description: Quote for the requested trade
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketPreview" }
+        "400":
+          description: Invalid payload / good not tradable in this era / no nation founded yet
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /economy/market/trade:
+    post:
+      operationId: executeMarketTrade
+      tags: [economy]
+      summary: 黑市 — 成交一筆交易(單一資料庫交易內鎖國家列與價格列,連點不會透支或超賣)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MarketTradeRequest" }
+      responses:
+        "200":
+          description: Trade executed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketTradeResult" }
+        "400":
+          description: Rejected (invalid payload, era-locked good, insufficient money/stock, turn quota used up)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MarketTradeError" }
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
   /economy/food/policies:
     post:
       operationId: updateFoodPolicies
@@ -5274,6 +5350,72 @@ components:
         inflow: { type: integer, description: "每回合自條約收到的糧食" }
         outflow: { type: integer, description: "每回合依條約送出的糧食" }
 
+    MarketGood:
+      type: object
+      required: [good, label, tier, basePrice, mid, buyPrice, sellPrice, owned, buyLeft, sellLeft]
+      properties:
+        good: { type: string, description: 貨物代碼(wood/ore/ironcoal/oil/rare/spice/cloth) }
+        label: { type: string }
+        tier: { type: string }
+        basePrice: { type: number, description: 基準價(價格每回合向此回歸) }
+        mid: { type: number, description: 目前中間價 }
+        buyPrice: { type: number, description: 買進單價(中間價 ×(1+手續費)) }
+        sellPrice: { type: number, description: 賣出單價(中間價 ×(1−手續費)) }
+        owned: { type: integer, description: 目前持有量 }
+        buyLeft: { type: integer, description: 本回合買進剩餘額度 }
+        sellLeft: { type: integer, description: 本回合賣出剩餘額度 }
+    MarketOverview:
+      type: object
+      required: [statsEra, fee, perTradeCap, turnCap, money, goods]
+      properties:
+        statsEra: { type: string }
+        fee: { type: number, description: 手續費率(0.3 = 30%) }
+        perTradeCap: { type: integer, description: 單筆上限 }
+        turnCap: { type: integer, description: 每回合每貨物每方向上限 }
+        money: { type: number }
+        goods:
+          type: array
+          items: { $ref: "#/components/schemas/MarketGood" }
+    MarketTradeRequest:
+      type: object
+      required: [good, side, qty]
+      properties:
+        good: { type: string }
+        side: { type: string, enum: [buy, sell] }
+        qty: { type: integer, minimum: 1 }
+    MarketPreview:
+      type: object
+      required: [good, side, qty, money, fee, avgPrice, midAfter, affordable]
+      properties:
+        good: { type: string }
+        side: { type: string, enum: [buy, sell] }
+        qty: { type: integer }
+        money: { type: number, description: 買進=需支付總額;賣出=可收到總額(皆已含手續費) }
+        fee: { type: number, description: 手續費金額 }
+        avgPrice: { type: number }
+        midAfter: { type: number, description: 成交後的中間價 }
+        affordable: { type: boolean }
+    MarketTradeResult:
+      type: object
+      required: [ok, good, side, qty, money, fee, avgPrice, midBefore, midAfter, moneyAfter, stockAfter]
+      properties:
+        ok: { type: boolean }
+        good: { type: string }
+        side: { type: string, enum: [buy, sell] }
+        qty: { type: integer }
+        money: { type: number }
+        fee: { type: number }
+        avgPrice: { type: number }
+        midBefore: { type: number }
+        midAfter: { type: number }
+        moneyAfter: { type: number }
+        stockAfter: { type: integer }
+    MarketTradeError:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        code: { type: string, enum: [bad_qty, no_money, no_stock, no_nation, bad_good] }
     FoodPolicyUpdate:
       type: object
       description: 至少需指定一項政策開關。

@@ -13,7 +13,7 @@ const ERA_ZH: Record<string, string> = {
 const TIERS: { key: WarehouseGood["tier"]; title: string; hint: string }[] = [
   { key: "basic", title: "基礎物資", hint: "建設與軍需的底層資源" },
   { key: "industrial", title: "工業物資", hint: "靠地區特產取得，決定工業與軍事潛力" },
-  { key: "luxury", title: "奢侈品", hint: "可作為交易籌碼（黑市功能即將推出）" },
+  { key: "luxury", title: "奢侈品", hint: "可在「黑市」分頁買賣，作為交易籌碼" },
 ];
 
 export function WarehouseTab() {

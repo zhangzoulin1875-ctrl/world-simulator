@@ -4497,6 +4497,78 @@ export const GetWarehouseResponse = zod
   );
 
 /**
+ * @summary 黑市 — 目前時代可交易貨物的報價、本回合剩餘額度與持有量(純讀取)
+ */
+export const GetMarketResponse = zod.object({
+  statsEra: zod.string(),
+  fee: zod.number().describe("手續費率(0.3 = 30%)"),
+  perTradeCap: zod.number().describe("單筆上限"),
+  turnCap: zod.number().describe("每回合每貨物每方向上限"),
+  money: zod.number(),
+  goods: zod.array(
+    zod.object({
+      good: zod
+        .string()
+        .describe("貨物代碼(wood\/ore\/ironcoal\/oil\/rare\/spice\/cloth)"),
+      label: zod.string(),
+      tier: zod.string(),
+      basePrice: zod.number().describe("基準價(價格每回合向此回歸)"),
+      mid: zod.number().describe("目前中間價"),
+      buyPrice: zod.number().describe("買進單價(中間價 ×(1+手續費))"),
+      sellPrice: zod.number().describe("賣出單價(中間價 ×(1−手續費))"),
+      owned: zod.number().describe("目前持有量"),
+      buyLeft: zod.number().describe("本回合買進剩餘額度"),
+      sellLeft: zod.number().describe("本回合賣出剩餘額度"),
+    }),
+  ),
+});
+
+/**
+ * @summary 黑市 — 試算一筆交易(不成交、不動帳)
+ */
+
+export const PreviewMarketTradeBody = zod.object({
+  good: zod.string(),
+  side: zod.enum(["buy", "sell"]),
+  qty: zod.number().min(1),
+});
+
+export const PreviewMarketTradeResponse = zod.object({
+  good: zod.string(),
+  side: zod.enum(["buy", "sell"]),
+  qty: zod.number(),
+  money: zod.number().describe("買進=需支付總額;賣出=可收到總額(皆已含手續費)"),
+  fee: zod.number().describe("手續費金額"),
+  avgPrice: zod.number(),
+  midAfter: zod.number().describe("成交後的中間價"),
+  affordable: zod.boolean(),
+});
+
+/**
+ * @summary 黑市 — 成交一筆交易(單一資料庫交易內鎖國家列與價格列,連點不會透支或超賣)
+ */
+
+export const ExecuteMarketTradeBody = zod.object({
+  good: zod.string(),
+  side: zod.enum(["buy", "sell"]),
+  qty: zod.number().min(1),
+});
+
+export const ExecuteMarketTradeResponse = zod.object({
+  ok: zod.boolean(),
+  good: zod.string(),
+  side: zod.enum(["buy", "sell"]),
+  qty: zod.number(),
+  money: zod.number(),
+  fee: zod.number(),
+  avgPrice: zod.number(),
+  midBefore: zod.number(),
+  midAfter: zod.number(),
+  moneyAfter: zod.number(),
+  stockAfter: zod.number(),
+});
+
+/**
  * @summary 切換糧食政策（增產動員 / 節約配給）
  */
 export const UpdateFoodPoliciesBody = zod

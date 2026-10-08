@@ -10,6 +10,7 @@ import {
   Percent,
   Scale,
   Shield,
+  Store,
   TrendingDown,
   TrendingUp,
   Wallet,
@@ -29,12 +30,13 @@ import { HelpButton } from "@/components/help-button";
 import { FinanceTab } from "@/components/economy/finance-tab";
 import { RegionsTab } from "@/components/economy/regions-tab";
 import { WarehouseTab } from "@/components/economy/warehouse-tab";
+import { MarketTab } from "@/components/economy/market-tab";
 import { FoodTab } from "@/components/economy/food-tab";
 
 const BASE = import.meta.env.BASE_URL;
 const DEFAULT_BG = `${BASE}game/home-bg-default.webp`;
 
-type TabKey = "finance" | "food" | "warehouse" | "regions";
+type TabKey = "finance" | "food" | "warehouse" | "market" | "regions";
 
 export default function GameEconomy() {
   const { data: me, isLoading: loadingMe } = useCurrentUser();
@@ -259,6 +261,7 @@ function EconomyScreen({
     { key: "finance", label: "財政", icon: Scale },
     { key: "food", label: "糧食", icon: Wheat },
     { key: "warehouse", label: "倉庫", icon: Package },
+    { key: "market", label: "黑市", icon: Store },
     { key: "regions", label: "地區", icon: MapIcon },
   ];
 
@@ -318,6 +321,7 @@ function EconomyScreen({
         {tab === "finance" && <FinanceTab overview={overview} />}
         {tab === "food" && <FoodTab />}
         {tab === "warehouse" && <WarehouseTab />}
+        {tab === "market" && <MarketTab />}
         {tab === "regions" && <RegionsTab />}
       </div>
     </div>

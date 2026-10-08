@@ -86,6 +86,11 @@ import type {
   MapRegionsResponse,
   MarkNotificationsReadRequest,
   MarkNotificationsReadResponse,
+  MarketOverview,
+  MarketPreview,
+  MarketTradeError,
+  MarketTradeRequest,
+  MarketTradeResult,
   MilitaryDesignRequest,
   MilitaryDesignResult,
   MilitaryOrderRequest,
@@ -7928,6 +7933,247 @@ export function useGetWarehouse<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary 黑市 — 目前時代可交易貨物的報價、本回合剩餘額度與持有量(純讀取)
+ */
+export const getGetMarketUrl = () => {
+  return `/api/economy/market`;
+};
+
+export const getMarket = async (
+  options?: RequestInit,
+): Promise<MarketOverview> => {
+  return customFetch<MarketOverview>(getGetMarketUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMarketQueryKey = () => {
+  return [`/api/economy/market`] as const;
+};
+
+export const getGetMarketQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMarket>>,
+  TError = ErrorType<ErrorMessage>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof getMarket>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMarketQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMarket>>> = ({
+    signal,
+  }) => getMarket({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMarket>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMarketQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMarket>>
+>;
+export type GetMarketQueryError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary 黑市 — 目前時代可交易貨物的報價、本回合剩餘額度與持有量(純讀取)
+ */
+
+export function useGetMarket<
+  TData = Awaited<ReturnType<typeof getMarket>>,
+  TError = ErrorType<ErrorMessage>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof getMarket>>, TError, TData>;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMarketQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary 黑市 — 試算一筆交易(不成交、不動帳)
+ */
+export const getPreviewMarketTradeUrl = () => {
+  return `/api/economy/market/preview`;
+};
+
+export const previewMarketTrade = async (
+  marketTradeRequest: MarketTradeRequest,
+  options?: RequestInit,
+): Promise<MarketPreview> => {
+  return customFetch<MarketPreview>(getPreviewMarketTradeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(marketTradeRequest),
+  });
+};
+
+export const getPreviewMarketTradeMutationOptions = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewMarketTrade>>,
+    TError,
+    { data: BodyType<MarketTradeRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof previewMarketTrade>>,
+  TError,
+  { data: BodyType<MarketTradeRequest> },
+  TContext
+> => {
+  const mutationKey = ["previewMarketTrade"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof previewMarketTrade>>,
+    { data: BodyType<MarketTradeRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return previewMarketTrade(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreviewMarketTradeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof previewMarketTrade>>
+>;
+export type PreviewMarketTradeMutationBody = BodyType<MarketTradeRequest>;
+export type PreviewMarketTradeMutationError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary 黑市 — 試算一筆交易(不成交、不動帳)
+ */
+export const usePreviewMarketTrade = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewMarketTrade>>,
+    TError,
+    { data: BodyType<MarketTradeRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof previewMarketTrade>>,
+  TError,
+  { data: BodyType<MarketTradeRequest> },
+  TContext
+> => {
+  return useMutation(getPreviewMarketTradeMutationOptions(options));
+};
+
+/**
+ * @summary 黑市 — 成交一筆交易(單一資料庫交易內鎖國家列與價格列,連點不會透支或超賣)
+ */
+export const getExecuteMarketTradeUrl = () => {
+  return `/api/economy/market/trade`;
+};
+
+export const executeMarketTrade = async (
+  marketTradeRequest: MarketTradeRequest,
+  options?: RequestInit,
+): Promise<MarketTradeResult> => {
+  return customFetch<MarketTradeResult>(getExecuteMarketTradeUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(marketTradeRequest),
+  });
+};
+
+export const getExecuteMarketTradeMutationOptions = <
+  TError = ErrorType<MarketTradeError | ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof executeMarketTrade>>,
+    TError,
+    { data: BodyType<MarketTradeRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof executeMarketTrade>>,
+  TError,
+  { data: BodyType<MarketTradeRequest> },
+  TContext
+> => {
+  const mutationKey = ["executeMarketTrade"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof executeMarketTrade>>,
+    { data: BodyType<MarketTradeRequest> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return executeMarketTrade(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ExecuteMarketTradeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof executeMarketTrade>>
+>;
+export type ExecuteMarketTradeMutationBody = BodyType<MarketTradeRequest>;
+export type ExecuteMarketTradeMutationError = ErrorType<
+  MarketTradeError | ErrorMessage
+>;
+
+/**
+ * @summary 黑市 — 成交一筆交易(單一資料庫交易內鎖國家列與價格列,連點不會透支或超賣)
+ */
+export const useExecuteMarketTrade = <
+  TError = ErrorType<MarketTradeError | ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof executeMarketTrade>>,
+    TError,
+    { data: BodyType<MarketTradeRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof executeMarketTrade>>,
+  TError,
+  { data: BodyType<MarketTradeRequest> },
+  TContext
+> => {
+  return useMutation(getExecuteMarketTradeMutationOptions(options));
+};
 
 /**
  * @summary 切換糧食政策（增產動員 / 節約配給）

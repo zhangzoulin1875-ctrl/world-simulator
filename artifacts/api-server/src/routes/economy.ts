@@ -23,6 +23,23 @@ import {
 } from "@workspace/db";
 import { getSession, readSessionToken } from "../lib/sessions";
 import { buildWarehouse } from "../lib/trade/warehouse";
+import {
+  MARKET_GOODS,
+  executeMarketTrade,
+  isMarketGood,
+  readMids,
+  usedThisTurn,
+} from "../lib/trade/marketData";
+import {
+  MARKET_FEE,
+  PER_TRADE_CAP,
+  PLAYER_TURN_CAP,
+  executeTrade,
+  quote,
+  remainingTurnCap,
+  tradableGoods,
+} from "../lib/trade/market";
+import { GOODS } from "../lib/trade/goods";
 import { SPECIALTY_BASE_OUTPUT } from "../lib/trade/production";
 import { readGoods, readControlledRegions } from "../lib/trade/goodsLedger";
 import {
@@ -1272,6 +1289,121 @@ router.get("/economy/warehouse", async (req, res) => {
   } catch (err) {
     req.log.error({ err, nationId: nation.id }, "warehouse overview failed");
     res.status(500).json({ error: "無法載入倉庫資料，請稍後再試" });
+  }
+});
+
+// ── 黑市（貿易系統階段 2-B）──────────────────────────────────────
+
+/**
+ * GET /api/economy/market — 目前時代可交易貨物的報價（買價含手續費、賣價扣手續費）、
+ * 玩家本回合各方向剩餘額度與持有量。純讀取。
+ */
+router.get("/economy/market", async (req, res) => {
+  const auth = await requirePlayer(req, res);
+  if (!auth) return;
+  const { nation } = auth;
+  try {
+    const { statsEra } = await getEraSlugs();
+    const [mids, owned] = await Promise.all([readMids(), readGoods(nation.id)]);
+    const goods = [];
+    for (const g of tradableGoods(MARKET_GOODS, statsEra)) {
+      const q = quote(g, mids[g]!);
+      const [usedBuy, usedSell] = await Promise.all([
+        usedThisTurn(nation.id, g, "buy"),
+        usedThisTurn(nation.id, g, "sell"),
+      ]);
+      const have = g === "wood" ? nation.wood : g === "ore" ? nation.ore : (owned[g] ?? 0);
+      goods.push({
+        good: g,
+        label: GOODS[g].label,
+        tier: GOODS[g].tier,
+        basePrice: GOODS[g].basePrice,
+        mid: q.mid,
+        buyPrice: q.ask,
+        sellPrice: q.bid,
+        owned: have,
+        buyLeft: remainingTurnCap(usedBuy),
+        sellLeft: remainingTurnCap(usedSell),
+      });
+    }
+    res.json({ statsEra, fee: MARKET_FEE, perTradeCap: PER_TRADE_CAP, turnCap: PLAYER_TURN_CAP, money: nation.money, goods });
+  } catch (err) {
+    req.log.error({ err, nationId: nation.id }, "market overview failed");
+    res.status(500).json({ error: "無法載入黑市資料，請稍後再試" });
+  }
+});
+
+/**
+ * POST /api/economy/market/preview — 試算一筆交易（不成交、不動帳）。
+ * body: { good, side: "buy" | "sell", qty }
+ */
+router.post("/economy/market/preview", async (req, res) => {
+  const auth = await requirePlayer(req, res);
+  if (!auth) return;
+  const { nation } = auth;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const { good, side, qty } = body;
+  if (!isMarketGood(good)) {
+    res.status(400).json({ error: "此貨物無法在黑市交易" });
+    return;
+  }
+  if (side !== "buy" && side !== "sell") {
+    res.status(400).json({ error: "side 必須是 buy 或 sell" });
+    return;
+  }
+  if (typeof qty !== "number" || !Number.isInteger(qty) || qty <= 0 || qty > PER_TRADE_CAP) {
+    res.status(400).json({ error: `數量必須是 1 到 ${PER_TRADE_CAP} 的整數` });
+    return;
+  }
+  try {
+    const { statsEra } = await getEraSlugs();
+    if (!tradableGoods(MARKET_GOODS, statsEra).includes(good)) {
+      res.status(400).json({ error: "此貨物在目前時代尚未開放交易" });
+      return;
+    }
+    const mids = await readMids();
+    const r = executeTrade(good, mids[good]!, side, qty);
+    res.json({ good, side, qty, money: r.money, fee: r.fee, avgPrice: r.avgPrice, midAfter: r.newMid, affordable: side === "sell" || nation.money >= r.money });
+  } catch (err) {
+    req.log.error({ err, nationId: nation.id }, "market preview failed");
+    res.status(500).json({ error: "無法試算，請稍後再試" });
+  }
+});
+
+/**
+ * POST /api/economy/market/trade — 成交一筆黑市交易。
+ * body: { good, side: "buy" | "sell", qty }
+ * 資料層在單一資料庫交易內鎖國家列與價格列，連點 / 並行不會透支或超賣。
+ */
+router.post("/economy/market/trade", async (req, res) => {
+  const auth = await requirePlayer(req, res);
+  if (!auth) return;
+  const { nation } = auth;
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const { good, side, qty } = body;
+  if (!isMarketGood(good)) {
+    res.status(400).json({ error: "此貨物無法在黑市交易" });
+    return;
+  }
+  if (side !== "buy" && side !== "sell") {
+    res.status(400).json({ error: "side 必須是 buy 或 sell" });
+    return;
+  }
+  if (typeof qty !== "number" || !Number.isInteger(qty)) {
+    res.status(400).json({ error: "數量必須是整數" });
+    return;
+  }
+  try {
+    const { statsEra } = await getEraSlugs();
+    const r = await executeMarketTrade(nation.id, good, side, qty, "player", statsEra);
+    if (!r.ok) {
+      res.status(400).json({ error: r.message, code: r.code });
+      return;
+    }
+    res.json(r);
+  } catch (err) {
+    req.log.error({ err, nationId: nation.id }, "market trade failed");
+    res.status(500).json({ error: "交易失敗，請稍後再試" });
   }
 });
 

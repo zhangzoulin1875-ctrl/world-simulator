@@ -1549,6 +1549,114 @@ export interface Warehouse {
   goods: WarehouseGood[];
 }
 
+export interface MarketGood {
+  /** 貨物代碼(wood/ore/ironcoal/oil/rare/spice/cloth) */
+  good: string;
+  label: string;
+  tier: string;
+  /** 基準價(價格每回合向此回歸) */
+  basePrice: number;
+  /** 目前中間價 */
+  mid: number;
+  /** 買進單價(中間價 ×(1+手續費)) */
+  buyPrice: number;
+  /** 賣出單價(中間價 ×(1−手續費)) */
+  sellPrice: number;
+  /** 目前持有量 */
+  owned: number;
+  /** 本回合買進剩餘額度 */
+  buyLeft: number;
+  /** 本回合賣出剩餘額度 */
+  sellLeft: number;
+}
+
+export interface MarketOverview {
+  statsEra: string;
+  /** 手續費率(0.3 = 30%) */
+  fee: number;
+  /** 單筆上限 */
+  perTradeCap: number;
+  /** 每回合每貨物每方向上限 */
+  turnCap: number;
+  money: number;
+  goods: MarketGood[];
+}
+
+export type MarketTradeRequestSide =
+  (typeof MarketTradeRequestSide)[keyof typeof MarketTradeRequestSide];
+
+export const MarketTradeRequestSide = {
+  buy: "buy",
+  sell: "sell",
+} as const;
+
+export interface MarketTradeRequest {
+  good: string;
+  side: MarketTradeRequestSide;
+  /** @minimum 1 */
+  qty: number;
+}
+
+export type MarketPreviewSide =
+  (typeof MarketPreviewSide)[keyof typeof MarketPreviewSide];
+
+export const MarketPreviewSide = {
+  buy: "buy",
+  sell: "sell",
+} as const;
+
+export interface MarketPreview {
+  good: string;
+  side: MarketPreviewSide;
+  qty: number;
+  /** 買進=需支付總額;賣出=可收到總額(皆已含手續費) */
+  money: number;
+  /** 手續費金額 */
+  fee: number;
+  avgPrice: number;
+  /** 成交後的中間價 */
+  midAfter: number;
+  affordable: boolean;
+}
+
+export type MarketTradeResultSide =
+  (typeof MarketTradeResultSide)[keyof typeof MarketTradeResultSide];
+
+export const MarketTradeResultSide = {
+  buy: "buy",
+  sell: "sell",
+} as const;
+
+export interface MarketTradeResult {
+  ok: boolean;
+  good: string;
+  side: MarketTradeResultSide;
+  qty: number;
+  money: number;
+  fee: number;
+  avgPrice: number;
+  midBefore: number;
+  midAfter: number;
+  moneyAfter: number;
+  stockAfter: number;
+}
+
+export type MarketTradeErrorCode =
+  (typeof MarketTradeErrorCode)[keyof typeof MarketTradeErrorCode];
+
+export const MarketTradeErrorCode = {
+  bad_qty: "bad_qty",
+  no_money: "no_money",
+  no_stock: "no_stock",
+  no_nation: "no_nation",
+  bad_good: "bad_good",
+} as const;
+
+export interface MarketTradeError {
+  error: string;
+  code?: MarketTradeErrorCode;
+}
+
 /**
  * 至少需指定一項政策開關。
  */

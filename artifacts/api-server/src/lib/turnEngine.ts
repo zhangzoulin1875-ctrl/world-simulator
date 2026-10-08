@@ -84,6 +84,7 @@ import { computeNationFoodReport } from "./foodData";
 import { writeFoodStock } from "./trade/foodStockData";
 import { nationSpecialtyOutput, splitProduction } from "./trade/production";
 import { addGoods } from "./trade/goodsLedger";
+import { runMarketTurn } from "./trade/marketTurn";
 import {
   applyModifierSource,
   getGameBalanceSettings,
@@ -1231,6 +1232,14 @@ async function doRunTurn(
     }
   } catch (err) {
     logger.error({ err }, "turn engine: tech tree research settlement failed");
+  }
+
+  // 黑市每回合結算:NPC 做市(穩定器)＋價格向基準價回歸。失敗只記 log,不阻斷回合。
+  try {
+    const market = await runMarketTurn(statsEra);
+    logger.info({ npcTrades: market.npcTrades, npcFailed: market.npcFailed }, "turn engine: market turn done");
+  } catch (err) {
+    logger.error({ err }, "turn engine: market turn failed");
   }
 
   // 全國傷兵池回合制線性復原：每回合復原 initialWounded × pctPerTurn%（含
