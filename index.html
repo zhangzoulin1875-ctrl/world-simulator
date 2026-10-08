@@ -1,0 +1,26 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" href="data:,"><title>世界模擬器 · 地球儀展示</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#02040a;font-family:system-ui,"Noto Sans TC",sans-serif;color:#e9e2cf}
+canvas{display:block;width:100vw;height:100vh;cursor:grab}canvas:active{cursor:grabbing}
+.bar{position:fixed;top:14px;left:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.bar h1{font-size:15px;margin:0 8px 0 0;letter-spacing:.08em;font-weight:600;text-shadow:0 1px 6px #000}
+button{background:rgba(18,30,46,.78);color:#e9e2cf;border:1px solid rgba(233,226,207,.28);border-radius:4px;padding:6px 12px;font-size:13px;cursor:pointer;backdrop-filter:blur(6px)}
+button:hover{background:rgba(70,56,24,.85);border-color:#d9b45a}
+.opts{position:fixed;top:14px;right:14px;display:flex;flex-direction:column;gap:6px;font-size:13px;background:rgba(14,22,34,.72);padding:10px 12px;border-radius:4px;border:1px solid rgba(233,226,207,.2);backdrop-filter:blur(6px)}
+.opts label{display:flex;gap:8px;align-items:center;cursor:pointer}
+#info{position:fixed;left:0;top:0;pointer-events:none;opacity:0;transition:opacity .12s;background:rgba(14,22,34,.92);border:1px solid rgba(217,180,90,.55);padding:8px 12px;border-radius:4px;display:flex;flex-direction:column;gap:2px;font-size:12px;min-width:150px}
+#info b{font-size:15px;color:#ffd98a}#info span{opacity:.75}#info i{font-style:normal;opacity:.65}
+.help{position:fixed;left:14px;bottom:12px;font-size:12px;opacity:.7;text-shadow:0 1px 4px #000}
+#fps{position:fixed;right:14px;bottom:12px;font-size:12px;opacity:.55}
+.credit{position:fixed;left:50%;transform:translateX(-50%);bottom:12px;font-size:11px;opacity:.4}
+</style></head><body>
+<canvas id="c"></canvas>
+<div class="bar"><h1>世界模擬器 · 地球儀</h1>
+<button data-view="全球">全球</button><button data-view="歐亞非">歐亞非</button><button data-view="東亞">東亞</button><button data-view="美洲">美洲</button><button data-view="姆大陸">姆大陸</button></div>
+<div class="opts"><label><input type="checkbox" id="tg-region" checked>區界(397 區)</label><label><input type="checkbox" id="tg-macro" checked>大區界(15 區)</label><label><input type="checkbox" id="tg-rot" checked>閒置自轉</label></div>
+<div id="info"></div>
+<div class="help">拖曳:旋轉 ・ 滾輪/雙指:縮放 ・ 滑過任一區顯示資訊</div>
+<div class="credit">地表影像:NASA Visible Earth / Blue Marble ・ 姆大陸為程序合成</div>
+<div id="fps"></div>
+<script type="module" src="bundle.js"></script></body></html>
