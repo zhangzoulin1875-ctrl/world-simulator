@@ -42,6 +42,7 @@ import {
   type PoliticalNationEntry,
   type RegionEraStatsEntry,
 } from "@/components/world-map/shared";
+import { buildWarFronts, warFrontLabel } from "@/lib/warFronts";
 import { MapControlBar } from "@/components/world-map/map-control-bar";
 import { NationPanel } from "@/components/world-map/nation-panel";
 import { RegionDetailCard } from "@/components/world-map/region-detail-card";
@@ -264,6 +265,13 @@ export function WorldMapExplorer({
       if (dr) s.add(dr.name);
     }
     return s;
+  }, [activeCampaignsData, regionById]);
+
+  // 戰線（攻方地區 → 守方地區）；regionId 找不到的戰役略過。
+  const warFronts = useMemo(() => {
+    const nameById = new Map<number, string>();
+    for (const [id, r] of regionById) nameById.set(id, r.name);
+    return buildWarFronts(activeCampaignsData?.campaigns ?? [], nameById);
   }, [activeCampaignsData, regionById]);
 
   // ── 歷史城市 ──
@@ -757,7 +765,36 @@ export function WorldMapExplorer({
             showCities={showCities}
             regionFlags={regionFlagByName}
             activeWarRegionNames={showWarMarkers ? activeWarRegionNames : null}
+            warFronts={showWarMarkers ? warFronts : null}
           />
+
+          {showWarMarkers && warFronts.length > 0 && (
+            <section
+              className="rounded-xl border bg-card p-3 space-y-2"
+              aria-label="進行中戰事"
+            >
+              <h3 className="text-sm font-semibold flex items-center gap-1.5">
+                <span aria-hidden>⚔</span>
+                進行中戰事（{warFronts.length}）
+              </h3>
+              <ul className="grid gap-1.5 sm:grid-cols-2">
+                {warFronts.map((f) => (
+                  <li key={f.id}>
+                    <button
+                      type="button"
+                      className="w-full text-left rounded-lg border px-3 py-2 text-sm hover:bg-muted/60 transition-colors"
+                      onClick={() => selectRegionByName(f.defenderRegionName)}
+                    >
+                      <div className="font-medium">{warFrontLabel(f)}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {f.attackerRegionName} → {f.defenderRegionName}
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {viewMode === "political" && (
             <NationPanel

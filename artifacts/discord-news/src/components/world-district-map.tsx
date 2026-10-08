@@ -6,6 +6,7 @@ import type { FeatureCollection, Geometry } from "geojson";
 import { ZoomIn, ZoomOut, Maximize, AlertTriangle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { computeArrow, warFrontLabel, type WarFront } from "@/lib/warFronts";
 
 const VIEW_W = 980;
 const VIEW_H = 500;
@@ -93,6 +94,11 @@ interface WorldDistrictMapProps {
    */
   activeWarRegionNames?: ReadonlySet<string> | null;
   /**
+   * 進行中戰役的戰線（攻方地區 → 守方地區）。提供時於 ⚔ 下方畫紅色箭頭，
+   * 縮放到一定程度後在箭頭旁顯示「攻方國 → 守方國」。
+   */
+  warFronts?: readonly WarFront[] | null;
+  /**
    * 已選取的地區名稱集合（建國選地區）。提供時於各選取地區的中心疊加 ✓ 圖示。
    */
   checkmarkRegionNames?: ReadonlySet<string> | null;
@@ -155,6 +161,7 @@ export function WorldDistrictMap({
   showCities = false,
   regionFlags = null,
   activeWarRegionNames = null,
+  warFronts = null,
   checkmarkRegionNames = null,
 }: WorldDistrictMapProps) {
   const isMobile = useIsMobile();
@@ -432,6 +439,13 @@ export function WorldDistrictMap({
     return { background: bg, districts: ds };
   }, [paths]);
 
+  /** 地區名稱 → 路徑（含中心點），供戰線箭頭查端點。 */
+  const districtByName = useMemo(() => {
+    const m = new Map<string, DistrictPath>();
+    for (const d of districts) m.set(d.name, d);
+    return m;
+  }, [districts]);
+
   /** 城市點投影（viewBox 座標）；圖資載入後才有值。 */
   const cityPoints = useMemo(() => {
     const project = projectRef.current;
@@ -703,6 +717,76 @@ export function WorldDistrictMap({
                     >
                       {info.label}
                     </text>
+                  </g>
+                );
+              })}
+            </g>
+          )}
+
+          {/* 交戰地區紅色外框：遠看（箭頭太短）也能一眼看出哪裡在打。疊加層、不攔截滑鼠 */}
+          {activeWarRegionNames && activeWarRegionNames.size > 0 && (
+            <g className="pointer-events-none">
+              {districts.map((p) =>
+                activeWarRegionNames.has(p.name) ? (
+                  <path
+                    key={`warbox-${p.name}`}
+                    d={p.d}
+                    fill="rgba(220,38,38,0.18)"
+                    stroke="#dc2626"
+                    strokeWidth={1.8}
+                    strokeLinejoin="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                ) : null,
+              )}
+            </g>
+          )}
+
+          {/* 戰線箭頭：攻方地區中心 → 守方地區中心（不攔截滑鼠；粗細與箭頭尺寸隨縮放反向縮放） */}
+          {warFronts && warFronts.length > 0 && (
+            <g className="pointer-events-none">
+              {warFronts.map((f) => {
+                const a = districtByName.get(f.attackerRegionName);
+                const d = districtByName.get(f.defenderRegionName);
+                if (!a || !d) return null;
+                const geo = computeArrow(a.cx, a.cy, d.cx, d.cy, 9 / k, 12 / k);
+                if (!geo) return null;
+                const showText = k >= 1.6;
+                const fs = 11 / k;
+                const text = warFrontLabel(f);
+                return (
+                  <g key={`front-${f.id}`}>
+                    <line
+                      x1={geo.x1}
+                      y1={geo.y1}
+                      x2={geo.x2}
+                      y2={geo.y2}
+                      stroke="#dc2626"
+                      strokeWidth={3}
+                      strokeLinecap="round"
+                      vectorEffect="non-scaling-stroke"
+                      style={{ filter: "drop-shadow(0 0 2px rgba(0,0,0,0.6))" }}
+                    />
+                    <polygon
+                      points={`${geo.x2},${geo.y2} ${geo.headLeftX},${geo.headLeftY} ${geo.headRightX},${geo.headRightY}`}
+                      fill="#dc2626"
+                      style={{ filter: "drop-shadow(0 0 2px rgba(0,0,0,0.6))" }}
+                    />
+                    {showText && (
+                      <text
+                        x={geo.midX}
+                        y={geo.midY - 4 / k}
+                        textAnchor="middle"
+                        fontSize={fs}
+                        fontWeight={700}
+                        fill="#fff"
+                        stroke="#7f1d1d"
+                        strokeWidth={3 / k}
+                        paintOrder="stroke"
+                      >
+                        {text}
+                      </text>
+                    )}
                   </g>
                 );
               })}
