@@ -765,10 +765,10 @@ export function WorldMapExplorer({
             showCities={showCities}
             regionFlags={regionFlagByName}
             activeWarRegionNames={showWarMarkers ? activeWarRegionNames : null}
-            warFronts={showWarMarkers ? warFronts : null}
+            warFronts={showWarMarkers && viewMode === "political" ? warFronts : null}
           />
 
-          {showWarMarkers && warFronts.length > 0 && (
+          {showWarMarkers && viewMode === "political" && warFronts.length > 0 && (
             <section
               className="rounded-xl border bg-card p-3 space-y-2"
               aria-label="進行中戰事"

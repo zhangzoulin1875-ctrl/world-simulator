@@ -6,7 +6,7 @@ import type { FeatureCollection, Geometry } from "geojson";
 import { ZoomIn, ZoomOut, Maximize, AlertTriangle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { computeArrow, warFrontLabel, type WarFront } from "@/lib/warFronts";
+import { computeFrontPath, warFrontLabel, type WarFront } from "@/lib/warFronts";
 
 const VIEW_W = 980;
 const VIEW_H = 500;
@@ -749,26 +749,26 @@ export function WorldDistrictMap({
                 const a = districtByName.get(f.attackerRegionName);
                 const d = districtByName.get(f.defenderRegionName);
                 if (!a || !d) return null;
-                const geo = computeArrow(a.cx, a.cy, d.cx, d.cy, 9 / k, 12 / k);
+                const geo = computeFrontPath(a.cx, a.cy, d.cx, d.cy, 9 / k, 12 / k);
                 if (!geo) return null;
-                const showText = k >= 1.6;
+                // 遠程（弧線）戰線只有一條，標籤一律顯示；近距離需放大才顯示避免擠
+                const showText = geo.curved || k >= 1.6;
                 const fs = 11 / k;
                 const text = warFrontLabel(f);
                 return (
                   <g key={`front-${f.id}`}>
-                    <line
-                      x1={geo.x1}
-                      y1={geo.y1}
-                      x2={geo.x2}
-                      y2={geo.y2}
+                    <path
+                      d={geo.d}
+                      fill="none"
                       stroke="#dc2626"
                       strokeWidth={3}
                       strokeLinecap="round"
+                      strokeDasharray={geo.curved ? "7 5" : undefined}
                       vectorEffect="non-scaling-stroke"
                       style={{ filter: "drop-shadow(0 0 2px rgba(0,0,0,0.6))" }}
                     />
                     <polygon
-                      points={`${geo.x2},${geo.y2} ${geo.headLeftX},${geo.headLeftY} ${geo.headRightX},${geo.headRightY}`}
+                      points={`${geo.headTipX},${geo.headTipY} ${geo.headLeftX},${geo.headLeftY} ${geo.headRightX},${geo.headRightY}`}
                       fill="#dc2626"
                       style={{ filter: "drop-shadow(0 0 2px rgba(0,0,0,0.6))" }}
                     />

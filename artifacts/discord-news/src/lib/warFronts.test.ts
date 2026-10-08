@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildWarFronts, computeArrow, warFrontLabel } from "./warFronts";
+import { buildWarFronts, computeArrow, computeFrontPath, warFrontLabel, LONG_FRONT_DIST, LONG_FRONT_MAX_LEN } from "./warFronts";
 
 const names = new Map<number, string>([[1, "關中"], [2, "河西隴右"], [3, "江漢荊楚"]]);
 const camp = (id: number, a: number, d: number) => ({
@@ -74,4 +74,46 @@ test("computeArrow: 非有限數回傳 null", () => {
 test("warFrontLabel: 正常與缺國名", () => {
   assert.equal(warFrontLabel({ attackerNationName: "甲國", defenderNationName: "乙國" }), "甲國 → 乙國");
   assert.equal(warFrontLabel({ attackerNationName: " ", defenderNationName: "乙國" }), "? → 乙國");
+});
+
+test("computeFrontPath: 近距離為直線，路徑為 M..L..", () => {
+  const g = computeFrontPath(0, 0, 80, 0, 5, 10)!;
+  assert.equal(g.curved, false);
+  assert.equal(g.truncated, false);
+  assert.match(g.d, /^M[\d.-]+,[\d.-]+ L/);
+});
+
+test("computeFrontPath: 超過門檻改弧線並截短，畫出長度不超過上限", () => {
+  const g = computeFrontPath(0, 300, 600, 300, 5, 10)!;
+  assert.equal(g.curved, true);
+  assert.equal(g.truncated, true);
+  const m = g.d.match(/^M([\d.-]+),([\d.-]+) Q([\d.-]+),([\d.-]+) ([\d.-]+),([\d.-]+)$/)!;
+  assert.ok(m, g.d);
+  const [x0, y0, , , xe, ye] = m.slice(1).map(Number) as number[];
+  assert.ok(Math.hypot(xe! - x0!, ye! - y0!) <= LONG_FRONT_MAX_LEN + 1e-6);
+  assert.ok(xe! < 600, "不應畫到守方端");
+});
+
+test("computeFrontPath: 弧線向畫面上方彎（y 變小）", () => {
+  const g = computeFrontPath(0, 300, 600, 300, 5, 10)!;
+  assert.ok(g.midY < 300);
+  const g2 = computeFrontPath(600, 300, 0, 300, 5, 10)!;
+  assert.ok(g2.midY < 300);
+});
+
+test("computeFrontPath: 箭頭尖在路徑終點，且朝守方方向（水平向右時兩翼在左側）", () => {
+  const g = computeFrontPath(0, 300, 600, 300, 5, 10)!;
+  assert.ok(g.headLeftX < g.headTipX && g.headRightX < g.headTipX);
+});
+
+test("computeFrontPath: 剛好等於門檻視為近距離", () => {
+  const g = computeFrontPath(0, 0, LONG_FRONT_DIST, 0, 5, 10)!;
+  assert.equal(g.curved, false);
+});
+
+test("computeFrontPath: 重合或非有限數回傳 null，輸出無 NaN", () => {
+  assert.equal(computeFrontPath(1, 1, 1, 1, 5, 10), null);
+  assert.equal(computeFrontPath(NaN, 0, 300, 0, 5, 10), null);
+  const g = computeFrontPath(10, 500, 900, 20, 5, 10)!;
+  assert.ok(!/NaN/.test(JSON.stringify(g)));
 });

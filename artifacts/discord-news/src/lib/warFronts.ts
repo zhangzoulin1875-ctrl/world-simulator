@@ -107,6 +107,128 @@ export function computeArrow(
   };
 }
 
+/** 超過此距離（viewBox 單位）的戰線視為「遠程」，改畫弧線並截短。 */
+export const LONG_FRONT_DIST = 120;
+/** 遠程戰線最多畫出的長度（從攻方端算起），避免橫貫整張地圖。 */
+export const LONG_FRONT_MAX_LEN = 150;
+
+export interface ArcGeometry {
+  /** 是否為弧線（false = 直線，沿用 computeArrow 的結果）。 */
+  curved: boolean;
+  /** SVG path d（直線時為 "M..L.."，弧線為二次貝茲 "M..Q.."）。 */
+  d: string;
+  headTipX: number;
+  headTipY: number;
+  headLeftX: number;
+  headLeftY: number;
+  headRightX: number;
+  headRightY: number;
+  /** 標籤錨點（曲線上 t=0.5 處）。 */
+  midX: number;
+  midY: number;
+  /** 實際畫出的曲線是否被截短（遠程）。 */
+  truncated: boolean;
+}
+
+/**
+ * 戰線幾何：近距離用直線箭頭；遠距離（跨海登陸等）改成向上彎的弧線，
+ * 並只畫從攻方端算起的前一段，尾端箭頭仍指向守方方向。
+ * 皆為 viewBox 單位；trim/headLen 為上限（同 computeArrow）。
+ * 輸入非有限數或兩點重合回傳 null。
+ */
+export function computeFrontPath(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  trim: number,
+  headLen: number,
+): ArcGeometry | null {
+  if (![x1, y1, x2, y2, trim, headLen].every(Number.isFinite)) return null;
+  const dist = Math.hypot(x2 - x1, y2 - y1);
+  if (dist < 1e-6) return null;
+
+  if (dist <= LONG_FRONT_DIST) {
+    const a = computeArrow(x1, y1, x2, y2, trim, headLen);
+    if (!a) return null;
+    return {
+      curved: false,
+      d: `M${a.x1},${a.y1} L${a.x2},${a.y2}`,
+      headTipX: a.x2,
+      headTipY: a.y2,
+      headLeftX: a.headLeftX,
+      headLeftY: a.headLeftY,
+      headRightX: a.headRightX,
+      headRightY: a.headRightY,
+      midX: a.midX,
+      midY: a.midY,
+      truncated: false,
+    };
+  }
+
+  // 完整弧線的控制點：連線中點，垂直方向往「畫面上方」偏移
+  const ux = (x2 - x1) / dist;
+  const uy = (y2 - y1) / dist;
+  let nx = -uy;
+  let ny = ux;
+  if (ny > 0) {
+    nx = -nx;
+    ny = -ny;
+  }
+  const bulge = Math.min(dist * 0.22, 70);
+  const cx = (x1 + x2) / 2 + nx * bulge;
+  const cy = (y1 + y2) / 2 + ny * bulge;
+
+  const bez = (t: number): [number, number] => {
+    const m = 1 - t;
+    return [
+      m * m * x1 + 2 * m * t * cx + t * t * x2,
+      m * m * y1 + 2 * m * t * cy + t * t * y2,
+    ];
+  };
+  const tan = (t: number): [number, number] => {
+    const dx = 2 * (1 - t) * (cx - x1) + 2 * t * (x2 - cx);
+    const dy = 2 * (1 - t) * (cy - y1) + 2 * t * (y2 - cy);
+    const l = Math.hypot(dx, dy) || 1;
+    return [dx / l, dy / l];
+  };
+
+  // 截短：只畫到曲線上 t = tEnd 處（約 LONG_FRONT_MAX_LEN 長），起點略內縮
+  const tEnd = Math.min(1, LONG_FRONT_MAX_LEN / (dist * 1.12));
+  const tStart = Math.min(0.04, tEnd / 4);
+  // 子曲線（de Casteljau 分割）：從 tStart 到 tEnd 的二次貝茲
+  const p0 = bez(tStart);
+  const pe = bez(tEnd);
+  // 子曲線控制點 = 在 [tStart,tEnd] 區間的切線交點；以中點切線外推
+  const tm = (tStart + tEnd) / 2;
+  const pm = bez(tm);
+  const qx = 2 * pm[0] - (p0[0] + pe[0]) / 2;
+  const qy = 2 * pm[1] - (p0[1] + pe[1]) / 2;
+
+  const [tx, ty] = tan(tEnd);
+  const total = Math.hypot(pe[0] - p0[0], pe[1] - p0[1]);
+  const h = Math.min(Math.max(headLen, 0), total * 0.3);
+  const ang = Math.PI / 7;
+  const cos = Math.cos(ang);
+  const sin = Math.sin(ang);
+  const bx = -tx;
+  const by = -ty;
+  const mid = bez(tm);
+  return {
+    curved: true,
+    d: `M${p0[0]},${p0[1]} Q${qx},${qy} ${pe[0]},${pe[1]}`,
+    headTipX: pe[0],
+    headTipY: pe[1],
+    headLeftX: pe[0] + h * (bx * cos - by * sin),
+    headLeftY: pe[1] + h * (bx * sin + by * cos),
+    headRightX: pe[0] + h * (bx * cos + by * sin),
+    headRightY: pe[1] + h * (-bx * sin + by * cos),
+    midX: mid[0],
+    midY: mid[1],
+    truncated: tEnd < 1,
+  };
+}
+
 /** 戰線標籤文字：「攻方 → 守方」。國名空白時以「?」代替，不顯示 undefined。 */
 export function warFrontLabel(f: Pick<WarFront, "attackerNationName" | "defenderNationName">): string {
   const a = f.attackerNationName.trim() || "?";
