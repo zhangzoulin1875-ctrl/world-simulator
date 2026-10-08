@@ -93,6 +93,7 @@ export * from "./foodPolicyState";
 export * from "./foodPolicyUpdate";
 export * from "./foodProductionSummary";
 export * from "./foodRegionLine";
+export * from "./foodStock";
 export * from "./foodTreatyFlows";
 export * from "./foundingGovernment";
 export * from "./foundingGovernmentGuide";

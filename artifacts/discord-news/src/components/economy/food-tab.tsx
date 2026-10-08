@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Loader2,
+  Warehouse,
   ShieldCheck,
   Sprout,
   UtensilsCrossed,
@@ -150,7 +151,11 @@ function FoodContent({
           label="結餘/回合"
           value={`${surplus ? "+" : "−"}${formatBigNumber(Math.abs(overview.balance))}`}
           valueClass={surplus ? "text-emerald-300" : "text-rose-300"}
-          extra="非累積資源，每回合重新計算"
+          extra={
+            surplus
+              ? "盈餘會進入庫存（每回合腐敗 3%）"
+              : "赤字由庫存支應，庫存用完才饑荒"
+          }
         />
         <StatCard
           testId="food-stat-farmers"
@@ -160,6 +165,9 @@ function FoodContent({
           extra={`平民 ${formatBigNumber(overview.civilians)}｜軍人 ${formatBigNumber(overview.soldiers)}`}
         />
       </div>
+
+      {/* 糧食庫存 */}
+      <StockPanel overview={overview} />
 
       {/* 政策開關 */}
       <div className="rounded-xl border border-white/15 bg-black/50 p-4 backdrop-blur">
@@ -245,6 +253,63 @@ function FoodContent({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function StockPanel({ overview }: { overview: FoodOverview }) {
+  const { stock } = overview;
+  const pct = stock.cap > 0 ? Math.min(100, Math.round((stock.current / stock.cap) * 100)) : 0;
+  const draining = overview.balance < 0;
+  const danger = overview.famine || (stock.turnsLeft !== null && stock.turnsLeft <= 2);
+  const barClass = danger ? "bg-rose-400" : draining ? "bg-amber-300" : "bg-emerald-400";
+
+  let status: string;
+  if (overview.famine) {
+    status = "庫存已不足以支應本回合消耗，將發生饑荒";
+  } else if (stock.turnsLeft === null) {
+    status = "產出足以支應消耗，庫存穩定";
+  } else {
+    status = `赤字中，庫存約可再撐 ${stock.turnsLeft} 回合`;
+  }
+
+  return (
+    <div
+      className="rounded-xl border border-white/15 bg-black/50 p-4 backdrop-blur"
+      data-testid="food-stock-panel"
+    >
+      <div className="mb-2 flex items-center gap-2">
+        <Warehouse className="h-4 w-4 text-sky-300" />
+        <h3 className="font-serif text-base font-bold">糧食庫存</h3>
+        {!stock.initialized && (
+          <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/60">
+            期初配給（下回合結算後正式入帳）
+          </span>
+        )}
+      </div>
+      <div className="mb-1 flex items-baseline justify-between text-sm">
+        <span data-testid="food-stock-current" className="font-bold">
+          {formatBigNumber(stock.current)}
+          <span className="ml-1 text-xs font-normal text-white/50">
+            / 上限 {formatBigNumber(stock.cap)}
+          </span>
+        </span>
+        <span className="text-xs text-white/60">{pct}%</span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-white/10">
+        <div className={`h-full ${barClass}`} style={{ width: `${pct}%` }} />
+      </div>
+      <p
+        className={`mt-2 text-xs ${danger ? "text-rose-300" : "text-white/70"}`}
+        data-testid="food-stock-status"
+      >
+        {status}
+      </p>
+      <p className="mt-1 text-[11px] text-white/45">
+        本回合預測：腐敗 −{formatBigNumber(stock.spoiled)}
+        {stock.overflow > 0 && `｜超過上限捨棄 −${formatBigNumber(stock.overflow)}`}
+        ｜結算後庫存 {formatBigNumber(stock.nextStock)}
+      </p>
     </div>
   );
 }

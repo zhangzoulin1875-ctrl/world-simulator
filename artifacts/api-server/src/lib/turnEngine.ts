@@ -80,6 +80,7 @@ import {
   notifyUpkeepShortfall,
 } from "./gameNotify";
 import { computeNationFoodReport } from "./foodData";
+import { writeFoodStock } from "./trade/foodStockData";
 import {
   applyModifierSource,
   getGameBalanceSettings,
@@ -1014,6 +1015,14 @@ async function doRunTurn(
       // Task #626 — 糧食增長率修飾：來自 computeAdjustedNationStats（已套
       // foodGrowthEnabled 開關；0=無加成，默認行為不變）。
       const food = await computeNationFoodReport(nation, statsEra, stats.foodGrowthRatePct);
+      // 貿易系統 — 糧食庫存的「唯一寫入點」:把本回合結算後的庫存寫回
+      // (第一次同時完成懶初始化)。food.famine 與此處用同一個 settleFoodStock,
+      // 顯示與結算必然一致。失敗只記 log、不中斷整個回合(與資源入帳同口徑)。
+      try {
+        await writeFoodStock(nation.id, food.stock.settle.stock);
+      } catch (err) {
+        logger.error({ err, nationId: nation.id }, "food stock write failed");
+      }
       if (food.famine) {
         const priorFamineTurns = nation.consecutiveFamineTurns ?? 0;
         const popAfterGrowth = Math.max(0, stats.population + appliedGrowth);

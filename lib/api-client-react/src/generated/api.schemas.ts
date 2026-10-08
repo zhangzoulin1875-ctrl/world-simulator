@@ -1436,6 +1436,28 @@ export interface FoodTreatyFlows {
   outflow: number;
 }
 
+/**
+ * 糧食庫存(貿易系統)。期初 6 回合消耗、每回合腐敗 3%、上限 12 回合消耗。純讀取預測,回合結算才寫入
+ */
+export interface FoodStock {
+  /** 目前庫存 */
+  current: number;
+  /** 庫存上限 = 12 回合消耗 */
+  cap: number;
+  /** false = 尚未結算過,current 為 6 回合消耗的推算期初庫存 */
+  initialized: boolean;
+  /** 以目前淨流量估算庫存還能撐幾回合;流量為正(撐得住)時為 null */
+  turnsLeft: number | null;
+  /** 預測本回合腐敗損失(3%) */
+  spoiled: number;
+  /** 預測本回合超過上限被捨棄的量 */
+  overflow: number;
+  /** 預測本回合缺口(庫存用完仍不夠吃,>0 即饑荒) */
+  shortfall: number;
+  /** 預測本回合結算後的庫存 */
+  nextStock: number;
+}
+
 export interface FoodOverview {
   /** 數據時代 slug */
   eraSlug: string;
@@ -1452,9 +1474,10 @@ export interface FoodOverview {
   production: FoodProductionSummary;
   consumption: FoodConsumptionSummary;
   treaty: FoodTreatyFlows;
-  /** 結餘 = 供給（產出＋條約輸入−條約輸出）− 消耗（非累積，不儲存） */
+  /** 每回合流量結餘 = 供給（產出＋條約輸入−條約輸出）− 消耗。結餘為負時由庫存支應 */
   balance: number;
-  /** 供給 < 消耗 → 飢荒（每日回合扣人口） */
+  stock: FoodStock;
+  /** 庫存也撐不住 → 饑荒（回合扣人口）。結餘為負但庫存足夠時為 false */
   famine: boolean;
   /** 全額扣幅 %（連續饑荒緩衝觸發前） */
   faminePopulationLossPct: number;

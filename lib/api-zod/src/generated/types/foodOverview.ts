@@ -9,6 +9,7 @@ import type { FoodConsumptionSummary } from "./foodConsumptionSummary";
 import type { FoodPolicies } from "./foodPolicies";
 import type { FoodProductionSummary } from "./foodProductionSummary";
 import type { FoodRegionLine } from "./foodRegionLine";
+import type { FoodStock } from "./foodStock";
 import type { FoodTreatyFlows } from "./foodTreatyFlows";
 
 export interface FoodOverview {
@@ -27,9 +28,10 @@ export interface FoodOverview {
   production: FoodProductionSummary;
   consumption: FoodConsumptionSummary;
   treaty: FoodTreatyFlows;
-  /** 結餘 = 供給（產出＋條約輸入−條約輸出）− 消耗（非累積，不儲存） */
+  /** 每回合流量結餘 = 供給（產出＋條約輸入−條約輸出）− 消耗。結餘為負時由庫存支應 */
   balance: number;
-  /** 供給 < 消耗 → 飢荒（每日回合扣人口） */
+  stock: FoodStock;
+  /** 庫存也撐不住 → 饑荒（回合扣人口）。結餘為負但庫存足夠時為 false */
   famine: boolean;
   /** 全額扣幅 %（連續饑荒緩衝觸發前） */
   faminePopulationLossPct: number;

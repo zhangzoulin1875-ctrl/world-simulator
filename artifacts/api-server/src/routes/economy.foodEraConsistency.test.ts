@@ -50,6 +50,8 @@ const { runGameMigrations } = await import("../lib/gameMigrations");
 const { runPoliticsMigrations } = await import("../lib/politicsMigrations");
 const { runEconomyMigrations } = await import("../lib/economyMigrations");
 const { runWorldSimMigrations } = await import("../lib/worldSimMigrations");
+const { runTradeMigrationsInner } = await import("../lib/tradeMigrations");
+const { writeFoodStock } = await import("../lib/trade/foodStockData");
 const { runMapRegionSync } = await import("../lib/mapRegions");
 const { runMapRegionEraStatsSync } = await import("../lib/mapRegionEraStats");
 const { runTurnUpdate } = await import("../lib/turnEngine");
@@ -172,6 +174,9 @@ async function assertRouteMatchesTurn(
       .update(playerNationsTable)
       .set({ consecutiveFamineTurns: 0 })
       .where(eq(playerNationsTable.id, nationId));
+    // 糧食庫存化後，赤字國有 6 回合期初庫存、不會立刻饑荒。本測試驗證「路由顯示
+    // 與回合結算口徑一致」的饑荒路徑，所以明確宣告前提：庫存已耗盡（0）。
+    await writeFoodStock(nationId, 0);
 
     const before = await fetchFood();
     assert.equal(before.status, 200, `路由應成功：${JSON.stringify(before.json)}`);
@@ -237,6 +242,7 @@ before(async () => {
   await runPoliticsMigrations();
   await runEconomyMigrations();
   await runWorldSimMigrations();
+  await runTradeMigrationsInner();
   await runMapRegionSync();
   await runMapRegionEraStatsSync();
   await cleanup();

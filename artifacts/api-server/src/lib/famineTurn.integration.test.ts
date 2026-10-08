@@ -11,12 +11,15 @@ import {
   mapRegionsTable,
   mapRegionEraStatsTable,
   worldGameStateTable,
+  nationGoodsTable,
 } from "@workspace/db";
 import { anthropic } from "@workspace/integrations-anthropic-ai";
 import { runGameMigrations } from "./gameMigrations";
 import { runPoliticsMigrations } from "./politicsMigrations";
 import { runEconomyMigrations } from "./economyMigrations";
 import { runWorldSimMigrations } from "./worldSimMigrations";
+import { runTradeMigrationsInner } from "./tradeMigrations";
+import { writeFoodStock } from "./trade/foodStockData";
 import { runMapRegionSync } from "./mapRegions";
 import { runMapRegionEraStatsSync } from "./mapRegionEraStats";
 import { runTurnUpdate } from "./turnEngine";
@@ -137,6 +140,7 @@ before(async () => {
   await runPoliticsMigrations();
   await runEconomyMigrations();
   await runWorldSimMigrations();
+  await runTradeMigrationsInner();
   await runMapRegionSync();
   await runMapRegionEraStatsSync();
   await purgeStaleLeftovers();
@@ -257,12 +261,17 @@ test("整回合：饑荒國人口 −20%、滿意度/支持度依降幅扣分、
     })
     .where(eq(worldGameStateTable.id, 1));
 
+  // 糧食庫存化後，赤字國有 6 回合期初庫存撐著、不會立刻饑荒。本測試驗證的是
+  // 「庫存也耗盡才饑荒」的完整路徑，所以明確宣告前提：庫存 0。
+  await writeFoodStock(nationId, 0);
+
   // 回合前：以與回合引擎同一套口徑取得糧食報告，確認前置條件成立。
   const nationBefore = await loadNation();
   const foodBefore = await computeNationFoodReport(nationBefore, ERA_SLUG);
   assert.ok(foodBefore.population > 0, "測試國家人口應 > 0");
   assert.equal(foodBefore.production.total, 0, "農民比例 0 → 產出應為 0");
   assert.ok(foodBefore.consumption.total > 0, "有人口 → 消耗應 > 0");
+  assert.equal(foodBefore.stock.current, 0, "前置條件：庫存已耗盡");
   assert.equal(foodBefore.famine, true, "前置條件：應處於饑荒");
 
   const popBefore = foodBefore.population;
@@ -496,4 +505,129 @@ test("Task #442 反向路徑：提高農民比例＋啟用糧食政策後，回�
   const noticesAfter = await countFamineNotices();
   assert.equal(noticesAfter, noticesBefore, "不應寫入新的饑荒站內通知");
   }); // withForcedTurnLock
+});
+
+// ── 貿易系統:糧食庫存 ─────────────────────────────────────────────
+
+async function readStockRow() {
+  const rows = await db
+    .select({ stock: nationGoodsTable.stock })
+    .from(nationGoodsTable)
+    .where(and(eq(nationGoodsTable.nationId, nationId), eq(nationGoodsTable.good, "food")));
+  return rows.length === 0 ? null : Number(rows[0]!.stock);
+}
+
+/** 讓測試國家處於「赤字但有庫存」:農民 0%(產出 0)、無政策。 */
+async function setDeficitNation() {
+  await db
+    .update(playerNationsTable)
+    .set({
+      farmerPopulationPct: 0,
+      foodPolicyMobilization: false,
+      foodPolicyRationing: false,
+      consecutiveFamineTurns: 0,
+      satisfactionFarmers: START_SATISFACTION,
+      satisfactionWorkers: START_SATISFACTION,
+      satisfactionNobles: START_SATISFACTION,
+      satisfactionClergy: START_SATISFACTION,
+      politicalSupport: START_SUPPORT,
+    })
+    .where(eq(playerNationsTable.id, nationId));
+}
+
+test("庫存:報告是純讀取——連續讀 5 次,資料庫庫存列不變、不會被建立", async () => {
+  await setDeficitNation();
+  await db.delete(nationGoodsTable).where(eq(nationGoodsTable.nationId, nationId));
+  const nation = await loadNation();
+  for (let i = 0; i < 5; i++) await computeNationFoodReport(nation, ERA_SLUG);
+  assert.equal(await readStockRow(), null, "讀取報告絕不能建立或改寫庫存列");
+  const r1 = await computeNationFoodReport(nation, ERA_SLUG);
+  const r2 = await computeNationFoodReport(nation, ERA_SLUG);
+  assert.deepEqual(r1.stock.settle, r2.stock.settle, "同一狀態重複讀取結果必須相同");
+});
+
+test("庫存:查無庫存列 = 懶初始化為 6 回合消耗,赤字國不立刻饑荒", async () => {
+  await setDeficitNation();
+  await db.delete(nationGoodsTable).where(eq(nationGoodsTable.nationId, nationId));
+  const nation = await loadNation();
+  const r = await computeNationFoodReport(nation, ERA_SLUG);
+  assert.equal(r.stock.initialized, false, "尚未初始化");
+  assert.equal(r.production.total, 0, "前提:產出 0 = 赤字");
+  assert.equal(r.stock.current, Math.floor(r.consumption.total * 6), "期初庫存 = 6 回合消耗");
+  assert.equal(r.famine, false, "有期初庫存撐著,赤字國本回合不饑荒");
+  assert.equal(r.stock.settle.shortfall, 0);
+});
+
+test("庫存:整回合——赤字有庫存的國家不饑荒、人口不降、無通知,庫存被寫入且下降", async () => {
+  await withForcedTurnLock(async () => {
+    await setDeficitNation();
+    await db.delete(nationGoodsTable).where(eq(nationGoodsTable.nationId, nationId));
+    await db.delete(playerNotificationsTable).where(eq(playerNotificationsTable.discordUserId, discordUserId));
+
+    const [worldBefore] = await db
+      .select({
+        currentEra: worldGameStateTable.currentEra, statsEra: worldGameStateTable.statsEra,
+        gameDate: sql<string>`to_char(${worldGameStateTable.gameDate}, 'YYYY-MM-DD')`,
+        lastTurnDate: worldGameStateTable.lastTurnDate, lastTurnAt: worldGameStateTable.lastTurnAt,
+        yearsPerTurn: worldGameStateTable.yearsPerTurn,
+        populationGrowthMultiplierPct: worldGameStateTable.populationGrowthMultiplierPct,
+      })
+      .from(worldGameStateTable).where(eq(worldGameStateTable.id, 1)).limit(1);
+    await db.update(worldGameStateTable).set({
+      currentEra: ERA_SLUG, statsEra: ERA_SLUG, gameDate: "0400-01-01",
+      yearsPerTurn: 1, populationGrowthMultiplierPct: 0,
+    }).where(eq(worldGameStateTable.id, 1));
+
+    const before = await computeNationFoodReport(await loadNation(), ERA_SLUG);
+    const popBefore = before.population;
+    const startStock = before.stock.current;
+    const expected = before.stock.settle; // 顯示預測 = 回合實際結算(共用同一純函式)
+    assert.equal(expected.famine, false);
+
+    anthropic.messages.create = (async () => { throw new Error("模擬 AI 失敗"); }) as unknown as MessagesCreate;
+    try {
+      const summary = await runTurnUpdate(new Date(), { force: true });
+      assert.equal(summary.ran, true);
+    } finally {
+      anthropic.messages.create = realMessagesCreate;
+      await db.update(worldGameStateTable).set({
+        currentEra: worldBefore!.currentEra, statsEra: worldBefore!.statsEra, gameDate: worldBefore!.gameDate,
+        lastTurnDate: worldBefore!.lastTurnDate, lastTurnAt: worldBefore!.lastTurnAt,
+        yearsPerTurn: worldBefore!.yearsPerTurn,
+        populationGrowthMultiplierPct: worldBefore!.populationGrowthMultiplierPct,
+      }).where(eq(worldGameStateTable.id, 1));
+    }
+
+    const after = await loadNation();
+    const foodAfter = await computeNationFoodReport(after, ERA_SLUG);
+    assert.equal(foodAfter.population, popBefore, "有庫存 → 不饑荒 → 人口不降");
+    assert.equal(after.consecutiveFamineTurns ?? 0, 0, "未饑荒 → 連續饑荒回合數維持 0");
+
+    const written = await readStockRow();
+    assert.notEqual(written, null, "回合結算後庫存列應已建立(懶初始化)");
+    assert.equal(written, expected.stock, "寫入的庫存 = 顯示預測的結算結果(顯示與結算一致)");
+    assert.ok(written! < startStock, `赤字 → 庫存應下降:${startStock} → ${written}`);
+    assert.ok(written! > 0, "6 回合庫存一回合後不會歸零");
+
+    // 沒有饑荒通知
+    const notices = await db.select().from(playerNotificationsTable)
+      .where(and(eq(playerNotificationsTable.discordUserId, discordUserId), like(playerNotificationsTable.title, "%饑荒%")));
+    assert.equal(notices.length, 0, "不應有饑荒通知");
+  });
+});
+
+test("庫存:連續赤字回合,庫存逐步耗盡後才饑荒(庫存是緩衝,不是免死金牌)", async () => {
+  await setDeficitNation();
+  // 預先寫入剛好只夠半回合的庫存
+  const nation = await loadNation();
+  const r0 = await computeNationFoodReport(nation, ERA_SLUG);
+  await writeFoodStock(nationId, Math.floor(r0.consumption.total / 2));
+  const r = await computeNationFoodReport(await loadNation(), ERA_SLUG);
+  assert.equal(r.famine, true, "庫存不足一回合消耗 → 本回合饑荒");
+  assert.ok(r.stock.settle.shortfall > 0);
+  assert.equal(r.stock.settle.stock, 0, "饑荒回合庫存歸零");
+  // 補足庫存 → 立刻不饑荒
+  await writeFoodStock(nationId, Math.ceil(r0.consumption.total * 2));
+  const r2 = await computeNationFoodReport(await loadNation(), ERA_SLUG);
+  assert.equal(r2.famine, false);
 });

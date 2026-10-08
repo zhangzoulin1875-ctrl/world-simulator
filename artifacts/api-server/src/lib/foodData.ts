@@ -18,9 +18,10 @@ import {
   computeFoodProduction,
   computeSoldierFoodConsumption,
   foodEraIndexForEra,
-  isFamine,
   type ArmyFoodRow,
 } from "./food";
+import { readFoodStock } from "./trade/foodStockData";
+import { settleFoodStock, foodStockCap, type FoodSettleResult } from "./trade/stock";
 import { getGameBalanceSettings } from "./gameBalance";
 
 /**
@@ -54,7 +55,25 @@ export interface NationFoodReport {
   consumption: { civilian: number; military: number; total: number };
   /** 條約糧食輸送流量（生效自訂條約；inflow=收到、outflow=送出）。 */
   treaty: { inflow: number; outflow: number };
+  /** 每回合流量結餘(供給 − 消耗)。語意不變,顯示與內閣沿用。 */
   balance: number;
+  /**
+   * 糧食庫存(貿易系統):庫存為負才饑荒。純讀取,絕不在此寫入——
+   * 唯一的寫入點是回合引擎(用同一個 settleFoodStock,故顯示與結算必然一致)。
+   */
+  stock: {
+    /** 回合開始時的庫存(尚未初始化時為 6 回合消耗的推算值)。 */
+    current: number;
+    /** 庫存上限 = 12 回合消耗。 */
+    cap: number;
+    /** 資料庫是否已有庫存列;false = 推算值。 */
+    initialized: boolean;
+    /** 本回合結算預測(純函式,不寫入)。 */
+    settle: FoodSettleResult;
+    /** 庫存還能撐幾回合(以目前每回合淨流量估算;流量為正 = null 表示撐得住)。 */
+    turnsLeft: number | null;
+  };
+  /** 本回合結算後是否饑荒(= stock.settle.famine)。 */
   famine: boolean;
   policies: { mobilization: boolean; rationing: boolean };
   regions: RegionFoodDetail[];
@@ -273,6 +292,16 @@ export async function computeNationFoodReport(
   // 輸出方不做餘額檢查——即使自己不夠吃也照樣送出（可能因此陷入飢荒）。
   const treaty = sumTreatyFoodFlows(nation.id, treatyRows);
   const supply = production.total + treaty.inflow - treaty.outflow;
+  // 貿易系統 — 糧食庫存:純讀取,懶初始化(查無列 = 6 回合消耗期初庫存)。
+  const stockRead = await readFoodStock(nation.id, consumptionTotal);
+  const settle = settleFoodStock({
+    stock: stockRead.stock,
+    supply,
+    consumption: consumptionTotal,
+  });
+  const netFlow = supply - consumptionTotal;
+  const turnsLeft =
+    netFlow >= 0 ? null : Math.floor(stockRead.stock / Math.max(1, -netFlow));
 
   return {
     eraSlug: statsEra,
@@ -289,7 +318,14 @@ export async function computeNationFoodReport(
     },
     treaty,
     balance: supply - consumptionTotal,
-    famine: isFamine(supply, consumptionTotal),
+    stock: {
+      current: stockRead.stock,
+      cap: foodStockCap(consumptionTotal),
+      initialized: stockRead.initialized,
+      settle,
+      turnsLeft,
+    },
+    famine: settle.famine,
     policies: {
       mobilization: nation.foodPolicyMobilization,
       rationing: nation.foodPolicyRationing,

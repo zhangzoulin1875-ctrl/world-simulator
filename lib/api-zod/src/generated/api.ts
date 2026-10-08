@@ -4380,8 +4380,35 @@ export const GetFoodOverviewResponse = zod.object({
     .describe("條約糧食輸送流量（生效自訂條約；輸出方不做餘額檢查）。"),
   balance: zod
     .number()
-    .describe("結餘 = 供給（產出＋條約輸入−條約輸出）− 消耗（非累積，不儲存）"),
-  famine: zod.boolean().describe("供給 < 消耗 → 飢荒（每日回合扣人口）"),
+    .describe(
+      "每回合流量結餘 = 供給（產出＋條約輸入−條約輸出）− 消耗。結餘為負時由庫存支應",
+    ),
+  stock: zod
+    .object({
+      current: zod.number().describe("目前庫存"),
+      cap: zod.number().describe("庫存上限 = 12 回合消耗"),
+      initialized: zod
+        .boolean()
+        .describe("false = 尚未結算過,current 為 6 回合消耗的推算期初庫存"),
+      turnsLeft: zod
+        .number()
+        .nullable()
+        .describe("以目前淨流量估算庫存還能撐幾回合;流量為正(撐得住)時為 null"),
+      spoiled: zod.number().describe("預測本回合腐敗損失(3%)"),
+      overflow: zod.number().describe("預測本回合超過上限被捨棄的量"),
+      shortfall: zod
+        .number()
+        .describe("預測本回合缺口(庫存用完仍不夠吃,>0 即饑荒)"),
+      nextStock: zod.number().describe("預測本回合結算後的庫存"),
+    })
+    .describe(
+      "糧食庫存(貿易系統)。期初 6 回合消耗、每回合腐敗 3%、上限 12 回合消耗。純讀取預測,回合結算才寫入",
+    ),
+  famine: zod
+    .boolean()
+    .describe(
+      "庫存也撐不住 → 饑荒（回合扣人口）。結餘為負但庫存足夠時為 false",
+    ),
   faminePopulationLossPct: zod
     .number()
     .describe("全額扣幅 %（連續饑荒緩衝觸發前）"),

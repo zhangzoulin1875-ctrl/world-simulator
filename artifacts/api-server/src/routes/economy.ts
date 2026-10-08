@@ -1197,6 +1197,18 @@ router.get("/economy/food", async (req, res) => {
         outflow: report.treaty.outflow,
       },
       balance: round1(report.balance),
+      // 貿易系統 — 糧食庫存(向後相容新增欄位;舊前端忽略即可)。
+      // famine 現在表示「庫存也撐不住」:balance 為負但庫存夠時為 false。
+      stock: {
+        current: report.stock.current,
+        cap: report.stock.cap,
+        initialized: report.stock.initialized,
+        turnsLeft: report.stock.turnsLeft,
+        spoiled: report.stock.settle.spoiled,
+        overflow: report.stock.settle.overflow,
+        shortfall: report.stock.settle.shortfall,
+        nextStock: report.stock.settle.stock,
+      },
       famine: report.famine,
       faminePopulationLossPct: FAMINE_POPULATION_LOSS_PCT,
       consecutiveFamineTurns: nation.consecutiveFamineTurns ?? 0,
