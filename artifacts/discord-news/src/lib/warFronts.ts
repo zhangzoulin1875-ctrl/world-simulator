@@ -60,7 +60,7 @@ export interface ArrowGeometry {
 
 /**
  * 計算從 (x1,y1) 指向 (x2,y2) 的箭頭幾何。
- * trim：起訖兩端各向內縮的「上限」；實際內縮不超過兩點距離的 18%，
+ * trim：起點向內縮的「上限」（避開攻方 ⚔），實際不超過兩點距離的 18%；尾端只縮約 1/4，讓箭頭尖落在守方區內，
  *   相鄰小區（中心很近）因此不會被吃光，仍保有可見的線段。
  * headLen：箭頭尖兩翼長度「上限」；實際不超過線段長度的 45%。
  * 皆為 viewBox 單位（呼叫端自行除以縮放 k）。
@@ -84,9 +84,11 @@ export function computeArrow(
   const t = Math.min(Math.max(trim, 0), len * 0.18);
   const sx = x1 + ux * t;
   const sy = y1 + uy * t;
-  const ex = x2 - ux * t;
-  const ey = y2 - uy * t;
-  const shaft = len - 2 * t;
+  // 尾端尖端只內縮一小段，確保箭頭落在守方區域內而非區外
+  const te = Math.min(t * 0.25, len * 0.06);
+  const ex = x2 - ux * te;
+  const ey = y2 - uy * te;
+  const shaft = len - t - te;
   const h = Math.min(Math.max(headLen, 0), shaft * 0.45);
   const ang = Math.PI / 7;
   const cos = Math.cos(ang);
@@ -109,8 +111,6 @@ export function computeArrow(
 
 /** 超過此距離（viewBox 單位）的戰線視為「遠程」，改畫弧線並截短。 */
 export const LONG_FRONT_DIST = 120;
-/** 遠程戰線最多畫出的長度（從攻方端算起），避免橫貫整張地圖。 */
-export const LONG_FRONT_MAX_LEN = 150;
 
 export interface ArcGeometry {
   /** 是否為弧線（false = 直線，沿用 computeArrow 的結果）。 */
@@ -132,7 +132,7 @@ export interface ArcGeometry {
 
 /**
  * 戰線幾何：近距離用直線箭頭；遠距離（跨海登陸等）改成向上彎的弧線，
- * 並只畫從攻方端算起的前一段，尾端箭頭仍指向守方方向。
+ * 完整連到守方（兩端略內縮），弧度隨距離加大，避免壓在陸地上。
  * 皆為 viewBox 單位；trim/headLen 為上限（同 computeArrow）。
  * 輸入非有限數或兩點重合回傳 null。
  */
@@ -175,7 +175,7 @@ export function computeFrontPath(
     nx = -nx;
     ny = -ny;
   }
-  const bulge = Math.min(dist * 0.22, 70);
+  const bulge = Math.min(dist * 0.3, 110);
   const cx = (x1 + x2) / 2 + nx * bulge;
   const cy = (y1 + y2) / 2 + ny * bulge;
 
@@ -193,13 +193,11 @@ export function computeFrontPath(
     return [dx / l, dy / l];
   };
 
-  // 截短：只畫到曲線上 t = tEnd 處（約 LONG_FRONT_MAX_LEN 長），起點略內縮
-  const tEnd = Math.min(1, LONG_FRONT_MAX_LEN / (dist * 1.12));
-  const tStart = Math.min(0.04, tEnd / 4);
-  // 子曲線（de Casteljau 分割）：從 tStart 到 tEnd 的二次貝茲
+  // 完整弧線：兩端各內縮一小段（起點避開攻方 ⚔，尾端箭頭落在守方區域內）
+  const tStart = Math.min(0.03, 12 / dist);
+  const tEnd = 1 - Math.min(0.008, 3 / dist);
   const p0 = bez(tStart);
   const pe = bez(tEnd);
-  // 子曲線控制點 = 在 [tStart,tEnd] 區間的切線交點；以中點切線外推
   const tm = (tStart + tEnd) / 2;
   const pm = bez(tm);
   const qx = 2 * pm[0] - (p0[0] + pe[0]) / 2;
@@ -225,7 +223,7 @@ export function computeFrontPath(
     headRightY: pe[1] + h * (-bx * sin + by * cos),
     midX: mid[0],
     midY: mid[1],
-    truncated: tEnd < 1,
+    truncated: false,
   };
 }
 

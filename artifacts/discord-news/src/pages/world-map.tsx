@@ -764,7 +764,7 @@ export function WorldMapExplorer({
             cities={cityPoints}
             showCities={showCities}
             regionFlags={regionFlagByName}
-            activeWarRegionNames={showWarMarkers ? activeWarRegionNames : null}
+            activeWarRegionNames={showWarMarkers && viewMode === "political" ? activeWarRegionNames : null}
             warFronts={showWarMarkers && viewMode === "political" ? warFronts : null}
           />
 

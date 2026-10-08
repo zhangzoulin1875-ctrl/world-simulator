@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildWarFronts, computeArrow, computeFrontPath, warFrontLabel, LONG_FRONT_DIST, LONG_FRONT_MAX_LEN } from "./warFronts";
+import { buildWarFronts, computeArrow, computeFrontPath, warFrontLabel, LONG_FRONT_DIST } from "./warFronts";
 
 const names = new Map<number, string>([[1, "關中"], [2, "河西隴右"], [3, "江漢荊楚"]]);
 const camp = (id: number, a: number, d: number) => ({
@@ -31,15 +31,15 @@ test("computeArrow: 距離夠長時，內縮等於 trim", () => {
   const a = computeArrow(0, 0, 100, 0, 10, 8)!;
   assert.ok(a);
   assert.ok(Math.abs(a.x1 - 10) < 1e-9 && Math.abs(a.y1) < 1e-9);
-  assert.ok(Math.abs(a.x2 - 90) < 1e-9 && Math.abs(a.y2) < 1e-9);
-  assert.ok(Math.abs(a.midX - 50) < 1e-9);
+  // 尾端只內縮 min(trim/4, 6% 長度) = 2.5，尖端貼近守方中心
+  assert.ok(Math.abs(a.x2 - 97.5) < 1e-9 && Math.abs(a.y2) < 1e-9);
 });
 
 test("computeArrow: 相鄰小區（距離很近）內縮被壓在 18%，線段仍保有 64% 長度", () => {
   const a = computeArrow(0, 0, 10, 0, 9, 9)!;
   assert.ok(a);
   assert.ok(Math.abs(a.x1 - 1.8) < 1e-9);
-  assert.ok(Math.abs(a.x2 - 8.2) < 1e-9);
+  assert.ok(a.x2 > 9, "尖端應貼近守方中心");
   assert.ok(a.x2 - a.x1 > 6);
 });
 
@@ -59,7 +59,7 @@ test("computeArrow: 兩翼在尖端後方（朝起點側）且左右對稱", () 
 test("computeArrow: 斜向與反向方向正確", () => {
   const a = computeArrow(100, 100, 0, 0, 0, 10)!;
   assert.ok(a.headLeftX > a.x2 && a.headRightX > a.x2);
-  assert.ok(Math.abs(a.x2) < 1e-9 && Math.abs(a.y2) < 1e-9);
+  assert.ok(a.x2 < 3 && a.y2 < 3, "尖端應貼近守方中心 (0,0)");
 });
 
 test("computeArrow: 兩點重合回傳 null（不產生 NaN）", () => {
@@ -83,15 +83,15 @@ test("computeFrontPath: 近距離為直線，路徑為 M..L..", () => {
   assert.match(g.d, /^M[\d.-]+,[\d.-]+ L/);
 });
 
-test("computeFrontPath: 超過門檻改弧線並截短，畫出長度不超過上限", () => {
+test("computeFrontPath: 超過門檻改弧線，完整連到守方端（尾端靠近守方、起點靠近攻方）", () => {
   const g = computeFrontPath(0, 300, 600, 300, 5, 10)!;
   assert.equal(g.curved, true);
-  assert.equal(g.truncated, true);
+  assert.equal(g.truncated, false);
   const m = g.d.match(/^M([\d.-]+),([\d.-]+) Q([\d.-]+),([\d.-]+) ([\d.-]+),([\d.-]+)$/)!;
   assert.ok(m, g.d);
-  const [x0, y0, , , xe, ye] = m.slice(1).map(Number) as number[];
-  assert.ok(Math.hypot(xe! - x0!, ye! - y0!) <= LONG_FRONT_MAX_LEN + 1e-6);
-  assert.ok(xe! < 600, "不應畫到守方端");
+  const [x0, , , , xe, ye] = m.slice(1).map(Number) as number[];
+  assert.ok(x0! < 30, "起點應貼近攻方");
+  assert.ok(Math.hypot(xe! - 600, ye! - 300) < 30, "尾端應貼近守方中心");
 });
 
 test("computeFrontPath: 弧線向畫面上方彎（y 變小）", () => {
