@@ -216,8 +216,19 @@ export function evaluateTreasuryPenalty(params: {
 }
 
 /** 以 SQL 現值套用增減並 clamp 0–100（race-safe，不讀值後回寫）。 */
+/**
+ * 寫進 integer 欄位的增量一律先四捨五入成整數。
+ * 政策修正值 × 淡出強度（remainingTurns / durationTurns）會產生小數（例如 -6.25），
+ * 若原樣當 SQL 參數，Postgres 對 integer 欄位會報
+ * `invalid input syntax for type integer`，導致該國整條 UPDATE 失敗——
+ * 金錢、木材、礦石、彈藥、人口全部當回合不入帳（且只寫 log、不通知玩家）。
+ */
+export function toIntDelta(delta: number): number {
+  return Number.isFinite(delta) ? Math.round(delta) : 0;
+}
+
 function clampedStatDelta(column: AnyColumn, delta: number) {
-  return sql`LEAST(100, GREATEST(0, ${column} + ${delta}))`;
+  return sql`LEAST(100, GREATEST(0, ${column} + ${toIntDelta(delta)}))`;
 }
 
 // ── 每日多時段回合排程（Task #289） ──────────────────────────────────────
@@ -919,7 +930,7 @@ async function doRunTurn(
       //                  ② 再套政策 delta（clamp 0–100）。
       // 不可合併為單一 delta：回復「過度回收」到 0 後，負政策 delta（增加厭戰）
       // 仍應從 0 開始加，而非被回復量抵消歸零。
-      const wearinessPolicyDelta = stats.warWearinessPolicyDelta;
+      const wearinessPolicyDelta = toIntDelta(stats.warWearinessPolicyDelta);
       // 全民皆兵:開啟期間每回合固定扣一點穩定度(僅玩家;NPC 不使用)。
       // 與國庫危機的穩定度懲罰加總後,在同一條 UPDATE 內一次寫入(同欄位不能 set 兩次)。
       if (!nation.isNpc && nation.discordUserId) {
@@ -938,7 +949,7 @@ async function doRunTurn(
         .update(playerNationsTable)
         .set({
           money: sql`GREATEST(0, ${playerNationsTable.money} + ${moneyDelta})`,
-          warWeariness: sql`LEAST(100, GREATEST(0, GREATEST(0, ${playerNationsTable.warWeariness} - ${wearinessRecovery}) - ${wearinessPolicyDelta}))`,
+          warWeariness: sql`LEAST(100, GREATEST(0, GREATEST(0, ${playerNationsTable.warWeariness} - ${toIntDelta(wearinessRecovery)}) - ${wearinessPolicyDelta}))`,
           // Task #406 — 建築資源產出入庫（生產力維護費自 Task #479 起
           // 不再持久化扣 productionBonus，改為可用量計算層流量扣除）。
           wood: sql`${playerNationsTable.wood} + ${regionRes.wood}`,
