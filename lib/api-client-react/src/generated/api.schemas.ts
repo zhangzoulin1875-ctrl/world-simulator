@@ -3021,6 +3021,50 @@ export interface WarLegionsUpdateResult {
   availableUnits: WarAvailableUnit[];
 }
 
+export interface WarSupplyLegion {
+  slot: string;
+  mercenary: boolean;
+  supply: number;
+  collapsed: boolean;
+  ammoDemand: number;
+  rationDemand: number;
+  ammoFill: number;
+}
+
+export interface WarSupplyForecast {
+  legions: WarSupplyLegion[];
+  totalAmmoDemand: number;
+  totalRationDemand: number;
+  ammoStock: number;
+  ammoBalance: number;
+  ammoShortfall: number;
+  cyclesOfAmmo: number | null;
+  legionsShort: number;
+  collapsedLegions: number;
+  ammoRelevant: boolean;
+  money: number;
+  famineTurns: number;
+  unitPrice: number;
+  maxResupply: number;
+  horizonCycles: number;
+  activeCampaignCount: number;
+  campaignActive: boolean;
+}
+
+export interface WarResupplyRequest {
+  /** @minimum 1 */
+  amount: number;
+}
+
+export interface WarResupplyResult {
+  ok: boolean;
+  amount: number;
+  cost: number;
+  unitPrice: number;
+  ammo: number;
+  money: number;
+}
+
 export type WarOrderRequestOrderType =
   (typeof WarOrderRequestOrderType)[keyof typeof WarOrderRequestOrderType];
 

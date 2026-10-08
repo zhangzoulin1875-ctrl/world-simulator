@@ -5175,6 +5175,63 @@ export const UpdateWarCampaignLegionsResponse = zod.object({
 });
 
 /**
+ * @summary 後勤補給預估（彈藥需求、庫存、缺口、運補報價）
+ */
+export const GetWarCampaignSupplyParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetWarCampaignSupplyResponse = zod.object({
+  legions: zod.array(
+    zod.object({
+      slot: zod.string(),
+      mercenary: zod.boolean(),
+      supply: zod.number(),
+      collapsed: zod.boolean(),
+      ammoDemand: zod.number(),
+      rationDemand: zod.number(),
+      ammoFill: zod.number(),
+    }),
+  ),
+  totalAmmoDemand: zod.number(),
+  totalRationDemand: zod.number(),
+  ammoStock: zod.number(),
+  ammoBalance: zod.number(),
+  ammoShortfall: zod.number(),
+  cyclesOfAmmo: zod.number().nullable(),
+  legionsShort: zod.number(),
+  collapsedLegions: zod.number(),
+  ammoRelevant: zod.boolean(),
+  money: zod.number(),
+  famineTurns: zod.number(),
+  unitPrice: zod.number(),
+  maxResupply: zod.number(),
+  horizonCycles: zod.number(),
+  activeCampaignCount: zod.number(),
+  campaignActive: zod.boolean(),
+});
+
+/**
+ * @summary 緊急運補（花錢購買彈藥進國家庫存）
+ */
+export const ResupplyWarCampaignParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ResupplyWarCampaignBody = zod.object({
+  amount: zod.number().min(1),
+});
+
+export const ResupplyWarCampaignResponse = zod.object({
+  ok: zod.boolean(),
+  amount: zod.number(),
+  cost: zod.number(),
+  unitPrice: zod.number(),
+  ammo: zod.number(),
+  money: zod.number(),
+});
+
+/**
  * @summary 提交本週期 AI 指令（四類各一，重複提交覆寫）
  */
 export const SubmitWarCampaignOrderParams = zod.object({

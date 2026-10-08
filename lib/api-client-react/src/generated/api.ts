@@ -144,6 +144,9 @@ import type {
   WarLegionsUpdateResult,
   WarOrderRequest,
   WarReportsResponse,
+  WarResupplyRequest,
+  WarResupplyResult,
+  WarSupplyForecast,
   WeaponDeleteResult,
   WeaponDesignRequest,
   WeaponDesignResult,
@@ -9454,6 +9457,181 @@ export const useUpdateWarCampaignLegions = <
   TContext
 > => {
   return useMutation(getUpdateWarCampaignLegionsMutationOptions(options));
+};
+
+/**
+ * @summary 後勤補給預估（彈藥需求、庫存、缺口、運補報價）
+ */
+export const getGetWarCampaignSupplyUrl = (id: number) => {
+  return `/api/war/campaigns/${id}/supply`;
+};
+
+export const getWarCampaignSupply = async (
+  id: number,
+  options?: RequestInit,
+): Promise<WarSupplyForecast> => {
+  return customFetch<WarSupplyForecast>(getGetWarCampaignSupplyUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetWarCampaignSupplyQueryKey = (id: number) => {
+  return [`/api/war/campaigns/${id}/supply`] as const;
+};
+
+export const getGetWarCampaignSupplyQueryOptions = <
+  TData = Awaited<ReturnType<typeof getWarCampaignSupply>>,
+  TError = ErrorType<ErrorMessage>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getWarCampaignSupply>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetWarCampaignSupplyQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getWarCampaignSupply>>
+  > = ({ signal }) => getWarCampaignSupply(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getWarCampaignSupply>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetWarCampaignSupplyQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getWarCampaignSupply>>
+>;
+export type GetWarCampaignSupplyQueryError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary 後勤補給預估（彈藥需求、庫存、缺口、運補報價）
+ */
+
+export function useGetWarCampaignSupply<
+  TData = Awaited<ReturnType<typeof getWarCampaignSupply>>,
+  TError = ErrorType<ErrorMessage>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getWarCampaignSupply>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetWarCampaignSupplyQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary 緊急運補（花錢購買彈藥進國家庫存）
+ */
+export const getResupplyWarCampaignUrl = (id: number) => {
+  return `/api/war/campaigns/${id}/supply/resupply`;
+};
+
+export const resupplyWarCampaign = async (
+  id: number,
+  warResupplyRequest: WarResupplyRequest,
+  options?: RequestInit,
+): Promise<WarResupplyResult> => {
+  return customFetch<WarResupplyResult>(getResupplyWarCampaignUrl(id), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(warResupplyRequest),
+  });
+};
+
+export const getResupplyWarCampaignMutationOptions = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resupplyWarCampaign>>,
+    TError,
+    { id: number; data: BodyType<WarResupplyRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof resupplyWarCampaign>>,
+  TError,
+  { id: number; data: BodyType<WarResupplyRequest> },
+  TContext
+> => {
+  const mutationKey = ["resupplyWarCampaign"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof resupplyWarCampaign>>,
+    { id: number; data: BodyType<WarResupplyRequest> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return resupplyWarCampaign(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ResupplyWarCampaignMutationResult = NonNullable<
+  Awaited<ReturnType<typeof resupplyWarCampaign>>
+>;
+export type ResupplyWarCampaignMutationBody = BodyType<WarResupplyRequest>;
+export type ResupplyWarCampaignMutationError = ErrorType<ErrorMessage>;
+
+/**
+ * @summary 緊急運補（花錢購買彈藥進國家庫存）
+ */
+export const useResupplyWarCampaign = <
+  TError = ErrorType<ErrorMessage>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof resupplyWarCampaign>>,
+    TError,
+    { id: number; data: BodyType<WarResupplyRequest> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof resupplyWarCampaign>>,
+  TError,
+  { id: number; data: BodyType<WarResupplyRequest> },
+  TContext
+> => {
+  return useMutation(getResupplyWarCampaignMutationOptions(options));
 };
 
 /**

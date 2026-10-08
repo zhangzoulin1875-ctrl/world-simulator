@@ -3065,6 +3065,85 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorMessage" }
 
+  /war/campaigns/{id}/supply:
+    get:
+      operationId: getWarCampaignSupply
+      tags: [war]
+      summary: 後勤補給預估（彈藥需求、庫存、缺口、運補報價）
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Supply forecast for the caller's nation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WarSupplyForecast" }
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "403":
+          description: Not a participant of this campaign
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "404":
+          description: Campaign not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /war/campaigns/{id}/supply/resupply:
+    post:
+      operationId: resupplyWarCampaign
+      tags: [war]
+      summary: 緊急運補（花錢購買彈藥進國家庫存）
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WarResupplyRequest" }
+      responses:
+        "200":
+          description: Ammo purchased
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WarResupplyResult" }
+        "400":
+          description: Validation error (insufficient money, over cap, not an integer)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "403":
+          description: Not a participant of this campaign
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "404":
+          description: Campaign not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+        "409":
+          description: Campaign already ended
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
   /war/campaigns/{id}/orders:
     post:
       operationId: submitWarCampaignOrder
@@ -7140,6 +7219,72 @@ components:
           type: array
           items: { $ref: "#/components/schemas/WarAvailableUnit" }
 
+    WarSupplyLegion:
+      type: object
+      required: [slot, mercenary, supply, collapsed, ammoDemand, rationDemand, ammoFill]
+      properties:
+        slot: { type: string }
+        mercenary: { type: boolean }
+        supply: { type: integer }
+        collapsed: { type: boolean }
+        ammoDemand: { type: integer }
+        rationDemand: { type: integer }
+        ammoFill: { type: number }
+    WarSupplyForecast:
+      type: object
+      required:
+        - legions
+        - totalAmmoDemand
+        - totalRationDemand
+        - ammoStock
+        - ammoBalance
+        - ammoShortfall
+        - cyclesOfAmmo
+        - legionsShort
+        - collapsedLegions
+        - ammoRelevant
+        - money
+        - famineTurns
+        - unitPrice
+        - maxResupply
+        - horizonCycles
+        - activeCampaignCount
+        - campaignActive
+      properties:
+        legions:
+          type: array
+          items: { $ref: "#/components/schemas/WarSupplyLegion" }
+        totalAmmoDemand: { type: integer }
+        totalRationDemand: { type: integer }
+        ammoStock: { type: integer }
+        ammoBalance: { type: integer }
+        ammoShortfall: { type: integer }
+        cyclesOfAmmo: { type: number, nullable: true }
+        legionsShort: { type: integer }
+        collapsedLegions: { type: integer }
+        ammoRelevant: { type: boolean }
+        money: { type: integer }
+        famineTurns: { type: integer }
+        unitPrice: { type: number }
+        maxResupply: { type: integer }
+        horizonCycles: { type: integer }
+        activeCampaignCount: { type: integer }
+        campaignActive: { type: boolean }
+    WarResupplyRequest:
+      type: object
+      required: [amount]
+      properties:
+        amount: { type: integer, minimum: 1 }
+    WarResupplyResult:
+      type: object
+      required: [ok, amount, cost, unitPrice, ammo, money]
+      properties:
+        ok: { type: boolean }
+        amount: { type: integer }
+        cost: { type: integer }
+        unitPrice: { type: number }
+        ammo: { type: integer }
+        money: { type: integer }
     WarOrderRequest:
       type: object
       required: [orderType, body]

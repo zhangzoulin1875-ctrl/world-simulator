@@ -30,6 +30,7 @@ import { EnemyIntelCard } from "@/components/war-room/enemy-intel-card";
 import { CityStateCards } from "@/components/war-room/city-state-cards";
 import { LegionEditor } from "@/components/war-room/legion-editor";
 import { OrdersPanel } from "@/components/war-room/orders-panel";
+import { SupplyPanel } from "@/components/war-room/supply-panel";
 import { ReportsTimeline } from "@/components/war-room/reports-timeline";
 import { ParticipantsCard } from "@/components/war-room/participants-card";
 
@@ -245,6 +246,7 @@ function WarRoomBody({
         disabled={!isActive}
         coupMoralePenalty={coupMoralePenalty}
       />
+      {isActive && <SupplyPanel detail={detail} />}
       {isActive && <OrdersPanel detail={detail} />}
       <ReportsTimeline campaignId={detail.id} />
     </div>
