@@ -141,3 +141,88 @@ export async function runNpcExtinctionCheck(): Promise<NpcExtinctionSummary> {
 
   return { deletedCount: deletedNations.length, deletedNations };
 }
+
+/** 孤兒野生 NPC 的寬限時間：新建未滿此時間者不碰（避免誤刪正在開戰途中的 NPC）。 */
+export const ORPHAN_WILD_NPC_GRACE_MINUTES = 10;
+
+/**
+ * 清除「孤兒野生 NPC」：攻打無人領土／就地爭奪空白時即時建立的 NPC
+ * （npc_origin = 'wild'），若開戰後續步驟失敗（舊版 AI 兵種設計 409 不回收），
+ * 會殘留佔住剩餘空白、卻沒有任何進行中戰爭或戰役。玩家那塊地合計變 100%、
+ * 持有者是沒有戰爭的 NPC，無法再發起戰役（「只佔部分土地卻拿不到剩下的」）。
+ *
+ * 判定（全部成立才刪）：is_npc、npc_origin='wild'、建立超過寬限時間、
+ * 沒有未結束的 diplomacy_wars、沒有 active 的 war_campaigns。
+ * 刪除沿用 runNpcExtinctionCheck 的做法：顯式清 diplomacy_wars／treaties，
+ * 其餘子表 CASCADE；控制列隨之消失，空白還給玩家可再次就地爭奪。
+ * 不碰玩家國家、自然（natural）NPC 與無主國家。
+ */
+export async function cleanupOrphanWildNpcs(): Promise<{
+  deletedCount: number;
+  deletedIds: string[];
+}> {
+  const orphans = await db
+    .select({ id: playerNationsTable.id, name: playerNationsTable.name })
+    .from(playerNationsTable)
+    .where(
+      and(
+        eq(playerNationsTable.isNpc, true),
+        eq(playerNationsTable.npcOrigin, "wild"),
+        sql`${playerNationsTable.createdAt} < now() - make_interval(mins => ${ORPHAN_WILD_NPC_GRACE_MINUTES})`,
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${diplomacyWarsTable} w
+          WHERE w.ended_at IS NULL
+            AND (w.nation_a_id = ${playerNationsTable.id} OR w.nation_b_id = ${playerNationsTable.id})
+        )`,
+        sql`NOT EXISTS (
+          SELECT 1 FROM war_campaigns c
+          WHERE c.status = 'active'
+            AND (c.attacker_nation_id = ${playerNationsTable.id} OR c.defender_nation_id = ${playerNationsTable.id})
+        )`,
+      ),
+    );
+
+  const deletedIds: string[] = [];
+  for (const npc of orphans) {
+    try {
+      const deleted = await db.transaction(async (tx) => {
+        await tx
+          .delete(diplomacyWarsTable)
+          .where(
+            or(
+              eq(diplomacyWarsTable.nationAId, npc.id),
+              eq(diplomacyWarsTable.nationBId, npc.id),
+            ),
+          );
+        await tx
+          .delete(diplomacyTreatiesTable)
+          .where(
+            or(
+              eq(diplomacyTreatiesTable.proposerNationId, npc.id),
+              eq(diplomacyTreatiesTable.targetNationId, npc.id),
+            ),
+          );
+        return tx
+          .delete(playerNationsTable)
+          .where(
+            and(
+              eq(playerNationsTable.id, npc.id),
+              eq(playerNationsTable.isNpc, true),
+              eq(playerNationsTable.npcOrigin, "wild"),
+            ),
+          )
+          .returning({ id: playerNationsTable.id });
+      });
+      if (deleted.length > 0) {
+        deletedIds.push(npc.id);
+        logger.info(
+          { npcId: npc.id, npcName: npc.name },
+          "turn engine: orphan wild NPC removed (no war, no campaign)",
+        );
+      }
+    } catch (err) {
+      logger.error({ err, npcId: npc.id }, "orphan wild NPC removal failed");
+    }
+  }
+  return { deletedCount: deletedIds.length, deletedIds };
+}

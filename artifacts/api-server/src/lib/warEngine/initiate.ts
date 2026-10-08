@@ -96,7 +96,7 @@ export async function foundOrPromoteUnownedDefender(params: {
    * 若剩餘 ≤ 0 則拋 400（該區已被各國完全佔滿）。
    */
   forceVoid?: boolean;
-}): Promise<{ defender: PlayerNation; warId: number }> {
+}): Promise<{ defender: PlayerNation; warId: number; /** true = 本次新建的 NPC（失敗時可回收）；false = 由無主國家升格。 */ founded: boolean }> {
   const {
     attacker,
     attackerRegionId,
@@ -139,6 +139,7 @@ export async function foundOrPromoteUnownedDefender(params: {
       : controls;
 
     let defender: PlayerNation;
+    let founded = false;
     if (otherControls.length === 0 || params.forceVoid) {
       // 無其他持有者、或強制攻打空白 → 新建 NPC 國家，只授予剩餘比例
       // （100 − 現有各國合計；完全空地時即為 100）。鎖內重算，確保 Σ ≤ 100 不變。
@@ -183,6 +184,7 @@ export async function foundOrPromoteUnownedDefender(params: {
         },
       ]);
       defender = created;
+      founded = true;
     } else {
       const dominant = otherControls[0]!;
       const [nation] = await tx
@@ -223,7 +225,7 @@ export async function foundOrPromoteUnownedDefender(params: {
       })
       .onConflictDoNothing()
       .returning({ id: diplomacyWarsTable.id });
-    if (warRow) return { defender, warId: warRow.id };
+    if (warRow) return { defender, warId: warRow.id, founded };
     // 已存在進行中的戰爭（競態）→ 取回其 id。
     const [existing] = await tx
       .select({ id: diplomacyWarsTable.id })
@@ -237,8 +239,54 @@ export async function foundOrPromoteUnownedDefender(params: {
       )
       .limit(1);
     if (!existing) throw new WarActionError(500, "建立戰爭狀態失敗");
-    return { defender, warId: existing.id };
+    return { defender, warId: existing.id, founded };
   });
+}
+
+/**
+ * 發起戰役（玩家路由與 NPC 迴圈共用）。
+ *
+ * 「攻打無人領土／就地爭奪空白」會先即時建立 NPC 並提交，之後才做冷卻檢查、
+ * NPC 兵種設計（AI）、戰役寫入。若這些後續步驟失敗（例如 AI 暫時不可用 → 409），
+ * 該 NPC 與它佔住的空白會殘留：玩家那塊地合計變 100%、持有者是沒有戰爭的孤兒 NPC，
+ * 之後再也無法發起戰役（玩家回報「只佔部分土地卻無法取得剩下的」）。
+ * 因此失敗時回收「本次新建」的 NPC（升格自無主國家者不刪）；刪除會 CASCADE 清掉
+ * 其控制列與戰爭列，空白還給玩家可再次爭奪。
+ */
+export async function initiateCampaign(params: Parameters<typeof initiateCampaignInner>[0]): Promise<WarCampaign> {
+  let foundedNpcId: string | null = null;
+  try {
+    return await initiateCampaignInner(params, (id) => {
+      foundedNpcId = id;
+    });
+  } catch (err) {
+    if (foundedNpcId) {
+      try {
+        await db
+          .delete(diplomacyWarsTable)
+          .where(
+            or(
+              eq(diplomacyWarsTable.nationAId, foundedNpcId),
+              eq(diplomacyWarsTable.nationBId, foundedNpcId),
+            ),
+          );
+        await db
+          .delete(playerNationsTable)
+          .where(
+            and(
+              eq(playerNationsTable.id, foundedNpcId),
+              eq(playerNationsTable.isNpc, true),
+            ),
+          );
+      } catch (cleanupErr) {
+        logger.error(
+          { err: cleanupErr, npcId: foundedNpcId },
+          "initiateCampaign: failed to roll back founded NPC after failure",
+        );
+      }
+    }
+    throw err;
+  }
 }
 
 /**
@@ -280,7 +328,7 @@ export async function assertNoDuplicateActiveCampaign(
   }
 }
 
-export async function initiateCampaign(params: {
+async function initiateCampaignInner(params: {
   attackerNationId: string;
   attackerRegionId: number;
   defenderRegionId: number;
@@ -292,7 +340,7 @@ export async function initiateCampaign(params: {
    */
   defenderNationId?: string | null;
   initiatedByNpc?: boolean;
-}): Promise<WarCampaign> {
+}, onFoundedNpc: (npcId: string) => void): Promise<WarCampaign> {
   const { attackerNationId, attackerRegionId, defenderRegionId } = params;
   const now = new Date();
 
@@ -533,6 +581,7 @@ export async function initiateCampaign(params: {
       forceVoid,
     });
     defender = result.defender;
+    if (result.founded) onFoundedNpc(result.defender.id);
     unclaimedDefender = true;
     warByEnemy.set(defender.id, result.warId);
   }

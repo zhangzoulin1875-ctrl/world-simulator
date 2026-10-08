@@ -27,6 +27,8 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const MY_FILL = "#b45309";
+/** 己方持有但仍有無人空白可就地佔領的地區（比一般己方色偏黃綠，提示可操作）。 */
+const MY_VOID_FILL = "#a16207";
 const ENEMY_FILL = "#7f1d1d";
 const TARGET_FILL = "#dc2626";
 const TARGET_SELECTED_FILL = "#f97316";
@@ -210,6 +212,22 @@ export function WarOrdersTab() {
     return s;
   }, [politicalData, regionById]);
 
+  /**
+   * 己方地區中「還有無人空白可就地佔領」者：各國合計 < 100% 且沒有交戰敵國持分。
+   * 例：自己只持有 48%、其餘 52% 無人持有 → 遊戲仍視該區屬於自己，必須靠就地爭奪
+   * 才拿得到剩餘空白。地圖以專屬色標示，並在面板給明確入口。
+   */
+  const myVoidSourceIds = useMemo(() => {
+    const s = new Set<number>();
+    for (const id of myRegionIds) {
+      if (!voidRegionIds.has(id)) continue;
+      const list = controlsByRegion.get(id) ?? [];
+      if (list.some((c) => enemyNations.has(c.nationId))) continue;
+      s.add(id);
+    }
+    return s;
+  }, [myRegionIds, voidRegionIds, controlsByRegion, enemyNations]);
+
   const sourceRegion = sourceId != null ? (regionById.get(sourceId) ?? null) : null;
   const targetRegion = targetId != null ? (regionById.get(targetId) ?? null) : null;
 
@@ -335,7 +353,8 @@ export function WarOrdersTab() {
     }
     for (const id of myRegionIds) {
       const r = regionById.get(id);
-      if (r) m.set(r.name, MY_FILL);
+      if (!r) continue;
+      m.set(r.name, myVoidSourceIds.has(id) ? MY_VOID_FILL : MY_FILL);
     }
     for (const id of seaTargetIds) {
       if (validTargetIds.has(id)) continue;
@@ -379,6 +398,7 @@ export function WarOrdersTab() {
     enemyRegionOwner,
     unownedRegionIds,
     myRegionIds,
+    myVoidSourceIds,
     sourceId,
     validTargetIds,
     seaTargetIds,
@@ -531,6 +551,12 @@ export function WarOrdersTab() {
             <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: MY_FILL }} />
             己方地區
           </span>
+          {myVoidSourceIds.size > 0 ? (
+            <span className="flex items-center gap-1 text-xs font-normal text-white/55">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: MY_VOID_FILL }} />
+              己方（尚有空白可佔領）
+            </span>
+          ) : null}
           <span className="flex items-center gap-1 text-xs font-normal text-white/55">
             <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: ENEMY_FILL }} />
             交戰敵國
@@ -600,7 +626,7 @@ export function WarOrdersTab() {
             ) : sourceRegion ? (
               <span className="text-white/45">
                 {targetNames.size > 0
-                  ? "請點選高亮的敵區，或再點一次己方地區（若有敵國在內）"
+                  ? "請點選高亮的敵區，或再點一次己方地區（若有敵國在內，或該區還有無人空白可佔領）"
                   : "此出發地沒有可進攻的敵國地區，請換一塊出發地"}
               </span>
             ) : (
@@ -609,7 +635,36 @@ export function WarOrdersTab() {
           </div>
         </div>
 
-        {/* 目標地區控制情況：選定目標後顯示（Task #609：含空白地帶時也顯示，不因 void 選擇而隱藏） */}
+        {/* 就地佔領入口：出發地還有無人空白（例如自己只持有 48%、其餘 52% 無人持有）時，
+            直接給明確按鈕，不用玩家猜「再點一次己方地區」。 */}
+        {sourceRegion && myVoidSourceIds.has(sourceRegion.id) && targetId !== sourceRegion.id ? (
+          <div
+            className="space-y-2 rounded-lg border border-emerald-400/30 bg-emerald-500/10 p-3 text-xs leading-relaxed text-emerald-100/90"
+            data-testid="panel-claim-void-here"
+          >
+            <div className="font-semibold text-emerald-200">
+              「{sourceRegion.name}」還有{" "}
+              {100 - (controlsByRegion.get(sourceRegion.id) ?? []).reduce((a, c) => a + c.percent, 0)}
+              % 無人持有的空白
+            </div>
+            <div>
+              你目前只持有 {myControlByRegion.get(sourceRegion.id) ?? 0}%。發起就地爭奪會在此建立一個 AI 控制的
+              NPC 國家佔據剩餘空白並反擊，打贏後即可取得整塊領土。
+            </div>
+            <button
+              onClick={() => {
+                setTargetId(sourceRegion.id);
+                setSelectedDefenderNationId(null);
+              }}
+              className="w-full rounded border border-emerald-400/50 bg-emerald-600/30 px-3 py-1.5 font-bold text-emerald-100 transition hover:bg-emerald-600/45"
+              data-testid="button-claim-void-here"
+            >
+              就地爭奪剩餘空白
+            </button>
+          </div>
+        ) : null}
+
+                {/* 目標地區控制情況：選定目標後顯示（Task #609：含空白地帶時也顯示，不因 void 選擇而隱藏） */}
         {targetRegion && (!targetIsUnowned || targetHasVoid) ? (
           <div
             className="space-y-2 rounded-lg border border-white/10 bg-white/5 p-3 text-xs leading-relaxed text-white/70"

@@ -67,7 +67,7 @@ import {
 } from "./techTreeTurn";
 import { runNpcMilitaryTurn } from "./npcMilitary";
 import { runRecruitQueueTurn } from "./recruitQueue";
-import { runNpcExtinctionCheck } from "./npcExtinction";
+import { runNpcExtinctionCheck, cleanupOrphanWildNpcs } from "./npcExtinction";
 import { settleCivilWars } from "./civilWarEngine";
 import { endCampaignsForLocallyEliminatedNpcs } from "./warEngine/npcLocalCollapse";
 import { recoveryTick } from "./warEngine/recovery";
@@ -1249,6 +1249,16 @@ async function doRunTurn(
     }
   } catch (err) {
     logger.error({ err }, "turn engine: civil war settlement failed");
+  }
+
+  // 孤兒野生 NPC 自癒：開戰失敗殘留、佔住玩家剩餘空白卻沒有戰爭的 NPC。
+  try {
+    const orphans = await cleanupOrphanWildNpcs();
+    if (orphans.deletedCount > 0) {
+      logger.info(orphans, "turn engine: orphan wild NPCs removed");
+    }
+  } catch (err) {
+    logger.error({ err }, "turn engine: orphan wild NPC cleanup failed");
   }
 
   try {

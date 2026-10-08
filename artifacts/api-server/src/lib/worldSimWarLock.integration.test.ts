@@ -50,7 +50,12 @@ before(async () => {
   ]);
   const [w] = await db
     .insert(diplomacyWarsTable)
-    .values({ nationAId: playerId, nationBId: npcId, declaredByNationId: playerId })
+    .values({
+      // diplomacy_wars 有 nation_a < nation_b 的排序約束（canonicalPair）；UUID 隨機，須排序後插入。
+      nationAId: playerId < npcId ? playerId : npcId,
+      nationBId: playerId < npcId ? npcId : playerId,
+      declaredByNationId: playerId,
+    })
     .returning({ id: diplomacyWarsTable.id });
   warId = w!.id;
 });
