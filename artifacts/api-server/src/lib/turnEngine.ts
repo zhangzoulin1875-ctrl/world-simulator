@@ -12,6 +12,7 @@ import {
   generalPoolTable,
   regionBuildingsTable,
   regionControlsTable,
+  mapRegionsTable,
   worldGameStateTable,
 } from "@workspace/db";
 import { buildingOutput, buildingUpkeep } from "./regionBuildings";
@@ -81,6 +82,8 @@ import {
 } from "./gameNotify";
 import { computeNationFoodReport } from "./foodData";
 import { writeFoodStock } from "./trade/foodStockData";
+import { nationSpecialtyOutput, splitProduction } from "./trade/production";
+import { addGoods } from "./trade/goodsLedger";
 import {
   applyModifierSource,
   getGameBalanceSettings,
@@ -694,6 +697,33 @@ async function doRunTurn(
     controlledRows.map((r) => [r.nationId, Number(r.n)]),
   );
 
+  // 貿易系統 1-D — 地區特產產出:一次 JOIN 取出所有國家控制的(地區名稱, 控制比例),
+  // 與建築產出同樣批次計算,不在每國迴圈裡逐一查資料庫。查詢失敗只記 log、
+  // 當作本回合沒有特產產出,絕不中斷回合結算。
+  const specialtyByNation = new Map<string, ReturnType<typeof nationSpecialtyOutput>>();
+  try {
+    const specRows = await db
+      .select({
+        nationId: regionControlsTable.nationId,
+        name: mapRegionsTable.name,
+        percent: regionControlsTable.percent,
+      })
+      .from(regionControlsTable)
+      .innerJoin(mapRegionsTable, eq(mapRegionsTable.id, regionControlsTable.regionId))
+      .where(sql`${regionControlsTable.percent} > 0`);
+    const grouped = new Map<string, { name: string; percent: number }[]>();
+    for (const r of specRows) {
+      const list = grouped.get(r.nationId) ?? [];
+      list.push({ name: r.name, percent: Number(r.percent) });
+      grouped.set(r.nationId, list);
+    }
+    for (const [nid, regions] of grouped) {
+      specialtyByNation.set(nid, nationSpecialtyOutput(regions, statsEra));
+    }
+  } catch (err) {
+    logger.error({ err }, "specialty output query failed");
+  }
+
   // Task #126 — 各玩家已研發社會科技的彙總效果（含收稅效率加成）。
   const socialByUser = await aggregateSocialEffectsByUser();
 
@@ -807,6 +837,11 @@ async function doRunTurn(
         plantLevels: 0,
         upkeep: 0,
       };
+      // 貿易系統 1-D — 地區特產產出。木材/礦石併入同一條資源入帳 UPDATE
+      // (沿用 player_nations 欄位,不雙帳);其餘貨物稍後寫入 nation_goods。
+      const specialty = splitProduction(specialtyByNation.get(nation.id) ?? {});
+      regionRes.wood += specialty.playerColumns.wood;
+      regionRes.ore += specialty.playerColumns.ore;
       // 補給系統 — 本回合彈藥入庫量與庫存上限。
       // 玩家：軍工廠產出，上限由工廠總等級決定。
       // NPC：沒有工廠，改領固定配額（依控制地區數與時代），上限依地區數。
@@ -1022,6 +1057,13 @@ async function doRunTurn(
         await writeFoodStock(nation.id, food.stock.settle.stock);
       } catch (err) {
         logger.error({ err, nationId: nation.id }, "food stock write failed");
+      }
+      // 貿易系統 1-D — 特產貨物入庫(鐵煤/石油/稀有金屬/香料茶/布料絲),原子累加。
+      // 與糧食同口徑:失敗只記 log,不中斷整個回合。
+      try {
+        await addGoods(nation.id, specialty.goodsTable);
+      } catch (err) {
+        logger.error({ err, nationId: nation.id }, "specialty goods write failed");
       }
       if (food.famine) {
         const priorFamineTurns = nation.consecutiveFamineTurns ?? 0;
