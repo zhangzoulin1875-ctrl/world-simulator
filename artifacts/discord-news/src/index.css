@@ -255,3 +255,109 @@ html { -webkit-text-size-adjust: 100%; }
 .animate-marquee {
   animation: marquee 30s linear infinite;
 }
+
+/* ───────── 頁面切換過場：書頁翻過（components/page-transition.tsx） ───────── */
+.page-flip-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 60; /* 高於遊戲內容，低於開場動畫與提示 */
+  pointer-events: none;
+  perspective: 2200px;
+  overflow: hidden;
+}
+.page-flip-sheet {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center; /* 書脊在左緣 */
+  transform-style: preserve-3d;
+  background:
+    radial-gradient(ellipse at 20% 30%, rgba(255, 255, 255, 0.35), transparent 55%),
+    linear-gradient(100deg, #e9d9b0 0%, #dcc891 55%, #c9b074 100%);
+  box-shadow: inset 0 0 90px rgba(92, 62, 20, 0.45);
+  backface-visibility: hidden;
+  animation: page-flip-turn 720ms cubic-bezier(0.55, 0.05, 0.25, 1) forwards;
+}
+.page-flip-grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.35;
+  mix-blend-mode: multiply;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(110, 78, 30, 0.1) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(90deg, rgba(110, 78, 30, 0.06) 0 1px, transparent 1px 4px);
+}
+.page-flip-ornament {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.page-flip-ornament span {
+  display: block;
+  width: min(34vw, 220px);
+  aspect-ratio: 1;
+  border-radius: 9999px;
+  border: 2px solid rgba(92, 62, 20, 0.35);
+  box-shadow:
+    inset 0 0 0 8px rgba(233, 217, 176, 0.9),
+    inset 0 0 0 10px rgba(92, 62, 20, 0.25);
+}
+/* 翻頁時掃過畫面的陰影，製造紙張捲起的立體感 */
+.page-flip-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(40, 24, 6, 0.55), rgba(40, 24, 6, 0) 45%);
+  opacity: 0;
+  animation: page-flip-shade 720ms ease-out forwards;
+}
+@keyframes page-flip-turn {
+  0%   { transform: rotateY(0deg);    filter: brightness(1); }
+  70%  { filter: brightness(0.8); }
+  100% { transform: rotateY(-178deg); filter: brightness(0.6); }
+}
+@keyframes page-flip-shade {
+  0%   { opacity: 0; transform: translateX(0); }
+  35%  { opacity: 0.9; }
+  100% { opacity: 0; transform: translateX(-30%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-flip-sheet {
+    animation: page-flip-fade 280ms ease-out forwards;
+    transform: none;
+  }
+  .page-flip-shade { display: none; }
+}
+@keyframes page-flip-fade {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* ───────── 主題載入指示（components/themed-loader.tsx） ───────── */
+.themed-loader-compass { color: #fde68a; }
+.themed-loader-needle {
+  transform-origin: 32px 32px;
+  animation: themed-loader-swing 2.4s ease-in-out infinite;
+}
+@keyframes themed-loader-swing {
+  0%   { transform: rotate(-40deg); }
+  18%  { transform: rotate(50deg); }
+  36%  { transform: rotate(-25deg); }
+  54%  { transform: rotate(18deg); }
+  72%  { transform: rotate(-6deg); }
+  100% { transform: rotate(-40deg); }
+}
+.themed-loader-dots i {
+  font-style: normal;
+  animation: themed-loader-dot 1.2s infinite both;
+}
+.themed-loader-dots i:nth-child(2) { animation-delay: 0.2s; }
+.themed-loader-dots i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes themed-loader-dot {
+  0%, 80%, 100% { opacity: 0.2; }
+  40%           { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .themed-loader-needle { animation: none; transform: rotate(-20deg); }
+  .themed-loader-dots i { animation: none; opacity: 0.8; }
+}

@@ -64,6 +64,7 @@ import {
   markOnboardingDone,
 } from "@/lib/help-storage";
 import { useAiQueueStatus, formatWaitMs } from "@/hooks/use-ai-queue";
+import { ThemedLoader } from "@/components/themed-loader";
 
 const BASE = import.meta.env.BASE_URL;
 const DEFAULT_BG = `${BASE}game/home-bg-default.webp`;
@@ -157,10 +158,7 @@ export default function GameHome() {
     return (
       <FullscreenShell>
         <div className="flex h-full items-center justify-center">
-          <div className="flex items-center gap-3 rounded-xl bg-black/60 px-6 py-4 text-white backdrop-blur">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            <span>載入國家資料中…</span>
-          </div>
+          <ThemedLoader label="載入國家資料中" />
         </div>
       </FullscreenShell>
     );

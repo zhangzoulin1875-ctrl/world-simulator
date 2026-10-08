@@ -26,6 +26,7 @@ import { EncyclopediaProvider } from "@/components/encyclopedia-context";
 import { DiscordAuthListener } from "@/components/discord-auth";
 import { GameMusicFloatingPlayer } from "@/components/game-music-player";
 import { AutopilotGate } from "@/components/autopilot-gate";
+import { PageTransition } from "@/components/page-transition";
 import { useIsAdmin } from "@/lib/admin-token";
 import { useToast } from "@/hooks/use-toast";
 import GameAppearance from "@/pages/game-appearance";
@@ -243,7 +244,9 @@ function App() {
             <CacheUserGuard />
             <GameMusicProvider>
               <EncyclopediaProvider>
-                <Router />
+                <PageTransition>
+                  <Router />
+                </PageTransition>
                 <GameMusicFloatingPlayer />
               </EncyclopediaProvider>
             </GameMusicProvider>
