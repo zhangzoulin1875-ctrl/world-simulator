@@ -5,10 +5,7 @@ import { ArrowLeft, Anchor, Loader2, LogIn, Lock, Shield, Swords, Trophy } from 
 import { useGetPlayerNation, getGetPlayerNationQueryKey } from "@workspace/api-client-react";
 import { useCurrentUser, startDiscordLogin } from "@/lib/current-user";
 import { GameNotifications } from "@/components/game-notifications";
-import {
-  actionFor, buildFleetPayload, formatCountdown, myRoleFor, OIL_ERROR_HINT, OUTCOME_LABEL,
-  type FleetInput, type OilCampaignView, type OilOverview, type OilRigView, type ShipView,
-} from "@/lib/oilRigs";
+import { actionFor, buildFleetPayload, formatCountdown, myRoleFor, OIL_ERROR_HINT, OUTCOME_LABEL, type FleetInput, type OilCampaignView, type OilOverview, type OilRigView, type ShipView, type OilEligibility, rangeNotice, rangeTier, formatRangePercent, formatDistance } from "@/lib/oilRigs";
 
 // 非 Vite 環境(單元/渲染測試)沒有 import.meta.env,退回根路徑。
 const BASE: string = (import.meta as { env?: { BASE_URL?: string } }).env?.BASE_URL ?? "/";
@@ -238,6 +235,17 @@ export function RigCard({ rig, campaign, myNationId, active, onSelect }: {
   );
 }
 
+/** 出兵前的距離衰減提示。幾乎沒折扣(≥90%)時不顯示;資料壞掉時保守顯示為最大折扣。 */
+export function RangeNotice({ elig }: { elig: OilEligibility | undefined }) {
+  const n = rangeNotice(elig);
+  if (!n) return null;
+  return (
+    <p className={`mb-3 rounded-lg p-3 text-sm ${n.tier === "light" ? "bg-amber-500/15 text-amber-100" : "bg-orange-500/20 text-orange-100"}`} data-testid="oil-range-notice" data-tier={n.tier}>
+      {n.text}
+    </p>
+  );
+}
+
 export function ActionPanel({ rig, campaign, myNationId, frozen, ships, fleetLoading, onDone }: {
   rig: OilRigView; campaign?: OilCampaignView; myNationId: string | null; frozen: boolean;
   ships: ShipView[]; fleetLoading: boolean; onDone: () => Promise<unknown>;
@@ -246,7 +254,7 @@ export function ActionPanel({ rig, campaign, myNationId, frozen, ships, fleetLoa
   const action = actionFor(role, campaign, frozen);
   const elig = useQuery({
     queryKey: ["oil-elig", rig.slug], enabled: action === "attack", staleTime: 15_000,
-    queryFn: () => request<{ eligible: boolean; reason?: string; message?: string }>(`/oil-campaigns/eligibility/${encodeURIComponent(rig.slug)}`),
+    queryFn: () => request<OilEligibility>(`/oil-campaigns/eligibility/${encodeURIComponent(rig.slug)}`),
   });
   const [input, setInput] = useState<FleetInput>({});
   const [busy, setBusy] = useState(false);
@@ -285,6 +293,14 @@ export function ActionPanel({ rig, campaign, myNationId, frozen, ships, fleetLoa
             <div className="rounded bg-red-500/15 p-2"><div className="text-xs text-white/60">攻方</div><div>{campaign.attackerShips} 艘</div><div className="text-xs text-white/60">戰力 {campaign.attackerPower.toLocaleString()}</div></div>
             <div className="rounded bg-sky-500/15 p-2"><div className="text-xs text-white/60">守方{campaign.defenderShips === 0 ? "(守軍)" : ""}</div><div>{campaign.defenderShips} 艘</div><div className="text-xs text-white/60">戰力 {campaign.defenderPower.toLocaleString()}(含地利)</div></div>
           </div>
+          {rangeTier(campaign.rangeFactor) !== "none" && (
+            <div className={`mt-2 rounded px-2 py-1.5 text-center text-xs ${rangeTier(campaign.rangeFactor) === "light" ? "bg-amber-500/15 text-amber-100" : "bg-orange-500/20 text-orange-100"}`} data-testid="oil-campaign-range">
+              攻方戰力因遠征距離折損為 <b>{formatRangePercent(campaign.rangeFactor)}</b>
+              {campaign.attackerDistances && campaign.attackerDistances.length > 0 && (
+                <span className="text-white/60">({campaign.attackerDistances.map((d) => formatDistance(d.km)).join("、")})</span>
+              )}
+            </div>
+          )}
           <div className="mt-2 text-center text-xs text-white/70">
             以目前投入,現在結算會是 <b className="text-white">{OUTCOME_LABEL[campaign.forecast]}</b>(追加後可能改變)
           </div>
@@ -304,6 +320,7 @@ export function ActionPanel({ rig, campaign, myNationId, frozen, ships, fleetLoa
 
       {(action === "reinforce" || (action === "attack" && elig.data?.eligible)) && (
         <div data-testid="oil-fleet-form">
+          {action === "attack" && <RangeNotice elig={elig.data} />}
           <h3 className="mb-2 text-sm font-semibold">{action === "attack" ? "出兵(投入的艦隊在戰役期間不能用於陸戰)" : "追加艦隊"}</h3>
           {fleetLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : usable.length === 0 ? (
             <p className="text-sm text-white/60">你沒有可派遣的艦船。</p>

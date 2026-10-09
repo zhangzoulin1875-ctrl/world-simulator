@@ -17,6 +17,16 @@ export interface OilCampaignView {
   attackerNationId: string; defenderNationId: string | null;
   attackerShips: number; defenderShips: number; attackerPower: number; defenderPower: number;
   forecast: "attacker_wins" | "defender_wins";
+  /** 攻方距離衰減後的有效戰力係數(0.4~1);attackerPower 已含此係數。舊版後端沒有此欄,視為 1。 */
+  rangeFactor?: number;
+  /** 各攻方國家的進攻距離(km;null = 查無地區座標,按最遠算)與各自係數。 */
+  attackerDistances?: Array<{ nationId: string; km: number | null; factor: number }>;
+}
+
+/** 出兵資格查詢結果。距離不是門檻,只是戰力衰減:合格時帶 distanceKm / rangeFactor。 */
+export interface OilEligibility {
+  eligible: boolean; reason?: string; message?: string;
+  distanceKm?: number | null; rangeFactor?: number;
 }
 export interface ShipView { templateId: number; name: string; owned: number; committed: number; woundedPool: number; available: number }
 
@@ -89,3 +99,54 @@ export const OIL_ERROR_HINT: Record<string, string> = {
   TOO_LATE: "戰役即將結算,無法再追加。",
   BAD_COMMIT: "艦隊數量超過可派遣量。",
 };
+
+
+// ── 距離衰減顯示 ─────────────────────────────────────────
+
+/** 後端的衰減下限(與 api-server oilRigCore.OIL_DISTANCE_MIN_FACTOR 一致;只用於分級顯示,不參與計算)。 */
+export const RANGE_FLOOR = 0.4;
+
+export type RangeTier = "none" | "light" | "heavy" | "max";
+
+/**
+ * 係數 → 折扣分級,決定提示的語氣與顏色:
+ *  none  ≥ 0.9  幾乎沒折扣(近海)
+ *  light ≥ 0.7  輕微
+ *  heavy > 下限  明顯,出兵前應多派艦
+ *  max   = 下限  已到最大折扣(再遠也不會更差)
+ * 非有限或超出 [0,1] 的值保守視為 max(壞資料不要顯示成「沒折扣」誤導玩家)。
+ */
+export function rangeTier(factor: number | undefined | null): RangeTier {
+  if (factor === undefined || factor === null) return "none"; // 舊後端沒回這欄:不顯示折扣
+  if (!Number.isFinite(factor) || factor < 0 || factor > 1) return "max";
+  if (factor >= 0.9) return "none";
+  if (factor >= 0.7) return "light";
+  if (factor > RANGE_FLOOR + 1e-9) return "heavy";
+  return "max";
+}
+
+/** 係數 → 「戰力 ×N%」字串(四捨五入到整數百分比)。壞值回空字串由呼叫端處理。 */
+export function formatRangePercent(factor: number | undefined | null): string {
+  if (factor === undefined || factor === null || !Number.isFinite(factor) || factor < 0 || factor > 1) return "";
+  return `${Math.round(factor * 100)}%`;
+}
+
+/** 距離 → 「約 N km」。null = 查無座標。千分位用半形逗號。 */
+export function formatDistance(km: number | null | undefined): string {
+  if (km === null || km === undefined || !Number.isFinite(km) || km < 0) return "距離未知";
+  return `約 ${Math.round(km).toLocaleString("en-US")} 公里`;
+}
+
+/**
+ * 出兵前的衰減說明(給資格通過後的攻擊面板)。沒有折扣(none)時回 null,不顯示。
+ * 例:{ tier: "heavy", text: "距離約 7,064 公里,你的戰力只剩 65%。可多派艦補足。" }
+ */
+export function rangeNotice(elig: Pick<OilEligibility, "distanceKm" | "rangeFactor"> | undefined): { tier: RangeTier; text: string } | null {
+  if (!elig) return null;
+  const tier = rangeTier(elig.rangeFactor);
+  if (tier === "none") return null;
+  const pct = formatRangePercent(elig.rangeFactor);
+  const where = elig.distanceKm === null || elig.distanceKm === undefined ? "查無你的地區座標,按最遠計算" : `距離${formatDistance(elig.distanceKm)}`;
+  const tail = tier === "max" ? "已是最大折扣(再遠也不會更低)。" : "可多派艦補足。";
+  return { tier, text: `${where},你的戰力只剩 ${pct || "—"}。${tail}` };
+}

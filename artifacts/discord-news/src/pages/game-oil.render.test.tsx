@@ -3,7 +3,7 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { RigCard, ActionPanel } from "./game-oil";
+import { RigCard, ActionPanel, RangeNotice } from "./game-oil";
 import type { OilCampaignView, OilRigView, ShipView } from "@/lib/oilRigs";
 
 const rig: OilRigView = { slug: "north_sea_1", name: "北海一號", sea: "北海", lng: 2, lat: 56, holder: { nationId: "D", name: "荷蘭國", color: "#f60" }, heldSince: null, anchorRegions: ["荷蘭", "東英格蘭"] };
@@ -49,4 +49,24 @@ test("ActionPanel:送出鈕初始為停用(沒輸入數量)", () => {
 test("ActionPanel:沒有可派艦船 → 提示而不是空表單", () => {
   const html = wrap(<ActionPanel rig={rig} campaign={camp} myNationId="A" frozen={false} ships={[{ ...ships[0]!, available: 0 }]} fleetLoading={false} onDone={async () => {}} />);
   assert.match(html, /沒有可派遣的艦船/);
+});
+
+test("RangeNotice:遠征顯示距離與戰力百分比,帶 tier", () => {
+  const html = wrap(<RangeNotice elig={{ eligible: true, distanceKm: 7064, rangeFactor: 0.647 }} />);
+  assert.match(html, /data-testid="oil-range-notice"/); assert.match(html, /data-tier="heavy"/);
+  assert.match(html, /7,064/); assert.match(html, /65%/);
+});
+test("RangeNotice:近海與尚未載入時不渲染", () => {
+  assert.equal(wrap(<RangeNotice elig={{ eligible: true, distanceKm: 615, rangeFactor: 0.969 }} />), "");
+  assert.equal(wrap(<RangeNotice elig={undefined} />), "");
+});
+test("ActionPanel:進行中戰役的攻方折損顯示係數與距離", () => {
+  const far = { ...camp, rangeFactor: 0.647, attackerDistances: [{ nationId: "A", km: 7064, factor: 0.647 }] };
+  const html = wrap(<ActionPanel rig={rig} campaign={far} myNationId="A" frozen={false} ships={ships} fleetLoading={false} onDone={async () => {}} />);
+  assert.match(html, /data-testid="oil-campaign-range"/); assert.match(html, /65%/); assert.match(html, /7,064/);
+});
+test("ActionPanel:無折扣或舊後端沒回 rangeFactor 時不顯示折損區塊", () => {
+  const near = { ...camp, rangeFactor: 0.97 };
+  assert.doesNotMatch(wrap(<ActionPanel rig={rig} campaign={near} myNationId="A" frozen={false} ships={ships} fleetLoading={false} onDone={async () => {}} />), /oil-campaign-range/);
+  assert.doesNotMatch(wrap(<ActionPanel rig={rig} campaign={camp} myNationId="A" frozen={false} ships={ships} fleetLoading={false} onDone={async () => {}} />), /oil-campaign-range/);
 });
