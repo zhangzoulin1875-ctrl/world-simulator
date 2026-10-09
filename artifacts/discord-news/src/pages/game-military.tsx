@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  Anchor,
   ArrowLeft,
   ChevronRight,
   Loader2,
@@ -112,6 +113,15 @@ function MilitaryScreen({
             >
               <Rocket className="h-4 w-4 text-red-300" />
               導彈
+            </Link>
+            <Link
+              href="/game/oil"
+              className="flex items-center gap-1.5 rounded-lg border border-sky-300/30 bg-sky-500/15 px-3 py-1.5 text-sm font-semibold backdrop-blur transition hover:bg-sky-500/30"
+              title="油井爭奪（海戰，佔領油井累積積分）"
+              data-testid="link-oil"
+            >
+              <Anchor className="h-4 w-4 text-sky-300" />
+              油井
             </Link>
           </div>
           <div className="flex items-start gap-2">
