@@ -1,11 +1,14 @@
-"""一戰西線(1914)戰略區建構腳本。輸入:centroids.json adj_fine.json city_cells.json;輸出 regions_v2_full.json。
+"""一戰西線(1914)戰略區建構腳本。輸入:centroids_v3.json adj_v3.json city_cells_v3.json;輸出 regions_v3_full.json。
 規則:同國別(1914)才合併;近前線小區、遠處大區;指定城市強制獨立成區;科西嘉剔除。"""
 import json,math,collections,sys
-cen=json.load(open("centroids.json")); adj=json.load(open("adj_fine.json")); cc=json.load(open("city_cells.json"))
-def owner(k): return "DE" if k in ("FRF11","FRF12","FRF33") else k[:2]   # 1914:亞爾薩斯-洛林屬德國
+cen=json.load(open("centroids_v3.json")); adj=json.load(open("adj_v3.json")); cc=json.load(open("city_cells_v3.json"))
+EAST=set(json.load(open("east_de_cells.json")))
+def owner(k):
+    if k in ("FRF11","FRF12","FRF33") or k in EAST: return "DE"   # 1914:亞爾薩斯-洛林與東部省分屬德國
+    return k[:2]
 EXCLUDE={k for k in cen if k.startswith("FRM")}                              # 科西嘉
 play={k for k in cen if k in adj and k not in EXCLUDE}
-FORCE={"巴黎":"capital_fr","柏林":"capital_de","凡爾登":"fortress","列日":"fortress","那慕爾":"fortress","史特拉斯堡":"fortress","梅茲":"fortress","盧森堡":"hub","伊珀爾":"battlefield","色當":"battlefield","蘭斯":"battlefield","馬恩河(莫城)":"battlefield","里爾":"battlefield"}
+FORCE={"巴黎":"capital_fr","柏林":"capital_de","凡爾登":"fortress","列日":"fortress","那慕爾":"fortress","史特拉斯堡":"fortress","梅茲":"fortress","盧森堡":"hub","伊珀爾":"battlefield","色當":"battlefield","蘭斯":"battlefield","馬恩河(莫城)":"battlefield","里爾":"battlefield","旦澤":"fortress","柯尼斯堡":"fortress","托倫":"fortress","波茲南":"hub","布列斯勞":"hub","坦能堡":"battlefield"}
 seeds={cc[n]:(n,t) for n,t in FORCE.items() if cc.get(n) in play}
 front=[(cen[k][0],cen[k][1]) for k in ("FRF21","FRF32","FRF31","FRF12")]
 def d_front(k): x,y,_=cen[k]; return min(math.hypot(x-a,y-b) for a,b in front)
@@ -58,7 +61,7 @@ for i,r in enumerate(regions2):
     rows.append(dict(id=i,owner=owner(r[0]),tag=meta2[i][0],name=meta2[i][1],cells=r,area=round(A),
         cx=round(sum(cen[k][0]*cen[k][2] for k in r)/A,1),cy=round(sum(cen[k][1]*cen[k][2] for k in r)/A,1),
         rear=d_front(r[0])>=75 and not meta2[i][0],adj=sorted(radj[i])))
-json.dump(rows,open("regions_v2_full.json","w"),ensure_ascii=False)
+json.dump(rows,open("regions_v3_full.json","w"),ensure_ascii=False)
 by=collections.Counter(r["owner"] for r in rows)
 print("戰略區",len(rows),dict(by),"後方區",sum(r["rear"] for r in rows),"強制獨立區",sum(1 for r in rows if r["tag"]))
 deg=[len(r["adj"]) for r in rows]; print("鄰接度 平均 %.1f 最小 %d 最大 %d"%(sum(deg)/len(deg),min(deg),max(deg)))

@@ -10,13 +10,14 @@
 
 ## 目錄
 - `ww1-west/map/` 地圖資料與預覽圖
-  - `west_regions_v2.png` / `.svg`:戰略區預覽(★首都 ◆要塞或戰場,數字是區編號)
+  - `west_regions_v3.png` / `.svg`:戰略區預覽(★首都 ◆要塞或戰場,數字是區編號;暖褐色=1914 德國東部)
   - `regions.json`:戰略區(含所屬 NUTS3 格、1914 國別、鄰接、後方區旗標)
   - `adjacency_nuts3.json`:NUTS3 格子間鄰接
   - 其餘為投影與質心等中間資料
 - `ww1-west/tools/build_regions.py`:可重跑的區劃腳本(輸入為上面的中間資料)
 
 ## 1914 邊界修正
+東部省分(東普魯士、西普魯士即旦澤走廊、波森、西里西亞)在底圖中被標為 PL 前綴,但**編碼與現代 NUTS3 不一致**,所以不是用代碼挑,而是把格子質心反投影成經緯度,再用 1914 德國東界多邊形篩選(`east_de_cells.json`,36 格)。柯尼斯堡驗證落在 PL622。
 亞爾薩斯-洛林(NUTS3: FRF11 Bas-Rhin、FRF12 Haut-Rhin、FRF33 Moselle)在 1914 屬德國,腳本中改歸德國。
 
 底圖來源 MapChart.net,授權 CC BY-SA 4.0。
