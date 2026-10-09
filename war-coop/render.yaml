@@ -1,0 +1,16 @@
+# Render Blueprint:戰爭合作遊戲(獨立服務,與 world-simulator 無關)
+# 在 Render 新建 Web Service 時,Root Directory 設 war-coop/server,分支選 war-coop。
+services:
+  - type: web
+    name: war-coop
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    rootDir: war-coop/server
+    branch: war-coop
+    plan: free
+    healthCheckPath: /api/healthz
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL   # 貼上 Neon 連線字串(同 WARCOOP_DATABASE_URL)
+        sync: false
