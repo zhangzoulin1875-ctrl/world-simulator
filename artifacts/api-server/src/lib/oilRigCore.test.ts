@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   pointsPerHour, scoreGain, hoursBetween, canContestRig, isCoastalRegionName, pickWinner,
-  validateSeasonRestart, ownedRegionNames, OWN_REGION_MIN_PERCENT, OIL_WIN_SCORE, OIL_MAX_CATCHUP_HOURS, NAVAL_TECH_SLUG,
+  ownedRegionNames, OWN_REGION_MIN_PERCENT, OIL_WIN_SCORE, OIL_MAX_CATCHUP_HOURS, NAVAL_TECH_SLUG,
 } from "./oilRigCore";
 import { OIL_RIG_SEEDS, COASTAL_REGION_NAMES } from "./oilRigSeeds";
 
@@ -92,15 +92,6 @@ test("勝者:無人達標回 null;多人越線取最高分;同分取較早;完�
   ]), "b");
   assert.equal(pickWinner([{ nationId: "z", score: 10000 }, { nationId: "m", score: 10000 }]), "m");
   assert.equal(pickWinner([{ nationId: "n", score: NaN }]), null, "NaN 不可獲勝");
-});
-
-test("重開賽季:必須在冷卻中且指定有效年代", () => {
-  const eras = ["ancient", "medieval", "modern"];
-  assert.equal(validateSeasonRestart("active", "modern", eras).ok, false);
-  assert.equal(validateSeasonRestart("cooldown", null, eras).ok, false);
-  assert.equal(validateSeasonRestart("cooldown", "", eras).ok, false);
-  assert.equal(validateSeasonRestart("cooldown", "stone", eras).ok, false);
-  assert.deepEqual(validateSeasonRestart("cooldown", "modern", eras), { ok: true });
 });
 
 test("擁有地區:控制比例達門檻才算,只握少數股份的沿海區不能出海", () => {

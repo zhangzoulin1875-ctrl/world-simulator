@@ -1,4 +1,4 @@
-import { settleOilScores } from "./oilRigService";
+import { settleOilScores, isSeasonFrozen } from "./oilRigService";
 import { and, eq, isNull, lt, sql, type AnyColumn } from "drizzle-orm";
 import {
   db,
@@ -381,7 +381,7 @@ export function computeTurnProgress(
 
 export interface TurnUpdateSummary {
   ran: boolean;
-  reason?: "already_ran" | "in_flight";
+  reason?: "already_ran" | "in_flight" | "season_frozen";
   dateLabel: string;
   year?: number;
   gameDate?: string;
@@ -482,6 +482,10 @@ export async function runTurnUpdate(
   const dateLabel = localDateString(now);
   if (turnInFlight) {
     return { ran: false, reason: "in_flight", dateLabel };
+  }
+  // 賽季凍結:排程回合不再推進世界(經濟與戰爭都停);管理員 force 仍可手動跑。
+  if (opts.force !== true && (await isSeasonFrozen())) {
+    return { ran: false, reason: "season_frozen", dateLabel };
   }
   turnInFlight = true;
   try {

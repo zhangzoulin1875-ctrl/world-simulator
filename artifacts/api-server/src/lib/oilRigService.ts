@@ -112,3 +112,53 @@ export async function settleOilScores(now: Date = new Date()): Promise<OilScoreR
     return { scored: true, hours, gains, winner: { nationId: winnerId, nationName, score: winnerScore } };
   });
 }
+
+
+// ── 賽季凍結 ────────────────────────────────────────────────
+// 達 10000 分後賽季進入 cooldown:玩家只能看榜單與地圖,不能操作,等管理員手動重置。
+// 這是遊戲規則,不是便利功能,所以查詢失敗時「沿用上一次已知狀態」而不是放行。
+const FROZEN_CACHE_MS = 5_000;
+let frozenCache: { value: boolean; at: number } | null = null;
+
+export function _resetFrozenCacheForTest(): void { frozenCache = null; }
+
+/** 目前是否處於賽季凍結(最新賽季為 cooldown)。5 秒快取;查詢失敗沿用上次已知值,從未成功過則視為未凍結。 */
+export async function isSeasonFrozen(nowMs: number = Date.now()): Promise<boolean> {
+  if (frozenCache && nowMs - frozenCache.at < FROZEN_CACHE_MS) return frozenCache.value;
+  try {
+    const r = await db.execute(sql`SELECT status FROM oil_seasons ORDER BY season_number DESC LIMIT 1`);
+    const value = (r.rows[0] as { status?: string } | undefined)?.status === "cooldown";
+    frozenCache = { value, at: nowMs };
+    return value;
+  } catch {
+    return frozenCache?.value ?? false;
+  }
+}
+
+export interface ResetResult { ok: boolean; error?: string; seasonNumber?: number }
+
+/**
+ * 管理員手動重置:只有 cooldown 才能重置。開下一季(seasonNumber+1),
+ * 所有油井歸為無人佔領,國家與地圖「保留不動」。重置範圍刻意只到油井與積分。
+ */
+export async function resetOilSeason(now: Date = new Date()): Promise<ResetResult> {
+  const nowIso = now.toISOString();
+  const result = await db.transaction(async (tx: Tx): Promise<ResetResult> => {
+    const cur = await tx.execute(sql`SELECT id, season_number, status FROM oil_seasons ORDER BY season_number DESC LIMIT 1 FOR UPDATE`);
+    const row = cur.rows[0] as { id: number; season_number: number; status: string } | undefined;
+    if (!row) return { ok: false, error: "尚無賽季" };
+    if (row.status !== "cooldown") return { ok: false, error: "賽季尚未結束,不能重置" };
+    const next = row.season_number + 1;
+    // 部分唯一索引保證不會同時有兩個 active;並行重置時第二個會撞 season_number 唯一索引而失敗
+    const ins = await tx.execute(sql`
+      INSERT INTO oil_seasons (season_number, status, started_at, last_scored_at)
+      VALUES (${next}, 'active', ${nowIso}::timestamptz, ${nowIso}::timestamptz)
+      ON CONFLICT (season_number) DO NOTHING RETURNING id
+    `);
+    if (ins.rows.length === 0) return { ok: false, error: "賽季已被重置" };
+    await tx.execute(sql`UPDATE oil_rigs SET holder_nation_id = NULL, held_since = NULL`);
+    return { ok: true, seasonNumber: next };
+  });
+  frozenCache = null; // 立刻解凍,不等快取過期
+  return result;
+}

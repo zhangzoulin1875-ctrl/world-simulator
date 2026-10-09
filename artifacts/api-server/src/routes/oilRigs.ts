@@ -2,12 +2,11 @@ import { Router, type IRouter } from "express";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { requireAdmin } from "../middlewares/requireAdmin";
-import { settleOilScores } from "../lib/oilRigService";
+import { settleOilScores, resetOilSeason, isSeasonFrozen } from "../lib/oilRigService";
 import {
-  OIL_WIN_SCORE, pointsPerHour, validateSeasonRestart, type OilSeasonStatus,
+  OIL_WIN_SCORE, pointsPerHour,
 } from "../lib/oilRigCore";
 import { OIL_RIG_SEEDS } from "../lib/oilRigSeeds";
-import { ERAS } from "../lib/mapRegionEras";
 
 /**
  * 廢棄油井:公開狀態(地圖與榜單用,無需登入)+ 管理員手動結算/選擇下一賽季年代。
@@ -17,7 +16,7 @@ const router: IRouter = Router();
 
 router.get("/oil-rigs", async (_req, res) => {
   const seasonRes = await db.execute(sql`
-    SELECT id, season_number, status, started_at, ended_at, winner_nation_name, winner_score, next_era
+    SELECT id, season_number, status, started_at, ended_at, winner_nation_name, winner_score
     FROM oil_seasons ORDER BY season_number DESC LIMIT 1
   `);
   const season = seasonRes.rows[0] as Record<string, unknown> | undefined;
@@ -51,7 +50,7 @@ router.get("/oil-rigs", async (_req, res) => {
       pointsPerHour: pointsPerHour(Number(r.held)),
     }));
   }
-  res.json({ winScore: OIL_WIN_SCORE, season: season ?? null, rigs, leaderboard });
+  res.json({ winScore: OIL_WIN_SCORE, frozen: await isSeasonFrozen(), season: season ?? null, rigs, leaderboard });
 });
 
 /** 管理員:立刻結算一次(用於驗證或補算);回傳結果。 */
@@ -64,19 +63,15 @@ router.post("/admin/oil-rigs/settle", requireAdmin, async (req, res) => {
   }
 });
 
-/**
- * 管理員:冷卻期內指定下一賽季的年代(只記錄,不重置任何東西)。
- * 實際「重開賽季」的重置範圍尚待產品決定,故這裡刻意不做破壞性動作。
- */
-router.post("/admin/oil-rigs/next-era", requireAdmin, async (req, res) => {
-  const nextEra = typeof req.body?.era === "string" ? req.body.era : null;
-  const cur = await db.execute(sql`SELECT id, status FROM oil_seasons ORDER BY season_number DESC LIMIT 1`);
-  const row = cur.rows[0] as { id: number; status: OilSeasonStatus } | undefined;
-  if (!row) { res.status(404).json({ error: "尚無賽季" }); return; }
-  const v = validateSeasonRestart(row.status, nextEra, ERAS.map((e) => e.slug));
-  if (!v.ok) { res.status(400).json({ error: v.error }); return; }
-  await db.execute(sql`UPDATE oil_seasons SET next_era = ${nextEra} WHERE id = ${row.id}`);
-  res.json({ ok: true, nextEra });
+/** 管理員手動重置:cooldown 才可用;開下一季、油井歸零,國家與地圖保留。 */
+router.post("/admin/oil-rigs/reset", requireAdmin, async (req, res) => {
+  try {
+    const r = await resetOilSeason();
+    res.status(r.ok ? 200 : 400).json(r);
+  } catch (err) {
+    req.log.error({ err }, "admin oil reset failed");
+    res.status(500).json({ error: "重置失敗,請查看伺服器記錄" });
+  }
 });
 
 export default router;

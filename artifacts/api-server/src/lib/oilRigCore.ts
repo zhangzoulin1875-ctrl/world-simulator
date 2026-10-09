@@ -113,18 +113,4 @@ export function pickWinner(
   return over[0]!.nationId;
 }
 
-export const MIN_NEW_SEASON_ERA_LABEL_LENGTH = 1;
-
-/** 管理員重開賽季的檢查:必須在冷卻中,且指定了有效年代。 */
-export function validateSeasonRestart(
-  status: OilSeasonStatus,
-  nextEra: string | null | undefined,
-  validEras: readonly string[],
-): { ok: true } | { ok: false; error: string } {
-  if (status !== "cooldown") return { ok: false, error: "賽季尚未結束,不能重開" };
-  if (!nextEra || nextEra.length < MIN_NEW_SEASON_ERA_LABEL_LENGTH) return { ok: false, error: "請先選擇下一賽季的年代" };
-  if (!validEras.includes(nextEra)) return { ok: false, error: `無效的年代: ${nextEra}` };
-  return { ok: true };
-}
-
 export type { OilRigSeed };

@@ -13,7 +13,7 @@ const { sql, inArray } = await import("drizzle-orm");
 const { db, pool, playerNationsTable } = await import("@workspace/db");
 const { runGameMigrations } = await import("./gameMigrations");
 const { runOilRigMigrations } = await import("./oilRigMigrations");
-const { seedOilRigs, ensureFirstSeason, settleOilScores } = await import("./oilRigService");
+const { seedOilRigs, ensureFirstSeason, settleOilScores, isSeasonFrozen, resetOilSeason, _resetFrozenCacheForTest } = await import("./oilRigService");
 const { OIL_RIG_SEEDS } = await import("./oilRigSeeds");
 const { OIL_WIN_SCORE, pointsPerHour, OIL_MAX_CATCHUP_HOURS } = await import("./oilRigCore");
 
@@ -183,4 +183,75 @@ test("勝者國家日後被刪除,賽季仍保留勝者名稱快照", async () =
   const s = await seasonRow();
   assert.equal(s["winner_nation_id"], null);
   assert.equal(s["winner_nation_name"], "將被刪除的國");
+});
+
+
+// ── 凍結與重置 ──────────────────────────────────────────────
+async function winSeason(): Promise<string> {
+  const a = await newNation("凍結測試勝者");
+  await giveRigs(a, 5);
+  await db.execute(sql`INSERT INTO oil_scores (season_id, nation_id, score) SELECT id, ${a}::uuid, ${OIL_WIN_SCORE} FROM oil_seasons WHERE status='active'`);
+  await settleOilScores(hoursLater(1));
+  _resetFrozenCacheForTest();
+  return a;
+}
+
+test("凍結:進行中不凍結,達標後凍結", async () => {
+  _resetFrozenCacheForTest();
+  assert.equal(await isSeasonFrozen(), false);
+  await winSeason();
+  assert.equal(await isSeasonFrozen(), true);
+});
+
+test("凍結狀態有 5 秒快取,過期後重新讀取", async () => {
+  _resetFrozenCacheForTest();
+  const t = Date.now();
+  assert.equal(await isSeasonFrozen(t), false);
+  await db.execute(sql`UPDATE oil_seasons SET status='cooldown'`);
+  assert.equal(await isSeasonFrozen(t + 1_000), false, "快取內仍是舊值");
+  assert.equal(await isSeasonFrozen(t + 6_000), true, "過期後讀到新值");
+});
+
+test("重置:進行中不可重置", async () => {
+  const r = await resetOilSeason(hoursLater(2));
+  assert.deepEqual({ ok: r.ok, error: r.error }, { ok: false, error: "賽季尚未結束,不能重置" });
+});
+
+test("重置:開下一季、油井全部歸零、分數不帶到新季、立刻解凍,國家保留", async () => {
+  const winner = await winSeason();
+  assert.equal(await isSeasonFrozen(), true);
+  const r = await resetOilSeason(hoursLater(3));
+  assert.deepEqual({ ok: r.ok, seasonNumber: r.seasonNumber }, { ok: true, seasonNumber: 2 });
+  assert.equal(await isSeasonFrozen(), false, "重置後立刻解凍(不等快取過期)");
+  const held = (await db.execute(sql`SELECT count(*)::int AS c FROM oil_rigs WHERE holder_nation_id IS NOT NULL`)).rows[0] as { c: number };
+  assert.equal(held.c, 0);
+  const cur = await seasonRow();
+  assert.equal(cur["season_number"], 2);
+  assert.equal(cur["status"], "active");
+  // 舊賽季的勝者紀錄保留,新賽季從 0 分開始
+  const old = (await db.execute(sql`SELECT winner_nation_id FROM oil_seasons WHERE season_number = 1`)).rows[0] as { winner_nation_id: string };
+  assert.equal(old.winner_nation_id, winner);
+  const newScores = (await db.execute(sql`SELECT count(*)::int AS c FROM oil_scores s JOIN oil_seasons x ON x.id = s.season_id WHERE x.season_number = 2`)).rows[0] as { c: number };
+  assert.equal(newScores.c, 0);
+  const nationStill = (await db.execute(sql`SELECT count(*)::int AS c FROM player_nations WHERE id = ${winner}::uuid`)).rows[0] as { c: number };
+  assert.equal(nationStill.c, 1, "國家不可被重置刪除");
+});
+
+test("重置後新賽季可以正常計分", async () => {
+  await winSeason();
+  await resetOilSeason(hoursLater(3));
+  const b = await newNation("新賽季國");
+  await giveRigs(b, 2);
+  await settleOilScores(hoursLater(5));
+  assert.equal(await scoreOf(b), pointsPerHour(2) * 2);
+});
+
+test("並行重置:同時 4 次只會開出一個新賽季", async () => {
+  await winSeason();
+  const rs = await Promise.all(Array.from({ length: 4 }, () => resetOilSeason(hoursLater(3))));
+  assert.equal(rs.filter((r) => r.ok).length, 1);
+  const seasons = (await db.execute(sql`SELECT count(*)::int AS c FROM oil_seasons`)).rows[0] as { c: number };
+  assert.equal(seasons.c, 2);
+  const active = (await db.execute(sql`SELECT count(*)::int AS c FROM oil_seasons WHERE status='active'`)).rows[0] as { c: number };
+  assert.equal(active.c, 1);
 });

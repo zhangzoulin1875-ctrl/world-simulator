@@ -1,3 +1,4 @@
+import { seasonFreeze } from "./middlewares/seasonFreeze";
 import { apiErrorHandler } from "./middlewares/apiErrorHandler";
 import express, { type Express } from "express";
 import path from "node:path";
@@ -47,6 +48,7 @@ app.use(csrfGuard);
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 // AI 全權託管：託管中的玩家寫入一律 423（僅放行解除託管／登出／通知已讀）。
+app.use(seasonFreeze);
 app.use(autopilotLock);
 
 // 省電喚醒快取：任何 API 請求都代表遊戲有活動（Neon 本來就會被喚醒），
