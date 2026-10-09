@@ -1,3 +1,4 @@
+import { oilLockedByTemplate } from "../../lib/oilRigService";
 import { hasActiveMercenaryContract } from "../../lib/mercenaryService";
 import { type IRouter } from "express";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
@@ -130,6 +131,10 @@ export function registerWarLegionRoutes(router: IRouter): void {
         const elsewhereBy = new Map(
           elsewhereRows.map((r) => [r.templateId, Number(r.total)]),
         );
+        // 油井戰役鎖定的艦隊也算「他處已派」(在同一交易內讀,與下方檢查一致)。
+        for (const [templateId, locked] of await oilLockedByTemplate(nation.id, tx)) {
+          elsewhereBy.set(templateId, (elsewhereBy.get(templateId) ?? 0) + locked);
+        }
 
         // 既有配置：士氣／補給按槽位保留；傷兵按（槽位, 兵種）保留
         const existingLegions = await tx

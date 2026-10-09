@@ -162,3 +162,28 @@ export async function resetOilSeason(now: Date = new Date()): Promise<ResetResul
   frozenCache = null; // 立刻解凍,不等快取過期
   return result;
 }
+
+// ── 油井艦隊鎖定 ────────────────────────────────────────────
+type Q = Pick<typeof db, "execute">;
+
+/**
+ * 某國在「進行中油井戰役」中被鎖定的艦數(依兵種模板)。
+ * 陸戰的「可派遣量」要把這個也算進「已佔用」,否則同一艘船能陸戰、油井各出一次。
+ * 只算 status='active':戰役結算或取消後立刻釋放。
+ * 接受 tx 或 db,讓陸戰交易內讀到一致視圖。
+ *
+ * 刻意不吞錯誤:啟動時遷移全部完成才開始服務,表必定存在。若真的缺表,大聲失敗比靜默放行
+ * 重複派兵安全;而且在交易內吞錯誤會留下 aborted 的交易,更難除錯。
+ */
+export async function oilLockedByTemplate(nationId: string, q: Q = db): Promise<Map<number, number>> {
+  const r = await q.execute(sql`
+    SELECT f.template_id AS template_id, SUM(f.quantity)::text AS total
+    FROM oil_campaign_fleets f
+    JOIN oil_campaigns c ON c.id = f.campaign_id
+    WHERE f.nation_id = ${nationId}::uuid AND c.status = 'active'
+    GROUP BY f.template_id
+  `);
+  const m = new Map<number, number>();
+  for (const row of r.rows as Array<{ template_id: number; total: string }>) m.set(Number(row.template_id), Number(row.total));
+  return m;
+}

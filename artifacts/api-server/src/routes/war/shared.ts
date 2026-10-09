@@ -1,3 +1,4 @@
+import { oilLockedByTemplate } from "../../lib/oilRigService";
 import { loadMercenaryUnitsForCampaign } from "../../lib/mercenaryService";
 import { type IRouter } from "express";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
@@ -251,6 +252,10 @@ export async function buildAvailableUnits(
   for (const p of pools) poolBy.set(p.templateId, p.wounded);
   const committedBy = new Map<number, number>();
   for (const c of committedRows) committedBy.set(c.templateId, Number(c.total));
+  // 油井戰役鎖定的艦隊也算「已派」,避免同一艘船陸戰與油井各出一次。
+  for (const [templateId, locked] of await oilLockedByTemplate(nationId)) {
+    committedBy.set(templateId, (committedBy.get(templateId) ?? 0) + locked);
+  }
 
   const allIds = [
     ...new Set([...ownedBy.keys(), ...poolBy.keys(), ...committedBy.keys()]),
