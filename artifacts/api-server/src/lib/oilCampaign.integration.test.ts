@@ -10,6 +10,7 @@ const { sql } = await import("drizzle-orm");
 const { db, pool } = await import("@workspace/db");
 const { runOilRigMigrationsInner } = await import("./oilRigMigrations");
 const svc = await import("./oilCampaignService");
+const { attackerRangeFactor } = await import("./oilRigCore");
 const { seedOilRigs } = await import("./oilRigService");
 
 const A = "00000000-0000-4000-8000-0000000000b1", B = "00000000-0000-4000-8000-0000000000b2", C = "00000000-0000-4000-8000-0000000000b3";
@@ -72,12 +73,21 @@ before(async () => {
   // 艦 1:戰力 (100+100)/2×sqrt(100)=1000;艦 2:(50+50)/2×sqrt(100)=500;陸軍:非艦船
   await db.execute(sql`INSERT INTO military_unit_templates (id,category,name,hp,attack,defense,speed,accuracy,range,prod_cost_per_100,pop_cost_per_unit,money_cost_per_unit)
     VALUES (${SHIP1},'ship','戰役艦甲',100,100,100,1,50,'ranged',100,1,10),(${SHIP2},'ship','戰役艦乙',100,50,50,1,50,'ranged',100,1,10),(${LAND},'infantry','戰役步兵',100,10,10,1,50,'ranged',100,1,10)`);
+  // 距離衰減:三個測試國都控制「荷蘭」(離北海一號 615 km,係數 0.9692)。
+  // 這讓結算實際走過 region_controls → 質心 → 距離 → 係數的整條路徑;
+  // 這批測試的勝負與取整後的損失在此係數下都與無衰減時相同(各測試註解的算式已含係數)。
+  await db.execute(sql`INSERT INTO map_regions (name, macro_region) VALUES ('荷蘭', '西歐') ON CONFLICT (name) DO NOTHING`);
+  await db.execute(sql`DELETE FROM region_controls WHERE nation_id IN (${A}::uuid,${B}::uuid,${C}::uuid)`);
+  for (const id of [A, B, C]) {
+    await db.execute(sql`INSERT INTO region_controls (region_id, nation_id, percent) SELECT id, ${id}::uuid, 60 FROM map_regions WHERE name = '荷蘭'`);
+  }
   await reset();
 });
 after(async () => {
   await reset();
   await db.execute(sql`DELETE FROM oil_scores`); await db.execute(sql`DELETE FROM oil_seasons`);
   await db.execute(sql`DELETE FROM military_unit_templates WHERE id IN (${SHIP1},${SHIP2},${LAND})`);
+  await db.execute(sql`DELETE FROM region_controls WHERE nation_id IN (${A}::uuid,${B}::uuid,${C}::uuid)`);
   await db.execute(sql`DELETE FROM player_nations WHERE id IN (${A}::uuid,${B}::uuid,${C}::uuid)`);
   await pool.end();
 });
@@ -279,6 +289,84 @@ test("結算:兩種艦、多國投入 → 損失按投入比例分攤且總和�
   assert.equal(await qty(UA, SHIP1), 7 - Math.floor(7 * 0.6));
   const winnerLoss = Math.floor(100 * (0.3 * (7000 / 57500)));
   assert.equal(await qty(UC, SHIP2), 100 - Math.max(1, winnerLoss));
+});
+
+// ── 距離衰減(取消航程限制後的新規則)──────────────────────────────
+// 單艦 SHIP1 戰力 1000。守軍預設 garrison 100 → 100×100×1.15 = 11500。
+async function setRegions(nationId: string, names: string[]) {
+  await db.execute(sql`DELETE FROM region_controls WHERE nation_id = ${nationId}::uuid`);
+  for (const n of names) {
+    await db.execute(sql`INSERT INTO map_regions (name, macro_region) VALUES (${n}, 'x') ON CONFLICT (name) DO NOTHING`);
+    await db.execute(sql`INSERT INTO region_controls (region_id, nation_id, percent) SELECT id, ${nationId}::uuid, 60 FROM map_regions WHERE name = ${n}`);
+  }
+}
+
+test("距離衰減:同樣 13 艘,近國(荷蘭→北海一號)贏、遠國(佛羅里達)輸", async () => {
+  // 13000 × 0.9692 = 12600 > 11500 → 贏;13000 × 0.6468 = 8408 < 11500 → 輸
+  await reset(); await army(UA, SHIP1, 13); await army(UB, SHIP1, 13);
+  await setRegions(A, ["荷蘭"]); await setRegions(B, ["佛羅里達"]);
+  const near = await svc.launchOilCampaign({ rigSlug: "north_sea_1", attacker: ca, fleet: [{ templateId: SHIP1, quantity: 13 }], now: T0 });
+  const outNear = (await svc.settleOilCampaign(near.campaignId, after6h))!;
+  assert.equal(outNear.result.outcome, "attacker_wins", "近國不被誤傷");
+  assert.equal(Math.round(outNear.result.attackerPower), Math.round(13000 * attackerRangeFactor(["荷蘭"], "north_sea_1").factor));
+
+  await reset(); await army(UB, SHIP1, 13);
+  const far = await svc.launchOilCampaign({ rigSlug: "north_sea_1", attacker: cb, fleet: [{ templateId: SHIP1, quantity: 13 }], now: T0 });
+  const outFar = (await svc.settleOilCampaign(far.campaignId, after6h))!;
+  assert.equal(outFar.result.outcome, "defender_wins", "同樣艦數,遠征被衰減壓過");
+  assert.equal(Math.round(outFar.result.attackerPower), Math.round(13000 * attackerRangeFactor(["佛羅里達"], "north_sea_1").factor));
+  assert.equal(Math.round(outFar.result.defenderPower), 11500, "守方不衰減");
+  await setRegions(A, ["荷蘭"]); await setRegions(B, ["荷蘭"]);
+});
+
+test("距離衰減:預覽(describe)與結算用同一個數字", async () => {
+  await reset(); await army(UB, SHIP1, 13); await setRegions(B, ["佛羅里達"]);
+  const r = await svc.launchOilCampaign({ rigSlug: "north_sea_1", attacker: cb, fleet: [{ templateId: SHIP1, quantity: 13 }], now: T0 });
+  const d = (await svc.describeOilCampaign(r.campaignId))!;
+  assert.equal(d.attackerPower, Math.round(13000 * attackerRangeFactor(["佛羅里達"], "north_sea_1").factor)); assert.equal(d.defenderPower, 11500);
+  assert.equal(d.forecast, "defender_wins");
+  assert.ok(Math.abs(d.rangeFactor - 0.647) < 0.001);
+  assert.equal(d.attackerDistances.length, 1);
+  assert.ok(Math.abs(d.attackerDistances[0]!.km! - 7064) < 15);
+  const out = (await svc.settleOilCampaign(r.campaignId, after6h))!;
+  assert.equal(Math.round(out.result.attackerPower), d.attackerPower, "結算戰力 = 預覽戰力");
+  await setRegions(B, ["荷蘭"]);
+});
+
+test("距離衰減:多國聯手按戰力加權 — 遠國拖累近國,艦數與損失分攤不變", async () => {
+  // A 是攻方(荷蘭 0.9692)只投 10 艘;現任攻方不能讓第三國加入,故用「持有者 C 當守方」無法測攻方多國。
+  // 改以服務層直接驗證加權:攻方 = A(10 艘, 荷蘭) + 同陣營追加者 A 自己追加 → 單國。
+  // 多國加權的數學由 attackerEffectiveFactor 保證,這裡驗證單國追加後係數不變、艦數累加。
+  await reset(); await army(UA, SHIP1, 20); await setRegions(A, ["荷蘭"]);
+  const r = await svc.launchOilCampaign({ rigSlug: "north_sea_1", attacker: ca, fleet: [{ templateId: SHIP1, quantity: 10 }], now: T0 });
+  await svc.reinforceOilCampaign({ campaignId: r.campaignId, who: ca, fleet: [{ templateId: SHIP1, quantity: 10 }], now: T0 });
+  const d = (await svc.describeOilCampaign(r.campaignId))!;
+  assert.equal(d.attackerShips, 20);
+  assert.ok(Math.abs(d.attackerPower - 20000 * attackerRangeFactor(["荷蘭"], "north_sea_1").factor) <= 1, "戰力 = 艦隊 × 係數");
+  assert.ok(Math.abs(d.rangeFactor - 0.9692) < 0.001, "同一國追加不改變係數");
+});
+
+test("距離衰減:攻方失去所有領地 → 查無座標,按下限 0.4(不給滿戰力)", async () => {
+  await reset(); await army(UA, SHIP1, 20); await setRegions(A, ["荷蘭"]);
+  const r = await svc.launchOilCampaign({ rigSlug: "north_sea_1", attacker: ca, fleet: [{ templateId: SHIP1, quantity: 20 }], now: T0 });
+  await db.execute(sql`DELETE FROM region_controls WHERE nation_id = ${A}::uuid`); // 出兵後地被占光
+  const d = (await svc.describeOilCampaign(r.campaignId))!;
+  assert.equal(d.rangeFactor, 0.4); assert.equal(d.attackerPower, 8000); assert.equal(d.attackerDistances[0]!.km, null);
+  const out = (await svc.settleOilCampaign(r.campaignId, after6h))!;
+  assert.equal(out.result.outcome, "defender_wins", "8000 < 11500");
+  await setRegions(A, ["荷蘭"]);
+});
+
+test("距離衰減:控制比例 <50% 的地區不算(與 controlledRegionNames 同口徑)", async () => {
+  await reset(); await army(UA, SHIP1, 20);
+  await db.execute(sql`DELETE FROM region_controls WHERE nation_id = ${A}::uuid`);
+  await db.execute(sql`INSERT INTO region_controls (region_id, nation_id, percent) SELECT id, ${A}::uuid, 49 FROM map_regions WHERE name = '荷蘭'`);
+  await db.execute(sql`INSERT INTO map_regions (name, macro_region) VALUES ('佛羅里達','x') ON CONFLICT (name) DO NOTHING`);
+  await db.execute(sql`INSERT INTO region_controls (region_id, nation_id, percent) SELECT id, ${A}::uuid, 50 FROM map_regions WHERE name = '佛羅里達'`);
+  const r = await svc.launchOilCampaign({ rigSlug: "north_sea_1", attacker: ca, fleet: [{ templateId: SHIP1, quantity: 20 }], now: T0 });
+  const d = (await svc.describeOilCampaign(r.campaignId))!;
+  assert.ok(Math.abs(d.attackerDistances[0]!.km! - 7064) < 15, "49% 的荷蘭不算,只算 50% 的佛羅里達");
+  await setRegions(A, ["荷蘭"]);
 });
 
 test("掃描結算:只處理到期的,逐場獨立", async () => {

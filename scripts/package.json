@@ -6,6 +6,7 @@
   "scripts": {
     "build:worldmap": "tsx ./src/worldmap/buildWorldDistricts.ts",
     "build:areas": "tsx ./src/worldmap/computeDistrictAreas.ts",
+    "build:centroids": "tsx ./src/worldmap/computeDistrictCentroids.ts",
     "build:mapconstants": "tsx ./src/worldmap/generateMapConstants.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

@@ -13,6 +13,7 @@ const { runOilRigMigrationsInner } = await import("../lib/oilRigMigrations");
 const { seedOilRigs } = await import("../lib/oilRigService");
 const { createSession, SESSION_COOKIE_NAME } = await import("../lib/sessions");
 const router = (await import("./oilCampaigns")).default;
+const { attackerRangeFactor } = await import("../lib/oilRigCore");
 
 const N = "00000000-0000-4000-8000-0000000000d1", U = "oil-route-u";
 const SHIP = 961;
@@ -39,7 +40,9 @@ async function setup(regions: string[], techs: boolean) {
   }
   await db.execute(sql`DELETE FROM player_armies WHERE discord_user_id = ${U}`);
   await db.execute(sql`INSERT INTO player_armies (discord_user_id, template_id, quantity) VALUES (${U}, ${SHIP}, 10)`);
-  void techs;
+  // 時代由 techs 決定,不繼承上一個測試的殘留(重跑整份檔案時才不會假失敗)
+  await db.execute(sql`INSERT INTO world_game_state (id, current_era, game_date) VALUES (1, 'roman', '1900-01-01') ON CONFLICT (id) DO NOTHING`);
+  await setEra(techs ? "roman" : "classical"); // classical 尚未解鎖海戰,roman 起解鎖
 }
 
 before(async () => {
@@ -150,13 +153,49 @@ test("端到端成功:羅馬時代 + 控制掛靠區 → 發起成功;追加攻�
 
   const list = await call("GET", "/oil-campaigns");
   const c = list.json.campaigns.find((x: any) => x.id === r.json.campaignId);
-  assert.equal(c.status, "active"); assert.equal(c.attackerShips, 10); assert.equal(c.attackerPower, 10000);
+  assert.equal(c.status, "active"); assert.equal(c.attackerShips, 10); assert.equal(c.attackerPower, Math.round(10000 * attackerRangeFactor(["荷蘭"], "north_sea_1").factor), "10 艘 × 1000 × 距離係數(荷蘭→北海一號 615 km)");
   assert.equal(c.defenderPower, 11500, "無人佔領:守軍 100 × 100 × 地利 1.15");
-  assert.equal(c.forecast, "defender_wins", "10000 < 11500,現在結算攻方會輸");
+  assert.equal(c.forecast, "defender_wins", "9692 < 11500,現在結算攻方會輸");
 });
 
-test("羅馬時代但航程不符 → 403 RIG_OUT_OF_RANGE", async () => {
-  await setEra("roman"); await setup(["佛羅里達"], true);
-  const r = await call("POST", "/oil-campaigns", { rigSlug: "north_sea_1", fleet: [{ templateId: SHIP, quantity: 1 }] });
-  assert.equal(r.status, 403); assert.equal(r.json.code, "RIG_OUT_OF_RANGE");
+test("取消航程限制:佛羅里達也能打北海一號(200),但資格查詢與戰役都帶出距離衰減", async () => {
+  await setup(["佛羅里達"], true);
+  const el = await call("GET", "/oil-campaigns/eligibility/north_sea_1");
+  assert.equal(el.status, 200); assert.equal(el.json.eligible, true, JSON.stringify(el.json));
+  const exp = attackerRangeFactor(["佛羅里達"], "north_sea_1");
+  assert.ok(Math.abs(el.json.distanceKm - 7064) < 15, `distanceKm=${el.json.distanceKm}`);
+  assert.ok(Math.abs(el.json.rangeFactor - Math.round(exp.factor * 1000) / 1000) < 1e-9);
+  assert.ok(el.json.rangeFactor < 0.7 && el.json.rangeFactor >= 0.4);
+
+  const r = await call("POST", "/oil-campaigns", { rigSlug: "north_sea_1", fleet: [{ templateId: SHIP, quantity: 10 }] });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  const list = await call("GET", "/oil-campaigns");
+  const c = list.json.campaigns.find((x: any) => x.id === r.json.campaignId);
+  assert.equal(c.attackerPower, Math.round(10000 * exp.factor), "遠征戰力被衰減");
+  assert.ok(Math.abs(c.rangeFactor - exp.factor) < 0.001);
+  assert.ok(Array.isArray(c.attackerDistances) && c.attackerDistances.length === 1);
+});
+
+test("取消航程限制:同一座油井,近國與遠國看到不同的距離與係數", async () => {
+  await setup(["荷蘭"], true);
+  const near = (await call("GET", "/oil-campaigns/eligibility/north_sea_1")).json;
+  await setup(["佛羅里達"], true);
+  const far = (await call("GET", "/oil-campaigns/eligibility/north_sea_1")).json;
+  assert.ok(near.distanceKm < far.distanceKm); assert.ok(near.rangeFactor > far.rangeFactor);
+  // 多塊地取最近的
+  await setup(["佛羅里達", "荷蘭"], true);
+  const both = (await call("GET", "/oil-campaigns/eligibility/north_sea_1")).json;
+  assert.equal(both.distanceKm, near.distanceKm); assert.equal(both.rangeFactor, near.rangeFactor);
+});
+
+test("取消航程限制:仍擋缺海戰、無沿海、未知油井(資格的其餘三道關卡不變)", async () => {
+  await setup(["荷蘭"], false);
+  const noTech = await call("GET", "/oil-campaigns/eligibility/north_sea_1");
+  assert.equal(noTech.json.eligible, false); assert.equal(noTech.json.reason, "no_naval_tech");
+  assert.equal(noTech.json.distanceKm, undefined, "不合格時不洩漏距離欄位");
+  await setup(["不存在的內陸區"], true);
+  assert.equal((await call("GET", "/oil-campaigns/eligibility/north_sea_1")).json.reason, "no_coastal_region");
+  await setup(["荷蘭"], true);
+  const unk = await call("GET", "/oil-campaigns/eligibility/nope");
+  assert.equal(unk.json.eligible, false); assert.equal(unk.json.reason, "unknown_rig");
 });

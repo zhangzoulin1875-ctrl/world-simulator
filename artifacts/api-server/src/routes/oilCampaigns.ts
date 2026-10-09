@@ -2,7 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { requirePlayer, buildAvailableUnits } from "./war/shared";
-import { canContestRig, OIL_INELIGIBLE_MESSAGE } from "../lib/oilRigCore";
+import { canContestRig, attackerRangeFactor, OIL_INELIGIBLE_MESSAGE } from "../lib/oilRigCore";
 import { loadResearchedKeySlugs } from "../lib/militaryTechData";
 import {
   OilCampaignError, launchOilCampaign, reinforceOilCampaign, controlledRegionNames, describeOilCampaign,
@@ -58,8 +58,12 @@ router.get("/oil-campaigns", handle(async () => {
 router.get("/oil-campaigns/eligibility/:slug", handle(async (req, { nationId, userId }) => {
   const regions = await controlledRegionNames(nationId);
   const techs = await loadResearchedKeySlugs(userId);
-  const e = canContestRig(regions, techs, String(req.params["slug"]));
-  return e.ok ? { eligible: true } : { eligible: false, reason: e.reason, message: OIL_INELIGIBLE_MESSAGE[e.reason] };
+  const slug = String(req.params["slug"]);
+  const e = canContestRig(regions, techs, slug);
+  if (!e.ok) return { eligible: false, reason: e.reason, message: OIL_INELIGIBLE_MESSAGE[e.reason] };
+  // 距離不是門檻,是戰力衰減:讓玩家出兵前就看到自己離這座油井多遠、戰力會打幾折
+  const { km, factor } = attackerRangeFactor(regions, slug);
+  return { eligible: true, distanceKm: km === null ? null : Math.round(km), rangeFactor: Math.round(factor * 1000) / 1000 };
 }));
 
 /** 發起戰役:{ rigSlug, fleet: [{ templateId, quantity }] } */

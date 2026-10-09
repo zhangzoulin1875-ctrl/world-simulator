@@ -16,14 +16,14 @@ test("資格:有科技但完全沒有沿海地區 → no_coastal_region", () => 
   assert.deepEqual(canContestRig(["不存在的內陸區"], NAVAL, SLUG), { ok: false, reason: "no_coastal_region" });
   assert.deepEqual(canContestRig([], NAVAL, SLUG), { ok: false, reason: "no_coastal_region" });
 });
-test("資格:沿海但不在這座油井航程 → rig_out_of_range", () => {
-  // 佛羅里達是墨西哥灣油井的掛靠區,不在北海一號的航程
-  assert.deepEqual(canContestRig(["佛羅里達"], NAVAL, SLUG), { ok: false, reason: "rig_out_of_range" });
+test("資格:取消航程限制 — 沿海國打任何油井都具資格(距離只衰減戰力)", () => {
+  // 佛羅里達離北海一號很遠,過去會被擋;現在具資格,代價是戰力衰減(見 oilDistance.test.ts)
+  assert.deepEqual(canContestRig(["佛羅里達"], NAVAL, SLUG), { ok: true });
 });
 test("資格:未知油井 → unknown_rig(優先於其他檢查)", () => {
   assert.deepEqual(canContestRig(["荷蘭"], NAVAL, "nope"), { ok: false, reason: "unknown_rig" });
   assert.deepEqual(canContestRig([], [], "nope"), { ok: false, reason: "unknown_rig" });
 });
-test("資格:控制多區,只要一區在航程內即通過", () => {
+test("資格:控制多區,只要有一區沿海即通過", () => {
   assert.deepEqual(canContestRig(["佛羅里達", "荷蘭", "內陸"], NAVAL, SLUG), { ok: true });
 });

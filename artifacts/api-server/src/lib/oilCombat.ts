@@ -54,11 +54,17 @@ export interface OilBattleResult {
  * - 守方沒有艦隊(戰力 0)且攻方有戰力 → 攻方無損獲勝(空佔)。
  * - 雙方都 0 戰力 → 守方勝(維持現狀,攻方等於沒出兵)。
  * - 平手(含地利後相等)→ 守方勝。
+ * - 攻方戰力先乘距離衰減係數(attackerFactor),回報的 attackerPower 是衰減後的實際值;守方不衰減。
  * - 贏家損失比例 = WINNER_MAX_LOSS × (輸家戰力 / 贏家戰力);輸家固定 LOSER_MAX_LOSS。
  *   所以以大欺小幾乎無損,勢均力敵時兩邊都重創。
  */
-export function resolveOilBattle(attacker: readonly FleetLine[], defender: readonly FleetLine[]): OilBattleResult {
-  const a = fleetPower(attacker);
+export function resolveOilBattle(
+  attacker: readonly FleetLine[], defender: readonly FleetLine[],
+  /** 攻方戰力係數(距離衰減,0~1,預設 1 = 不衰減)。非有限或超出範圍的值夾回 [0,1]。 */
+  attackerFactor: number = 1,
+): OilBattleResult {
+  const f = Number.isFinite(attackerFactor) ? Math.min(1, Math.max(0, attackerFactor)) : 1;
+  const a = fleetPower(attacker) * f;
   const dRaw = fleetPower(defender);
   const d = (dRaw * DEFENDER_ADV_NUM) / DEFENDER_ADV_DEN;   // 僅供回報與損失比例用
   if (a <= 0) {

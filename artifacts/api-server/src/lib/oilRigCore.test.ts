@@ -68,11 +68,11 @@ test("沿海名單:內陸區不在其中、已知沿海區在其中", () => {
   assert.equal(isCoastalRegionName("幾內亞灣"), true, "人工審定的掛靠區視為沿海");
 });
 
-test("資格:缺科技、無沿海、不在航程各有明確原因,且順序固定", () => {
+test("資格:缺科技、無沿海各有明確原因,且順序固定;不再有航程門檻", () => {
   const withTech = [NAVAL_TECH_SLUG];
   assert.deepEqual(canContestRig(["北海道"], [], "japan_trench"), { ok: false, reason: "no_naval_tech" });
   assert.deepEqual(canContestRig(["莫斯科", "基輔"], withTech, "japan_trench"), { ok: false, reason: "no_coastal_region" });
-  assert.deepEqual(canContestRig(["西西里"], withTech, "japan_trench"), { ok: false, reason: "rig_out_of_range" });
+  assert.deepEqual(canContestRig(["西西里"], withTech, "japan_trench"), { ok: true }, "西西里離日本海溝很遠,但不再被擋");
   assert.deepEqual(canContestRig(["北海道", "莫斯科"], withTech, "japan_trench"), { ok: true });
   assert.deepEqual(canContestRig(["北海道"], withTech, "不存在"), { ok: false, reason: "unknown_rig" });
   assert.deepEqual(canContestRig([], withTech, "japan_trench"), { ok: false, reason: "no_coastal_region" });

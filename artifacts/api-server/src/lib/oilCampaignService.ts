@@ -14,6 +14,8 @@ import {
   type FleetLine, type OilBattleResult,
 } from "./oilCombat";
 import { oilLockedByTemplate } from "./oilRigService";
+import { attackerRangeFactor } from "./oilRigCore";
+import { fleetPower } from "./oilCombat";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -247,7 +249,8 @@ export async function settleOilCampaign(campaignId: number, now: Date = new Date
     // 發起時有守方、但守方現在已不是持有者(中途易手):以發起時的紀錄為準,艦隊照算
     // 無人佔領 → 守軍迎戰;有人佔領但沒投入艦隊 → 只剩守軍(同樣用 garrison 折算,避免白送)
     const defenderLines = def.lines.length > 0 ? def.lines : garrisonFleet(Number(rig.garrison_strength));
-    const result = resolveOilBattle(att.lines, defenderLines);
+    const range = await attackerEffectiveFactor(tx, rig.slug, att);
+    const result = resolveOilBattle(att.lines, defenderLines, range.factor);
 
     const attackerLosses = await applySideLosses(tx, att, result.attackerLossRatio);
     // 虛擬守軍(templateId 0)不對應真實艦隊,不扣損失;真實守方艦隊才扣
@@ -284,6 +287,29 @@ export async function settleDueOilCampaigns(now: Date = new Date()): Promise<{ s
 /** 單區控制比例達此值才算「控制」該地區(油井資格用)。 */
 export const OIL_CONTROL_MIN_PERCENT = 50;
 
+/**
+ * 攻方有效戰力係數(距離衰減):各國戰力按「該國離油井的最近自有地區距離」算各自係數,
+ * 再以戰力為權重加權平均 —— 單國時等於該國係數;多國聯手時遠國拖累、近國拉抬,
+ * 且艦數與損失分攤完全不受影響(衰減只作用在戰力上)。
+ * 攻方沒有任何戰力時回傳 1(沒有東西可衰減)。
+ */
+async function attackerEffectiveFactor(
+  tx: Tx, rigSlug: string,
+  side: { lines: FleetLine[]; byNation: Map<string, Array<{ templateId: number; quantity: number }>> },
+): Promise<{ factor: number; nations: Array<{ nationId: string; km: number | null; factor: number; power: number }> }> {
+  const statsById = new Map(side.lines.map((l) => [l.templateId, l.stats]));
+  const nations: Array<{ nationId: string; km: number | null; factor: number; power: number }> = [];
+  let weighted = 0, total = 0;
+  for (const [nationId, ls] of side.byNation) {
+    const power = fleetPower(ls.map((l) => ({ templateId: l.templateId, quantity: l.quantity, stats: statsById.get(l.templateId)! })));
+    if (!(power > 0)) continue;
+    const { km, factor } = attackerRangeFactor(await controlledRegionNames(nationId, tx), rigSlug);
+    nations.push({ nationId, km: km === null ? null : Math.round(km), factor, power });
+    weighted += power * factor; total += power;
+  }
+  return { factor: total > 0 ? weighted / total : 1, nations };
+}
+
 /** 該國控制(percent ≥ 50)的地區名稱。 */
 export async function controlledRegionNames(nationId: string, q: Pick<typeof db, "execute"> = db): Promise<string[]> {
   const r = await q.execute(sql`
@@ -300,6 +326,10 @@ export async function describeOilCampaign(campaignId: number): Promise<null | {
   attackerShips: number; defenderShips: number; attackerPower: number; defenderPower: number;
   /** 以目前投入量若現在結算的結果(含守方地利);追加艦隊後可能改變。 */
   forecast: "attacker_wins" | "defender_wins";
+  /** 攻方距離衰減後的有效戰力係數(0.4~1);attackerPower 已含此係數。 */
+  rangeFactor: number;
+  /** 各攻方國家的進攻距離(km;null = 查無地區座標,按最遠算)與各自係數。 */
+  attackerDistances: Array<{ nationId: string; km: number | null; factor: number }>;
 }> {
   const c = await db.execute(sql`
     SELECT c.id, c.status, c.started_at, c.settle_at, c.outcome, c.attacker_nation_id, c.defender_nation_id, r.slug, r.garrison_strength
@@ -313,7 +343,8 @@ export async function describeOilCampaign(campaignId: number): Promise<null | {
     const defLines = def.lines.length > 0 ? def.lines : garrisonFleet(Number(row.garrison_strength));
     // 顯示值與結算同一來源(resolveOilBattle),避免玩家看到的數字與實際對戰用的不同
     // (尤其守方地利 ×1.15:顯示 10000 對 10000 會讓人以為平手,結算卻是守方贏)。
-    const forecast = resolveOilBattle(att.lines, defLines);
+    const range = await attackerEffectiveFactor(tx, String(row.slug), att);
+    const forecast = resolveOilBattle(att.lines, defLines, range.factor);
     return {
       id: Number(row.id), rigSlug: String(row.slug), status: String(row.status),
       startedAt: new Date(row.started_at), settleAt: new Date(row.settle_at), outcome: row.outcome ?? null,
@@ -322,6 +353,8 @@ export async function describeOilCampaign(campaignId: number): Promise<null | {
       defenderShips: def.lines.reduce((s, l) => s + l.quantity, 0),
       attackerPower: Math.round(forecast.attackerPower), defenderPower: Math.round(forecast.defenderPower),
       forecast: forecast.outcome,
+      rangeFactor: Math.round(range.factor * 1000) / 1000,
+      attackerDistances: range.nations.map((n) => ({ nationId: n.nationId, km: n.km, factor: Math.round(n.factor * 1000) / 1000 })),
     };
   });
 }
