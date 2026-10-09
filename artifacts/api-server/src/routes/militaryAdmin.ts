@@ -1,3 +1,4 @@
+import { minMaterialCosts } from "../lib/gameBalance";
 import { Router, type IRouter } from "express";
 import { and, count, eq, sql } from "drizzle-orm";
 import {
@@ -272,12 +273,24 @@ router.patch(
     }
 
     const [existing] = await db
-      .select({ id: militaryUnitTemplatesTable.id })
+      .select({ id: militaryUnitTemplatesTable.id, category: militaryUnitTemplatesTable.category })
       .from(militaryUnitTemplatesTable)
       .where(eq(militaryUnitTemplatesTable.id, templateId))
       .limit(1);
     if (!existing) {
       res.status(404).json({ error: "找不到這個兵種模板" });
+      return;
+    }
+
+    // 船艦木材 / 礦石硬下限:管理員也不能把船改回 0 木 0 礦(明確拒絕並說明,而不是悄悄改值)。
+    // 只檢查『這次有改的欄位』:沒動到的欄位不因舊資料而擋下其他修改。
+    const minMat = minMaterialCosts(existing.category);
+    if (updates.woodCostPerUnit !== undefined && updates.woodCostPerUnit < minMat.wood) {
+      res.status(400).json({ error: `船艦的木材成本每艘至少 ${minMat.wood}`, code: "SHIP_MATERIAL_FLOOR" });
+      return;
+    }
+    if (updates.oreCostPerUnit !== undefined && updates.oreCostPerUnit < minMat.ore) {
+      res.status(400).json({ error: `船艦的礦石成本每艘至少 ${minMat.ore}`, code: "SHIP_MATERIAL_FLOOR" });
       return;
     }
 

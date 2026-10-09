@@ -447,6 +447,22 @@ export interface UnitDesignStats {
   oreCostPerUnit: number;
 }
 
+/**
+ * 船艦的木材 / 礦石成本硬下限(每艘)。
+ * 起因:有玩家用 AI 設計出 0 木 0 礦的船,等於不用原料就能無限造艦。
+ * 寫死為常數而非放進可調設定:設定值若被改成 0,下限就等於沒有。
+ * 只管 category='ship';其他兵種沿用原本「可以為 0」的規則。
+ */
+export const SHIP_MIN_WOOD_COST_PER_UNIT = 3;
+export const SHIP_MIN_ORE_COST_PER_UNIT = 3;
+
+/** 該兵種類別的木材 / 礦石下限(非船艦為 0 = 無下限)。遷移、夾限、管理員 PATCH 共用。 */
+export function minMaterialCosts(category: string): { wood: number; ore: number } {
+  return category === "ship"
+    ? { wood: SHIP_MIN_WOOD_COST_PER_UNIT, ore: SHIP_MIN_ORE_COST_PER_UNIT }
+    : { wood: 0, ore: 0 };
+}
+
 export interface UnitClampResult<T extends UnitDesignStats> {
   design: T;
   /** 被夾限的欄位（zh-TW 描述），空陣列 = 無調整。 */
@@ -555,6 +571,17 @@ export function clampUnitDesign<T extends UnitDesignStats>(
   if (out.oreCostPerUnit > u.oreCostMax) {
     clamps.push(`礦石成本 ${out.oreCostPerUnit} → ${u.oreCostMax}（上限）`);
     out.oreCostPerUnit = u.oreCostMax;
+  }
+
+  // 船艦木材 / 礦石硬下限(上方已先處理上限;上限若被設得比下限還低,以下限為準)。
+  const minMat = minMaterialCosts(category);
+  if (out.woodCostPerUnit < minMat.wood) {
+    clamps.push(`木材成本 ${out.woodCostPerUnit} → ${minMat.wood}(船艦最低)`);
+    out.woodCostPerUnit = minMat.wood;
+  }
+  if (out.oreCostPerUnit < minMat.ore) {
+    clamps.push(`礦石成本 ${out.oreCostPerUnit} → ${minMat.ore}(船艦最低)`);
+    out.oreCostPerUnit = minMat.ore;
   }
 
   const upkeepFloor = Math.max(MIN_UPKEEP_PER_UNIT, u.upkeepMin);

@@ -6,6 +6,7 @@ import {
   playerNationsTable,
 } from "@workspace/db";
 import { logger } from "./logger";
+import { SHIP_MIN_WOOD_COST_PER_UNIT, SHIP_MIN_ORE_COST_PER_UNIT } from "./gameBalance";
 import { cumulativeBuildingProductionCost } from "./regionBuildings";
 import { allocateProportionally } from "./war";
 import { withTestMigrationStamp } from "./migrationLock";
@@ -340,6 +341,21 @@ async function runMilitaryMigrationsInner(): Promise<void> {
       { repriced: repriced.rowCount },
       "raised under-priced unit prod_cost_per_100 to power floor",
     );
+  }
+
+  // 船艦木材 / 礦石硬下限(每艘至少 3):有玩家用 AI 設計出 0 木 0 礦的船。
+  // 把現有違規的船補到下限(只往上補,不動已經高於 3 的值);冪等:補完後沒有列符合條件。
+  // 常數與 clampUnitDesign 共用(gameBalance.ts),避免遷移與日後建立時下限不一致。
+  const shipFloor = await db.execute(sql`
+    UPDATE military_unit_templates
+    SET wood_cost_per_unit = GREATEST(wood_cost_per_unit, ${SHIP_MIN_WOOD_COST_PER_UNIT}),
+        ore_cost_per_unit = GREATEST(ore_cost_per_unit, ${SHIP_MIN_ORE_COST_PER_UNIT}),
+        updated_at = NOW()
+    WHERE category = 'ship'
+      AND (wood_cost_per_unit < ${SHIP_MIN_WOOD_COST_PER_UNIT} OR ore_cost_per_unit < ${SHIP_MIN_ORE_COST_PER_UNIT})
+  `);
+  if ((shipFloor.rowCount ?? 0) > 0) {
+    logger.info({ raised: shipFloor.rowCount }, "raised ship wood/ore cost to minimum floor");
   }
 
   const templates = await db
