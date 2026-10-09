@@ -27,9 +27,12 @@ export async function joinGame(pool, gameId, player) {
     const c = await pool.connect();
     try {
       await c.query('BEGIN');
-      const p = (await c.query(
-        `INSERT INTO players(discord_id,name) VALUES ($1,$2)
-         ON CONFLICT (discord_id) DO UPDATE SET name = EXCLUDED.name RETURNING *`, [player.discordId, player.name])).rows[0];
+      const p = player.playerId
+        ? (await c.query('SELECT * FROM players WHERE id=$1', [player.playerId])).rows[0]
+        : (await c.query(
+            `INSERT INTO players(discord_id,name) VALUES ($1,$2)
+             ON CONFLICT (discord_id) DO UPDATE SET name = COALESCE(players.name, EXCLUDED.name) RETURNING *`,
+            [player.discordId, player.name])).rows[0];
       const exist = (await c.query('SELECT * FROM seats WHERE game_id=$1 AND player_id=$2', [gameId, p.id])).rows[0];
       if (exist) { await c.query('COMMIT'); return { seat: exist, already: true }; }
       const seats = (await c.query('SELECT side, role FROM seats WHERE game_id=$1', [gameId])).rows;

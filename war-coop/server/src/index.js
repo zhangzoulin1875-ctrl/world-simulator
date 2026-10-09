@@ -2,6 +2,10 @@ import express from 'express';
 import { makePool, migrate } from './db.js';
 import { createGame, joinGame, gameView, REGIONS } from './game.js';
 import { ROLE_LABEL } from './seats.js';
+import { randomBytes } from 'node:crypto';
+import { oauthConfig, authorizeUrl, exchangeCode, fetchUser } from './discord.js';
+import { parseCookies, STATE_COOKIE, createSession, setSessionCookie, clearSessionCookie, setStateCookie, clearStateCookie, playerFromRequest, deleteSession, purgeExpiredSessions } from './session.js';
+import { upsertDiscordPlayer, setNickname, publicPlayer } from './players.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -15,6 +19,7 @@ async function currentGameId() {
   return r.rows[0]?.id ?? (await createGame(pool)).id;
 }
 await currentGameId();
+await purgeExpiredSessions(pool).catch(() => {});
 
 const app = express();
 app.use(express.json());
@@ -25,11 +30,68 @@ app.get('/api/healthz', async (_req, res) => {
 });
 app.get('/api/game', async (_req, res) => res.json(await gameView(pool, await currentGameId())));
 app.get('/api/regions', (_req, res) => res.json(REGIONS.map(({ id, owner, name, tag, area, rear, adj, cx, cy }) => ({ id, owner, name, tag, area, rear, adj, cx, cy }))));
+// ── Discord 登入 ────────────────────────────────────────────
+// redirect URI 優先用 PUBLIC_URL(Render 上固定),否則由請求推得
+const redirectUri = (req) => `${(process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '')}/auth/discord/callback`;
+app.set('trust proxy', 1);   // Render 在反向代理後,才能得到正確的 https
+
+app.get('/auth/discord/login', (req, res) => {
+  const state = randomBytes(16).toString('hex');
+  const url = authorizeUrl({ redirectUri: redirectUri(req), state });
+  if (!url) return res.status(503).type('text').send('Discord 登入尚未設定');
+  setStateCookie(req, res, state);
+  res.redirect(url);
+});
+
+app.get('/auth/discord/callback', async (req, res) => {
+  const page = (status, msg) => res.status(status).type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:system-ui;background:#14171c;color:#e8e6e1;text-align:center;padding:40px"><p>${msg}</p><p><a style="color:#c9a24b" href="/">回首頁</a></p>`);
+  try {
+    const expected = parseCookies(req.headers.cookie)[STATE_COOKIE];
+    clearStateCookie(req, res);
+    if (req.query.error) return page(400, '已取消授權。');
+    const code = typeof req.query.code === 'string' ? req.query.code : '';
+    const state = typeof req.query.state === 'string' ? req.query.state : '';
+    if (!code || !state || !expected || state !== expected) return page(400, '驗證失敗(state 不符),請重新登入。');
+    const token = await exchangeCode({ code, redirectUri: redirectUri(req) });
+    const user = await fetchUser(token.access_token);
+    const player = await upsertDiscordPlayer(pool, user);
+    setSessionCookie(req, res, await createSession(pool, player.id));
+    res.redirect('/');
+  } catch (e) { console.error('discord callback:', e.message); page(500, '登入過程發生錯誤,請稍後再試。'); }
+});
+
+app.post('/auth/logout', async (req, res) => { await deleteSession(pool, req); clearSessionCookie(req, res); res.json({ ok: true }); });
+
+app.get('/api/me', async (req, res) => {
+  const p = await playerFromRequest(pool, req);
+  res.json({ discordEnabled: !!oauthConfig(), authenticated: !!p, player: publicPlayer(p) });
+});
+
+app.post('/api/nickname', async (req, res) => {
+  const p = await playerFromRequest(pool, req);
+  if (!p) return res.status(401).json({ error: '請先登入 Discord' });
+  const r = await setNickname(pool, p.id, req.body?.nickname);
+  if (!r.ok) return res.status(r.status).json({ error: r.error });
+  res.json({ player: publicPlayer(r.player) });
+});
+
+// ── 加入戰局 ────────────────────────────────────────────────
+// Discord 已設定:必須登入且已有暱稱,身分取自 session(不信任請求內容)。
+// 未設定:維持預覽期的暱稱加入,讓尚未接 Discord 的部署不壞。
 app.post('/api/join', async (req, res) => {
-  const name = String(req.body?.name ?? '').trim().slice(0, 24);
-  if (!name) return res.status(400).json({ error: '請輸入暱稱' });
-  // 預覽期身分:暱稱即身分(同名視為同一人)。之後換成 Discord OAuth。
-  const out = await joinGame(pool, await currentGameId(), { discordId: `preview:${name.toLowerCase()}`, name });
+  const gameId = await currentGameId();
+  let who;
+  if (oauthConfig()) {
+    const p = await playerFromRequest(pool, req);
+    if (!p) return res.status(401).json({ error: '請先登入 Discord' });
+    if (!p.name) return res.status(409).json({ error: '請先設定遊戲暱稱', needNickname: true });
+    who = { playerId: p.id };
+  } else {
+    const name = String(req.body?.name ?? '').trim().slice(0, 24);
+    if (!name) return res.status(400).json({ error: '請輸入暱稱' });
+    who = { discordId: `preview:${name.toLowerCase()}`, name };
+  }
+  const out = await joinGame(pool, gameId, who);
   res.json({ side: out.seat.side, role: out.seat.role, roleLabel: ROLE_LABEL[out.seat.role], already: out.already });
 });
 
@@ -51,10 +113,35 @@ input,button{font-size:16px;padding:10px;border-radius:8px;border:0}input{width:
 <img src="/static/map.png" alt="戰略區地圖">
 <p class="muted">地圖共 ${REGIONS.length} 區 · 德控 ${v.regionsByOwner.DE ?? 0} · 法控 ${v.regionsByOwner.FR ?? 0} · 比 ${v.regionsByOwner.BE ?? 0} · 盧 ${v.regionsByOwner.LU ?? 0}</p>
 ${card('DE')}${card('FR')}
-<div class="card"><b>加入戰局</b><p class="muted">系統自動分邊:先補滿各隊三個核心職位(統帥、參謀長、後勤官),之後加入的都是一般軍官。</p>
-<input id="n" placeholder="你的暱稱" maxlength="24"> <button onclick="j()">加入</button><div id="msg"></div></div>
-<script>async function j(){const name=document.getElementById('n').value;const r=await fetch('/api/join',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name})});const d=await r.json();
-document.getElementById('msg').textContent=d.error||((d.already?'你已在局內:':'加入成功:')+(d.side==='DE'?'德意志帝國':'法蘭西共和國')+' · '+d.roleLabel);if(!d.error)setTimeout(()=>location.reload(),900)}</script>`);
+<div class="card" id="join"><b>加入戰局</b><div id="box" class="muted">載入中…</div></div>
+<script>
+const $=(i)=>document.getElementById(i), side=(s)=>s==='DE'?'德意志帝國':'法蘭西共和國';
+const esc=(t)=>String(t).replace(/[&<>"']/g,(c)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function api(path,body){const r=await fetch(path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})});return {ok:r.ok,status:r.status,data:await r.json().catch(()=>({}))}}
+function say(t,bad){const m=$('msg');if(m){m.textContent=t;m.style.color=bad?'#e08a8a':'#9fd19f'}}
+async function render(){
+  const me=await (await fetch('/api/me')).json(), box=$('box');
+  if(!me.discordEnabled){ // 預覽模式:尚未設定 Discord
+    box.innerHTML='<p class="muted">預覽模式(尚未啟用 Discord 登入):用暱稱直接加入。</p><input id="n" placeholder="你的暱稱" maxlength="24"> <button id="go">加入</button><div id="msg"></div>';
+    $('go').onclick=async()=>{const r=await api('/api/join',{name:$('n').value});done(r)};return}
+  if(!me.authenticated){
+    box.innerHTML='<p class="muted">用 Discord 登入後,綁定你的遊戲暱稱再加入戰局。</p><a href="/auth/discord/login"><button>以 Discord 登入</button></a>';return}
+  const p=me.player;
+  const who='<p class="muted">Discord:'+esc(p.discordName||'')+(p.nickname?' · 遊戲暱稱:<b style="color:#e8e6e1">'+esc(p.nickname)+'</b>':'')+' · <a href="#" id="out" style="color:#8b929c">登出</a></p>';
+  if(!p.nickname){
+    box.innerHTML=who+'<p>先取一個遊戲暱稱(2~16 字,全隊都會看到,改名有 24 小時冷卻):</p><input id="n" maxlength="16" placeholder="遊戲暱稱"> <button id="nk">確定</button><div id="msg"></div>';
+    $('nk').onclick=async()=>{const r=await api('/api/nickname',{nickname:$('n').value});r.ok?render():say(r.data.error||'失敗',true)};
+  }else{
+    box.innerHTML=who+'<button id="go">加入戰局</button> <button id="rn" style="background:#2b323c;color:#e8e6e1">改暱稱</button><div id="msg"></div>';
+    $('go').onclick=async()=>{done(await api('/api/join'))};
+    $('rn').onclick=()=>{box.innerHTML=who+'<input id="n" maxlength="16" value="'+esc(p.nickname)+'"> <button id="nk">儲存</button> <button id="cx" style="background:#2b323c;color:#e8e6e1">取消</button><div id="msg"></div>';
+      $('nk').onclick=async()=>{const r=await api('/api/nickname',{nickname:$('n').value});r.ok?render():say(r.data.error||'失敗',true)};$('cx').onclick=render};
+  }
+  $('out').onclick=async(e)=>{e.preventDefault();await api('/auth/logout');render()};
+}
+function done(r){if(r.ok){say((r.data.already?'你已在局內:':'加入成功:')+side(r.data.side)+' · '+r.data.roleLabel);setTimeout(()=>location.reload(),900)}else say(r.data.error||'失敗',true)}
+render();
+</script>`);
 });
 
 // 路由內未捕捉的錯誤:回 500,不讓程序死掉
