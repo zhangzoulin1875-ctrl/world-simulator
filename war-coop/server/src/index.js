@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { oauthConfig, authorizeUrl, exchangeCode, fetchUser } from './discord.js';
 import { parseCookies, STATE_COOKIE, createSession, setSessionCookie, clearSessionCookie, setStateCookie, clearStateCookie, playerFromRequest, deleteSession, purgeExpiredSessions } from './session.js';
 import { upsertDiscordPlayer, setNickname, publicPlayer } from './players.js';
+import { startGame, submitOrder, assignArmy, settleTurn, dueGames, MAP } from './battle.js';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -96,6 +97,87 @@ app.post('/api/join', async (req, res) => {
 });
 
 const sideName = { DE: '德意志帝國', FR: '法蘭西共和國' };
+
+// ── 戰局:狀態、命令、分配 ───────────────────────────────────
+// 取得目前玩家在本局的席位(需登入;預覽模式沒有 session,命令功能只在 Discord 模式開放)
+async function mySeat(req) {
+  const p = await playerFromRequest(pool, req);
+  if (!p) return null;
+  const gameId = await currentGameId();
+  const seat = (await pool.query('SELECT * FROM seats WHERE game_id=$1 AND player_id=$2', [gameId, p.id])).rows[0];
+  return seat ? { ...seat, gameId } : null;
+}
+const needSeat = async (req, res) => {
+  const seat = await mySeat(req);
+  if (!seat) { res.status(401).json({ error: '請先登入並加入戰局' }); return null; }
+  return seat;
+};
+
+// 地圖狀態:全局可見的部分(區域歸屬、日誌)+ 己方軍團(敵方軍團只在與己方相鄰時可見 = 戰爭迷霧)
+app.get('/api/state', async (req, res) => {
+  const gameId = await currentGameId();
+  const seat = await mySeat(req);
+  const g = (await pool.query('SELECT id,status,turn,turn_hours,next_turn_at,winner_side,belgium_invaded FROM games WHERE id=$1', [gameId])).rows[0];
+  const regions = (await pool.query('SELECT region_id, owner FROM region_state WHERE game_id=$1', [gameId])).rows;
+  const all = (await pool.query('SELECT id,side,name,region_id,strength,supply,pinned,assigned_seat FROM armies WHERE game_id=$1 ORDER BY id', [gameId])).rows;
+  let armies = [];
+  if (seat) {
+    const mine = all.filter((a) => a.side === seat.side);
+    const seen = new Set();   // 己方軍團所在區 + 其相鄰區 = 視野
+    for (const a of mine) { seen.add(a.region_id); for (const n of MAP.by.get(a.region_id).adj) seen.add(n); }
+    armies = [...mine, ...all.filter((a) => a.side !== seat.side && seen.has(a.region_id)).map(({ supply, assigned_seat, ...pub }) => pub)];
+  }
+  const log = (await pool.query('SELECT turn, summary FROM turn_log WHERE game_id=$1 ORDER BY id DESC LIMIT 20', [gameId])).rows;
+  res.json({ game: g, regions, armies, log, me: seat && { seatId: seat.id, side: seat.side, role: seat.role } });
+});
+
+app.post('/api/orders', async (req, res) => {
+  const seat = await needSeat(req, res); if (!seat) return;
+  const { armyId, kind, target } = req.body ?? {};
+  const r = await submitOrder(pool, seat.gameId, seat, { armyId: Number(armyId), kind, target: target == null ? null : Number(target) });
+  r.ok ? res.json(r) : res.status(r.status).json({ error: r.error });
+});
+
+// 我這回合已下的命令(只看得到自己隊的)
+app.get('/api/orders', async (req, res) => {
+  const seat = await needSeat(req, res); if (!seat) return;
+  const g = (await pool.query('SELECT turn FROM games WHERE id=$1', [seat.gameId])).rows[0];
+  const rows = (await pool.query(
+    `SELECT o.army_id, o.kind, o.target_region, o.seat_id FROM orders o JOIN armies a ON a.id=o.army_id
+     WHERE o.game_id=$1 AND o.turn=$2 AND a.side=$3`, [seat.gameId, g.turn, seat.side])).rows;
+  res.json({ turn: g.turn, orders: rows });
+});
+
+app.post('/api/assign', async (req, res) => {
+  const seat = await needSeat(req, res); if (!seat) return;
+  const r = await assignArmy(pool, seat.gameId, seat, { armyId: Number(req.body?.armyId), toSeatId: req.body?.toSeatId == null ? null : Number(req.body.toSeatId) });
+  r.ok ? res.json(r) : res.status(r.status).json({ error: r.error });
+});
+
+// 開始遊戲:僅統帥可按(兩隊統帥任一人),至少每隊各 1 人
+app.post('/api/start', async (req, res) => {
+  const seat = await needSeat(req, res); if (!seat) return;
+  if (seat.role !== 'commander') return res.status(403).json({ error: '只有統帥能開始戰局' });
+  const sides = (await pool.query('SELECT side, count(*)::int n FROM seats WHERE game_id=$1 GROUP BY side', [seat.gameId])).rows;
+  if (sides.length < 2) return res.status(409).json({ error: '雙方都至少要有 1 名玩家才能開始' });
+  const r = await startGame(pool, seat.gameId);
+  r.ok ? res.json(r) : res.status(r.status).json({ error: r.error });
+});
+
+// ── 排程:每分鐘檢查到期的回合並結算 ─────────────────────────
+// 只在單一實例上跑(Render 免費方案本來就只有一個實例)。結算本身以「回合號比對 + 行鎖」保證不重複。
+let ticking = false;
+async function tick() {
+  if (ticking) return; ticking = true;
+  try {
+    for (const g of await dueGames(pool)) {
+      const r = await settleTurn(pool, g.id, g.turn);
+      if (r.ok) console.log(`回合 ${r.settledTurn} 結算完成(命令 ${r.ordersApplied} 條)${r.winner ? ',勝者 ' + r.winner : ''}`);
+    }
+  } catch (e) { console.error('排程結算錯誤:', e.message); } finally { ticking = false; }
+}
+if (!process.env.DISABLE_SCHEDULER) setInterval(tick, 60_000).unref();
+
 app.get('/', async (_req, res) => {
   const v = await gameView(pool, await currentGameId());
   const card = (s) => `<div class="card"><h2>${sideName[s]}</h2><p class="muted">${v.sides[s].members} 人</p>
