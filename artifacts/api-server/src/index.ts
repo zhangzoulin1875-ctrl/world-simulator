@@ -25,6 +25,8 @@ import { runMilitaryMigrations } from "./lib/militaryMigrations";
 import { runWeaponMigrations } from "./lib/weaponMigrations";
 import { runDiplomacyMigrations } from "./lib/diplomacyMigrations";
 import { runResourceMigrations, ensureNationResourceColumns } from "./lib/resourceMigrations";
+import { runOilRigMigrations } from "./lib/oilRigMigrations";
+import { seedOilRigs, ensureFirstSeason } from "./lib/oilRigService";
 import {
   startTreatyExpiryLoop,
   startRelationEventPruneLoop,
@@ -146,6 +148,10 @@ async function runStartupMigrations(): Promise<void> {
   await bootStep("runEconomyMigrations", () => runEconomyMigrations());
   // 貿易系統 — nation_goods(只建新表,不碰 player_nations;FK 依賴 player_nations 已存在)。
   await bootStep("runTradeMigrations", () => runTradeMigrations());
+  // 廢棄油井勝利條件 — 全新獨立表(只依賴 player_nations);種子與第 1 季皆冪等。
+  await bootStep("runOilRigMigrations", () => runOilRigMigrations());
+  await bootStep("seedOilRigs", () => seedOilRigs());
+  await bootStep("ensureFirstOilSeason", () => ensureFirstSeason());
   // Task #479 — 一次性歸零負值 production_bonus（舊生產力維護費死亡螺旋
   // 的歷史欠債；game_flags 原子認領，只跑一次）。
   await bootStep("repairNegativeProductionBonus", () => repairNegativeProductionBonus());

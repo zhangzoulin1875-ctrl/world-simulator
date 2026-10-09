@@ -1,3 +1,4 @@
+import { settleOilScores } from "./oilRigService";
 import { and, eq, isNull, lt, sql, type AnyColumn } from "drizzle-orm";
 import {
   db,
@@ -1481,6 +1482,14 @@ async function doRunTurn(
     if (npcFocus.started > 0 || npcFocus.failed > 0) logger.info({ npcFocus }, "turn engine: NPC focus decisions done");
   } catch (err) {
     logger.error({ err }, "turn engine: NPC focus decisions failed");
+  }
+
+  // 廢棄油井計分:依真實經過小時數結算,不依回合數。獨立 try/catch,失敗僅記 log,不阻斷回合。
+  try {
+    const oil = await settleOilScores();
+    if (oil.winner) logger.info({ oil }, "turn engine: oil rig season ended (winner decided)");
+  } catch (err) {
+    logger.error({ err }, "turn engine: oil rig scoring failed");
   }
 
   // Task #333 — 超事件系統：每回合自動生成／推進全球重大事件，套用跨國數值影響、

@@ -30,3 +30,4 @@ export * from "./aiPregen";
 export * from "./militaryDemands";
 export * from "./domesticEvents";
 export * from "./trade";
+export * from "./oilRigs";
