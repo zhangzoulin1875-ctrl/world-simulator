@@ -88,3 +88,56 @@ export function applyLosses(lines: readonly FleetLine[], lossRatio: number): Arr
     return { templateId: l.templateId, before, lost, after: before - lost };
   });
 }
+
+// ── 無人佔領油井的守軍 ─────────────────────────────────────
+
+/** 標準守軍艦的單艦戰力。守軍 garrison_strength 艘 × 此值 = 無人佔領時的防守戰力。 */
+export const STANDARD_GARRISON_SHIP_POWER = 100;
+
+/**
+ * 無人佔領的油井由守軍迎戰:把 garrison_strength 折成一支虛擬艦隊(1 種艦,單艦戰力 100)。
+ * 回傳 FleetLine 讓 resolveOilBattle 不必特別處理;templateId 0 代表虛擬守軍(不對應真實模板、不扣損失)。
+ * garrison_strength <= 0 或非有限值 → 空艦隊(攻方可空佔)。
+ */
+export function garrisonFleet(garrisonStrength: number): FleetLine[] {
+  const q = Number.isFinite(garrisonStrength) && garrisonStrength > 0 ? Math.floor(garrisonStrength) : 0;
+  if (q === 0) return [];
+  // attack=defense=100、hp=1 → (100+100)/2 × sqrt(1) = 100
+  return [{ templateId: 0, quantity: q, stats: { attack: STANDARD_GARRISON_SHIP_POWER, defense: STANDARD_GARRISON_SHIP_POWER, hp: 1 } }];
+}
+
+/** 戰役結算延遲(小時)。預設 6,與每小時計分同為真實時間。 */
+export const OIL_CAMPAIGN_DELAY_HOURS = 6;
+
+export function settleTimeFor(startedAt: Date, delayHours: number = OIL_CAMPAIGN_DELAY_HOURS): Date {
+  return new Date(startedAt.getTime() + delayHours * 3_600_000);
+}
+
+export type CommitCheck = { ok: true; lines: Array<{ templateId: number; quantity: number }> } | { ok: false; error: string };
+
+/**
+ * 驗證一次投入請求(純函式)。
+ * - 至少一項、每項 quantity 為正整數、templateId 不重複(重複會繞過逐項上限檢查)
+ * - 每項都必須是艦船模板(isShip)且投入量 ≤ 可派量
+ */
+export function validateCommit(
+  requested: ReadonlyArray<{ templateId: unknown; quantity: unknown }>,
+  isShip: (templateId: number) => boolean,
+  availableOf: (templateId: number) => number,
+): CommitCheck {
+  if (!Array.isArray(requested) || requested.length === 0) return { ok: false, error: "請至少選擇一種艦船" };
+  if (requested.length > 50) return { ok: false, error: "一次最多投入 50 種艦船" };
+  const seen = new Set<number>();
+  const lines: Array<{ templateId: number; quantity: number }> = [];
+  for (const r of requested) {
+    const t = r.templateId, q = r.quantity;
+    if (typeof t !== "number" || !Number.isInteger(t) || t <= 0) return { ok: false, error: "艦船編號不正確" };
+    if (typeof q !== "number" || !Number.isInteger(q) || q <= 0) return { ok: false, error: "投入數量必須是正整數" };
+    if (seen.has(t)) return { ok: false, error: "同一種艦船不可重複列出" };
+    seen.add(t);
+    if (!isShip(t)) return { ok: false, error: "油井戰役只能投入艦船" };
+    if (q > availableOf(t)) return { ok: false, error: "可派遣的艦船不足" };
+    lines.push({ templateId: t, quantity: q });
+  }
+  return { ok: true, lines };
+}

@@ -104,3 +104,54 @@ test("數值極端(AI 設計到 1000 萬)仍有限且可比較", () => {
   assert.ok(Number.isFinite(p) && p > 0);
   assert.equal(resolveOilBattle([fleet(1, 1, huge)], [fleet(2, 1, huge)]).outcome, "defender_wins");
 });
+
+import { garrisonFleet, STANDARD_GARRISON_SHIP_POWER, settleTimeFor, validateCommit } from "./oilCombat";
+
+test("守軍折算:garrison 100 → 單艦戰力 100 × 100 艘 = 10000", () => {
+  assert.equal(fleetPower(garrisonFleet(100)), 100 * STANDARD_GARRISON_SHIP_POWER);
+});
+
+test("守軍:0、負、NaN、小數", () => {
+  for (const bad of [0, -5, NaN, Infinity, -Infinity]) assert.deepEqual(garrisonFleet(bad), [], String(bad));
+  assert.equal(garrisonFleet(7.9)[0]!.quantity, 7, "小數向下取整");
+});
+
+test("守軍對戰:守軍 100 艘(戰力 10000×1.15)擋住 11000 戰力的攻方", () => {
+  const atk = [fleet(1, 110)]; // 110 × 1000 = 110000,遠大於 11500 → 其實攻方勝
+  assert.equal(resolveOilBattle(atk, garrisonFleet(100)).outcome, "attacker_wins");
+  const weak = [fleet(1, 10)]; // 10000 < 11500
+  assert.equal(resolveOilBattle(weak, garrisonFleet(100)).outcome, "defender_wins");
+});
+
+test("空守軍:攻方空佔無損", () => {
+  const r = resolveOilBattle([fleet(1, 1)], garrisonFleet(0));
+  assert.deepEqual({ o: r.outcome, a: r.attackerLossRatio }, { o: "attacker_wins", a: 0 });
+});
+
+test("結算時間 = 發起 + 6 小時", () => {
+  const t = new Date("2026-10-09T00:00:00Z");
+  assert.equal(settleTimeFor(t).toISOString(), "2026-10-09T06:00:00.000Z");
+  assert.equal(settleTimeFor(t, 1).toISOString(), "2026-10-09T01:00:00.000Z");
+});
+
+const ships = new Set([1, 2]);
+const isShip = (t: number) => ships.has(t);
+const avail = (t: number) => ({ 1: 50, 2: 10 } as Record<number, number>)[t] ?? 0;
+
+test("投入驗證:正常、超量、非艦船、重複、非整數、空", () => {
+  assert.deepEqual(validateCommit([{ templateId: 1, quantity: 50 }], isShip, avail), { ok: true, lines: [{ templateId: 1, quantity: 50 }] });
+  assert.equal(validateCommit([{ templateId: 1, quantity: 51 }], isShip, avail).ok, false);
+  assert.match((validateCommit([{ templateId: 9, quantity: 1 }], isShip, avail) as { error: string }).error, /只能投入艦船/);
+  assert.match((validateCommit([{ templateId: 1, quantity: 1 }, { templateId: 1, quantity: 1 }], isShip, avail) as { error: string }).error, /重複/);
+  for (const q of [0, -1, 1.5, "3", NaN, null, undefined]) assert.equal(validateCommit([{ templateId: 1, quantity: q }], isShip, avail).ok, false, String(q));
+  for (const t of [0, -1, 1.5, "1", null]) assert.equal(validateCommit([{ templateId: t, quantity: 1 }], isShip, avail).ok, false, String(t));
+  assert.equal(validateCommit([], isShip, avail).ok, false);
+  assert.equal(validateCommit("x" as never, isShip, avail).ok, false);
+});
+
+test("投入驗證:上限 50 種;重複項不能繞過逐項上限", () => {
+  const many = Array.from({ length: 51 }, (_, i) => ({ templateId: i + 1, quantity: 1 }));
+  assert.equal(validateCommit(many, () => true, () => 99).ok, false);
+  // 兩項各 30(都 ≤ 50)但同模板:若不擋重複,總計 60 > 50 會被放行
+  assert.equal(validateCommit([{ templateId: 1, quantity: 30 }, { templateId: 1, quantity: 30 }], isShip, avail).ok, false);
+});

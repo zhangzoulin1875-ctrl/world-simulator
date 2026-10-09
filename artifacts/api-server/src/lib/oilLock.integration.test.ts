@@ -30,6 +30,8 @@ before(async () => {
 after(async () => {
   await db.execute(sql`DELETE FROM oil_campaign_fleets`); await db.execute(sql`DELETE FROM oil_campaigns`);
   await db.execute(sql`DELETE FROM oil_scores`); await db.execute(sql`DELETE FROM oil_seasons`);
+  // 自己插的假油井要自己刪,否則會污染共用測試庫(階段一種子測試期望剛好 16 座)
+  await db.execute(sql`DELETE FROM oil_rigs WHERE slug IN ('t1','t2')`);
   await db.execute(sql`DELETE FROM military_unit_templates WHERE id IN (901,902)`);
   await db.execute(sql`DELETE FROM player_nations WHERE id IN (${N1}::uuid,${N2}::uuid)`);
   await pool.end();

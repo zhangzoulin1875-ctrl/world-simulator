@@ -66,6 +66,8 @@ import { startProductionSpentHealthLoop } from "./lib/productionSpentHealth";
 import { recoverStuckGeneratingGenerals } from "./lib/stuckGeneralRecovery";
 import { startDbKeepalive } from "./lib/dbKeepalive";
 import { startSessionCleanupLoop } from "./lib/sessions";
+import { startOilCampaignSettleLoop } from "./lib/oilCampaignService";
+import { isSeasonFrozen } from "./lib/oilRigService";
 import { startTurnLoop } from "./lib/turnEngine";
 import { startWarEngineLoops } from "./lib/warEngine";
 import { startWorldSchedulerLoops } from "./lib/worldScheduler";
@@ -198,6 +200,11 @@ function startBackgroundWork(): void {
   );
 
   startSessionCleanupLoop();
+  startOilCampaignSettleLoop({
+    isFrozen: () => isSeasonFrozen(),
+    onError: (err, msg) => logger.error({ err }, msg),
+    onSettled: (n) => logger.info(n, "oil campaigns settled"),
+  });
   startTreatyExpiryLoop();
   startRelationEventPruneLoop();
   startTurnLoop();
