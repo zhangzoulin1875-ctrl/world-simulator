@@ -27,6 +27,17 @@ function buildRedirectUri(req: Request): string {
   // `req.get("host")` returns the proxied app domain — so this naturally
   // matches whichever domain (dev or prod) the user is on. The matching URI
   // must be registered in the Discord Developer Portal.
+  // 前端若放在 Cloudflare 並把 /api 轉發到這裡,Host 會是 onrender.com。
+  // 只在『轉發來的網域』落在 PUBLIC_HOSTS 白名單內時才採用它,避免任意人偽造 X-Forwarded-Host
+  // 去改寫 OAuth 回調網址。未設定 PUBLIC_HOSTS 時行為與以前完全相同。
+  const allowed = (process.env.PUBLIC_HOSTS ?? "")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+  const fwd = req.get("x-forwarded-host")?.split(",")[0]?.trim().toLowerCase();
+  if (fwd && allowed.includes(fwd)) {
+    return `https://${fwd}/api/auth/discord/callback`;
+  }
   const proto = req.protocol;
   const host = req.get("host");
   return `${proto}://${host}/api/auth/discord/callback`;

@@ -42,7 +42,15 @@ export function csrfGuard(
     next();
     return;
   }
-  const requestHost = req.get("host");
+  // 對外網域:前端放 Cloudflare 並轉發 /api 時,Host 是 onrender.com,但瀏覽器的 Origin 是 Cloudflare 網域。
+  // 只有 X-Forwarded-Host 落在 PUBLIC_HOSTS 白名單內才採用(未設定時與以前完全相同)。
+  const allowedHosts = (process.env.PUBLIC_HOSTS ?? "")
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+  const fwdHost = req.get("x-forwarded-host")?.split(",")[0]?.trim().toLowerCase();
+  const requestHost =
+    fwdHost && allowedHosts.includes(fwdHost) ? fwdHost : req.get("host");
   const sourceHost = hostOf(req.get("origin")) ?? hostOf(req.get("referer"));
   if (sourceHost && requestHost && sourceHost === requestHost) {
     next();
